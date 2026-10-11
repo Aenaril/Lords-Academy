@@ -82,14 +82,18 @@ export class DraftsDoClass extends DurableObject {
    * SAVE — Sauvegarde atomique avec test-and-set de révision
    * 
    * Flux :
-   * 1. Lire révision actuelle
-   * 2. Vérifier que baseRevision === serverRevision (sinon conflit)
-   * 3. Générer nouvelle révision (UUID)
-   * 4. Atomiquement : écrire brouillon + révision
-   * 5. Retourner succès ou conflit
+   * 1. Initialiser la table si nécessaire
+   * 2. Lire révision actuelle
+   * 3. Vérifier que baseRevision === serverRevision (sinon conflit)
+   * 4. Générer nouvelle révision (UUID)
+   * 5. Atomiquement : écrire brouillon + révision
+   * 6. Retourner succès ou conflit
    */
   async save(params: DraftSaveParams): Promise<DraftSaveResponse> {
     try {
+      // Initialiser la base de données avant la transaction
+      this.initDb()
+
       // Utiliser transactionSync pour l'atomicité
       const result = this.ctx.storage.transactionSync(() => {
         const sql = this.ctx.storage.sql
