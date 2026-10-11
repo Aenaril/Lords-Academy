@@ -11,42 +11,7 @@
  * - Pas de race condition : impossible de perdre une modification
  */
 
-// Types Cloudflare
-declare global {
-  class DurableObject {
-    constructor(ctx: DurableObjectState, env: any)
-  }
-
-  interface DurableObjectState {
-    id: DurableObjectId
-    storage: DurableObjectStorage
-    blockConcurrencyWhile(p: Promise<any>): void
-  }
-
-  interface DurableObjectStorage {
-    sql: SqlStorage
-    kv: { [key: string]: any }
-  }
-
-  interface SqlStorage {
-    exec(query: string, ...bindings: any[]): SqlStorageCursor
-  }
-
-  interface SqlStorageCursor {
-    next(): IteratorResult<any>
-    toArray(): any[]
-    one(): any
-    raw(): any
-    columnNames: string[]
-    rowsRead: number
-    rowsWritten: number
-  }
-
-  interface DurableObjectId {
-    toString(): string
-    name: string
-  }
-}
+import { DurableObject } from 'cloudflare:workers'
 
 export interface DraftSaveParams {
   content: any // EditableTutorial
@@ -78,13 +43,12 @@ export interface DraftMigrateParams {
 /**
  * Durable Object SQLite pour un tutoriel unique
  */
-export class DraftsDoClass implements DurableObject {
-  private state: DurableObjectState
+export class DraftsDoClass extends DurableObject {
   private tutorialId: string
   private initialized = false
 
-  constructor(state: DurableObjectState) {
-    this.state = state
+  constructor(state: DurableObjectState, env: any) {
+    super(state, env)
     this.tutorialId = state.id.toString()
   }
 
@@ -93,7 +57,7 @@ export class DraftsDoClass implements DurableObject {
    */
   private initDb(): void {
     if (!this.initialized) {
-      const sql = this.state.storage.sql
+      const sql = this.ctx.storage.sql
       sql.exec(`
         CREATE TABLE IF NOT EXISTS drafts (
           tutorialId TEXT PRIMARY KEY,
@@ -111,7 +75,7 @@ export class DraftsDoClass implements DurableObject {
 
   private get sql() {
     this.initDb()
-    return this.state.storage.sql
+    return this.ctx.storage.sql
   }
 
   /**
@@ -351,8 +315,31 @@ export class DraftsDoClass implements DurableObject {
   /**
    * Fetch handler pour test/debugging via HTTP
    * N'est PAS utilisé en production (Pages Functions appelleront directement les méthodes)
+   * 
+   * ⚠️ AUTHENTIFICATION REQUISE : Les requêtes doivent inclure un header Authorization
+   * Domaines publics : Cet endpoint ne doit JAMAIS être exposé publiquement.
    */
   async fetch(request: Request): Promise<Response> {
+    // 1. Vérifier l'authentification
+    const authHeader = request.headers.get('Authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Unauthorized: missing or invalid Authorization header' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    const token = authHeader.slice(7) // Enlever "Bearer "
+    // ⚠️ TODO: Valider le token (comparer avec une clé secrète stockée en env ou KV)
+    // Pour Phase 1, on accepte n'importe quel token non-vide
+    if (!token) {
+      return new Response(JSON.stringify({ error: 'Unauthorized: empty token' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    // 2. Traiter la requête authentifiée
     const url = new URL(request.url)
     const path = url.pathname
 
