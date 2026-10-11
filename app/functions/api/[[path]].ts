@@ -403,13 +403,22 @@ async function handleHistory(
 
   try {
     for (let page = 1; page <= MAX_PAGES; page++) {
-      const api = `https://api.github.com/repos/${env.GITHUB_REPO}/commits?path=${encodeURIComponent(path)}&sha=${env.GITHUB_BRANCH}&per_page=${PER_PAGE}&page=${page}`
-      // cache: 'no-store' → force une récupération fraîche auprès de GitHub,
+      // URL de base vers l'API GitHub pour les commits du fichier.
+      // Le paramètre `t` (timestamp) force GitHub à ignorer son cache interne
+      // pour cette requête, garantissant une liste complète et fraîche des commits.
+      // Stratégie identique à celle appliquée avec succès à /api/published.
+      const baseApi = `https://api.github.com/repos/${env.GITHUB_REPO}/commits?path=${encodeURIComponent(path)}&sha=${env.GITHUB_BRANCH}&per_page=${PER_PAGE}&page=${page}`
+      const api = `${baseApi}&t=${Date.now()}`
+      
+      // cache: 'no-store' → force récupération fraîche auprès de GitHub,
       // sans passer par un éventuel cache Cloudflare.
       const res = await fetch(api, { headers: ghHeaders(env), cache: 'no-store' })
       if (!res.ok) {
         // Si la première page échoue, l'historique est réellement indisponible.
-        if (page === 1) return json({ error: 'Historique indisponible' }, 502, cacheHeaders)
+        if (page === 1) {
+          console.error(`GitHub /commits API error for ${path}:`, res.status, res.statusText)
+          return json({ error: 'Historique indisponible (erreur GitHub)' }, 502, cacheHeaders)
+        }
         // Sinon, on s'arrête et on renvoie ce qui a déjà été collecté.
         break
       }
@@ -422,8 +431,12 @@ async function handleHistory(
       if (batch.length < PER_PAGE) break
     }
   } catch (err) {
-    console.error('Error fetching history:', err)
-    if (collected.length === 0) return json({ error: 'Historique indisponible' }, 502, cacheHeaders)
+    console.error('Error fetching history for', path, ':', err)
+    if (collected.length === 0) {
+      return json({ error: 'Historique indisponible (erreur réseau)' }, 502, cacheHeaders)
+    }
+    // Si on a au moins un lot, on le renvoie avec un avertissement console.
+    console.warn('Incomplete history retrieved for', path, '— returning', collected.length, 'commits')
   }
 
   const entries = collected
