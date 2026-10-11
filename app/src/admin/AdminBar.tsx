@@ -38,9 +38,17 @@ export default function AdminBar() {
     if (remoteConfigured && isAuthenticated) {
       // Mode sécurisé : appeller async pour DELETE /api/draft
       try {
-        await discardDraftAsync()
-        alert('✅ Brouillon abandonné (local et distant).')
+        const result = await discardDraftAsync()
+        // Vérifier result.ok avant d'afficher le message de succès
+        if (result.ok) {
+          alert('✅ Brouillon abandonné (local et distant).')
+        } else {
+          // Si annulation ou erreur, afficher le message d'erreur
+          const errorMsg = result.error || 'erreur inconnue'
+          alert(`❌ ${errorMsg}`)
+        }
       } catch (err) {
+        // Fallback : catch les erreurs non gérées
         alert(`❌ Erreur lors de l'abandon : ${(err as any)?.message ?? 'erreur inconnue'}`)
       }
     } else {

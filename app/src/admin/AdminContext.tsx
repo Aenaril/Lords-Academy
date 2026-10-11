@@ -159,7 +159,7 @@ interface AdminContextValue {
   undoLastChange: () => void          // Annuler la dernière modification
   canUndo: boolean
   discardDraft: () => void            // Abandonner tout le brouillon (retour à l'original)
-  discardDraftAsync: () => Promise<void>  // Abandonner brouillon + supprimer KV distant (avec confirmation)
+  discardDraftAsync: () => Promise<{ ok: boolean; error?: string }>  // Abandonner brouillon + supprimer KV distant (avec confirmation)
   /* Versions */
   versions: SavedVersion[]
   saveVersion: (label: string) => void
@@ -630,36 +630,47 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
   }, [tutorialId])
 
   /* ─── Action 2b : Abandonner brouillon distant (avec confirmation) ─── */
-  const discardDraftAsync = useCallback(async () => {
-    // CORRECTION: Supprimer aussi le brouillon distant (DO) après confirmation
-    // Cette fonction est async et supporte le mode remote.
+  const discardDraftAsync = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    // Supprimer le brouillon distant (DO) après confirmation
+    // Retourne { ok: true } si succès, { ok: false, error } si annulation ou échec
     
     // Étape 1 : Confirmation utilisateur
     const confirmed = window.confirm(
       'Êtes-vous sûr ? Cette action supprimera le brouillon distant et ne peut pas être annulée.'
     )
-    if (!confirmed) return // Pas de message sur annulation
+    if (!confirmed) return { ok: false, error: 'Annulation par l\'utilisateur' }
 
     try {
-      // Étape 2 : Attendre la fin d'une sauvegarde en cours (si elle existe)
-      // sans autoriser une nouvelle sauvegarde pendant l'abandon
+      // Étape 2 : Bloquer toute nouvelle sauvegarde automatique
+      // Annuler le timer de sauvegarde et vider les modifications en attente
       if (saveQueueRef.current) clearTimeout(saveQueueRef.current)
       pendingModificationRef.current = null
       
-      // Spin jusqu'à ce qu'aucune sauvegarde ne soit en vol
-      // Timeout après 5s pour éviter un blocage infini
+      // Étape 3 : Attendre la fin d'une sauvegarde en cours (max 5s)
       const spinStart = Date.now()
       while (isSavingRef.current && Date.now() - spinStart < 5000) {
         await new Promise(resolve => setTimeout(resolve, 50))
       }
       
-      // Étape 3 : Si en mode remote, appeler DELETE /api/draft en premier
+      // Étape 4 : Si save toujours en cours après timeout, ANNULER l'abandon
+      if (isSavingRef.current) {
+        // Réactiver le timer de sauvegarde (au cas où des modifications attendraient)
+        if (isDirty) {
+          saveQueueRef.current = setTimeout(() => {
+            pendingModificationRef.current = tutorial
+            performSave()
+          }, 500)
+        }
+        return { ok: false, error: 'Sauvegarde en cours, merci de patienter et de réessayer' }
+      }
+      
+      // Étape 5 : Si en mode remote, appeler DELETE /api/draft en premier
       // SEULEMENT ENSUITE réinitialiser l'état local (en cas d'échec DELETE)
       if (store.mode === 'remote' && store.deleteDraft) {
         await store.deleteDraft(tutorialId)
       }
       
-      // Étape 4 : DELETE a réussi (ou mode local) — effacer l'état local
+      // Étape 6 : DELETE a réussi (ou mode local) — effacer l'état local
       localStore.clear(tutorialId)
       const hydrated = hydrate(tutorialId)
       setTutorial(hydrated ?? ({} as EditableTutorial))
@@ -668,12 +679,21 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       setHasDraft(false) // Le brouillon a été abandonné
       setIsPreview(false)
       draftRevision.current = undefined
+      
+      return { ok: true }
     } catch (err) {
       // Erreur de suppression distant — laisser l'état local accessible
       console.error(`Erreur suppression brouillon ${tutorialId}:`, err)
-      throw err
+      // Réactiver la sauvegarde automatique si des modifications existaient
+      if (isDirty && !saveQueueRef.current) {
+        saveQueueRef.current = setTimeout(() => {
+          pendingModificationRef.current = tutorial
+          performSave()
+        }, 500)
+      }
+      return { ok: false, error: (err as any)?.message ?? 'Erreur serveur lors de la suppression' }
     }
-  }, [tutorialId, store])
+  }, [tutorialId, store, tutorial, isDirty, performSave])
 
   /* ─── Action 3 : Versions (sauvegarder / restaurer / supprimer) ─── */
   const saveVersion = useCallback(
