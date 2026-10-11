@@ -126,6 +126,13 @@ export const adminApi = {
     })
   },
 
+  /** Supprime le brouillon distant (CORRECTION). */
+  async deleteDraft(tutorialId: string): Promise<void> {
+    return request<void>(`/draft?tutorialId=${encodeURIComponent(tutorialId)}`, { 
+      method: 'DELETE' 
+    })
+  },
+
   /** Publie le contenu (session requise). Déclenche un commit GitHub côté Worker. */
   async publish(
     tutorialId: string,

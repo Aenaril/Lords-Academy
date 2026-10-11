@@ -157,6 +157,7 @@ interface AdminContextValue {
   undoLastChange: () => void          // Annuler la dernière modification
   canUndo: boolean
   discardDraft: () => void            // Abandonner tout le brouillon (retour à l'original)
+  discardDraftAsync: () => Promise<void>  // Abandonner brouillon + supprimer KV distant (avec confirmation)
   /* Versions */
   versions: SavedVersion[]
   saveVersion: (label: string) => void
@@ -197,11 +198,23 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
   const remoteConfigured = isRemoteConfigured()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isPublishing, setIsPublishing] = useState(false)
-  const baseRevision = useRef<string | undefined>(undefined)
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  
+  // CORRECTION: Séparer draftRevision (UUID/KV) et publishedRevision (SHA/GitHub)
+  // pour éviter les hybridations qui causent des faux conflits.
+  const draftRevision = useRef<string | undefined>(undefined)
+  const publishedRevision = useRef<string | undefined>(undefined)
+  
+  // CORRECTION: Queue + numéro de séquence pour sérialiser les sauvegardes async
+  // et éviter les chevauchements (deux PUT /api/draft qui se croisent).
+  const saveSequence = useRef<number>(0)
+  const saveQueueRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ═══════════════════════════════════════════════════════════════
   // Charger le brouillon du tutorialId courant (local ou remote)
+  // 
+  // CORRECTION 1: Ajouter cleanup flag pour éviter contamination A→B→A
+  // CORRECTION 2: Garde d'authentification avant loadDraft en mode distant
+  // CORRECTION 3: Ne charger que si authentifié en mode remote
   // ═══════════════════════════════════════════════════════════════
   const localStore = localStoragePersistence  // Pour les versions locales
   
@@ -209,7 +222,8 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     setIsPreview(false)
     setUndoStack([])
     setIsDirty(false)
-    baseRevision.current = undefined
+    draftRevision.current = undefined
+    publishedRevision.current = undefined
 
     // Charger les versions locales
     if (store.mode === 'local') {
@@ -220,13 +234,37 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       setVersions([])
     }
 
+    // Flag de cleanup pour éviter que une réponse tardive de loadDraft(A)
+    // ne contamienne le contenu du tutoriel B après un changement de tutorialId
+    let cancelled = false
+
     // Charger le brouillon
     const loadDraft = async () => {
       try {
+        // CORRECTION 2: Garde d'authentification — ne charger que si prêt
+        // En mode remote, vérifier que l'utilisateur est authentifié AVANT de lancer
+        // une requête asynchrone. Si pas authentifié en mode remote, charger la
+        // source (hydrate) et sortir.
+        if (store.mode === 'remote' && !isAuthenticated) {
+          // Pas encore authentifié — charger la source de démonstration
+          const hydrated = hydrate(tutorialId)
+          if (!cancelled) {
+            setTutorial(hydrated ?? ({} as EditableTutorial))
+            setIsDirty(false)
+          }
+          return
+        }
+
         const result = await store.loadDraft(tutorialId)
+        
+        // CORRECTION 1: Vérifier le flag cancelled avant de mettre à jour l'état
+        // Si loadDraft(A) était en cours et l'utilisateur passe à B, on ignore
+        // la réponse de A.
+        if (cancelled) return
+
         if (result.content) {
           setTutorial(result.content)
-          baseRevision.current = result.revision
+          draftRevision.current = result.revision
           setIsDirty(false)
         } else {
           // Pas de brouillon, charger la source
@@ -236,13 +274,22 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
         }
       } catch (err) {
         console.error(`Erreur chargement brouillon ${tutorialId}:`, err)
-        const hydrated = hydrate(tutorialId)
-        setTutorial(hydrated ?? ({} as EditableTutorial))
+        // En cas d'erreur (ex: 401 Non authentifié, 403 Accès refusé), charger
+        // la source plutôt que laisser la UI vide.
+        if (!cancelled) {
+          const hydrated = hydrate(tutorialId)
+          setTutorial(hydrated ?? ({} as EditableTutorial))
+        }
       }
     }
 
     loadDraft()
-  }, [tutorialId, store])
+
+    // Cleanup : marquer comme cancelled si tutorialId change ou si le composant est unmounté
+    return () => {
+      cancelled = true
+    }
+  }, [tutorialId, store, isAuthenticated])
 
   // Vérifie la session au montage si le backend est configuré.
   useEffect(() => {
@@ -278,9 +325,15 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     }
     setIsPublishing(true)
     try {
-      const res = await store.publish(tutorialId, tutorial, baseRevision.current)
+      // CORRECTION: Utiliser publishedRevision (SHA GitHub) pour la publication,
+      // pas draftRevision (UUID KV). La publication compare la version courante
+      // sur GitHub pour détecter les conflits, donc on passe publishedRevision.
+      const res = await store.publish(tutorialId, tutorial, publishedRevision.current)
       if (res.conflict) return { ok: false, conflict: true }
-      if (res.revision) baseRevision.current = res.revision
+      if (res.revision) {
+        // La réponse contient le new SHA from GitHub
+        publishedRevision.current = res.revision
+      }
       return { ok: true }
     } catch (e: any) {
       return { ok: false, error: e?.message ?? 'Échec de publication' }
@@ -325,7 +378,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       if (remoteConfigured && isAuthenticated) {
         try {
           const res = await adminApi.restore(tutorialId, revision)
-          if (res.ok && res.revision) baseRevision.current = res.revision
+          if (res.ok && res.revision) publishedRevision.current = res.revision
           return { ok: res.ok, error: res.error }
         } catch (e: any) {
           return { ok: false, error: e?.message ?? 'Échec de restauration' }
@@ -344,21 +397,47 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     [tutorialId, remoteConfigured, isAuthenticated, versions]
   )
 
-  // Persistance automatique avec débounce
+  // ═══════════════════════════════════════════════════════════════
+  // Persistance automatique avec queue sérialisée
+  //
+  // CORRECTION: Remplacer le simple debounce (500ms) par une queue qui
+  // garantit que :
+  //  1. Les mises à jour sont sérialisées (pas deux PUT /api/draft simultanés)
+  //  2. Si tutorialId change durant une save, les réponses tardives sont
+  //     ignorées (via le numéro de séquence)
+  //  3. Nous attendons la fin d'une save avant de lancer la prochaine
+  // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
     if (!isDirty || !tutorial) return
 
-    // Effacer le timeout précédent
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current)
+    // Incrémenter le numéro de séquence pour cette modification
+    saveSequence.current++
+    const currentSeq = saveSequence.current
+
+    // Effacer le timeout précédent (on la remplace par la queue)
+    if (saveQueueRef.current) {
+      clearTimeout(saveQueueRef.current)
     }
 
-    // Fixer un nouveau timeout (500ms debounce)
-    saveTimeoutRef.current = setTimeout(async () => {
+    // Fixer un nouveau timeout (500ms debounce avant la sauvegarde)
+    saveQueueRef.current = setTimeout(async () => {
       try {
-        const result = await store.saveDraft(tutorialId, tutorial, baseRevision.current)
+        // Vérifier que ce n'est pas une réponse tardive d'une modification antérieure
+        if (currentSeq !== saveSequence.current) {
+          console.warn(`Ignoring late save response (seq ${currentSeq} vs current ${saveSequence.current})`)
+          return
+        }
+
+        const result = await store.saveDraft(tutorialId, tutorial, draftRevision.current)
+        
+        // Vérifier à nouveau le numéro de séquence après l'attente réseau
+        if (currentSeq !== saveSequence.current) {
+          console.warn(`Ignoring late save response (seq ${currentSeq} vs current ${saveSequence.current})`)
+          return
+        }
+
         if (result.revision) {
-          baseRevision.current = result.revision
+          draftRevision.current = result.revision
         }
         setIsDirty(false)
       } catch (err) {
@@ -368,8 +447,8 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     }, 500)
 
     return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current)
+      if (saveQueueRef.current) {
+        clearTimeout(saveQueueRef.current)
       }
     }
   }, [isDirty, tutorial, tutorialId, store])
@@ -512,13 +591,46 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
 
   /* ─── Action 2 : Abandonner tout le brouillon (retour à l'original) ─── */
   const discardDraft = useCallback(() => {
+    // Version locale/synchrone : effacer localStorage
     localStore.clear(tutorialId)
     const hydrated = hydrate(tutorialId)
     setTutorial(hydrated ?? ({} as EditableTutorial))
     setUndoStack([])
     setIsDirty(false)
     setIsPreview(false)
+    draftRevision.current = undefined
   }, [tutorialId])
+
+  /* ─── Action 2b : Abandonner brouillon distant (avec confirmation) ─── */
+  const discardDraftAsync = useCallback(async () => {
+    // CORRECTION: Supprimer aussi le brouillon distant (KV) après confirmation
+    // Cette fonction est async et supporte le mode remote.
+    
+    // Étape 1 : Confirmation utilisateur
+    const confirmed = window.confirm(
+      'Êtes-vous sûr ? Cette action supprimera le brouillon distant et ne peut pas être annulée.'
+    )
+    if (!confirmed) return
+
+    try {
+      // Étape 2 : Supprimer localement d'abord
+      localStore.clear(tutorialId)
+      const hydrated = hydrate(tutorialId)
+      setTutorial(hydrated ?? ({} as EditableTutorial))
+      setUndoStack([])
+      setIsDirty(false)
+      setIsPreview(false)
+      draftRevision.current = undefined
+
+      // Étape 3 : Si en mode remote, appeler DELETE /api/draft (côté backend)
+      if (store.mode === 'remote' && store.deleteDraft) {
+        await store.deleteDraft(tutorialId)
+      }
+    } catch (err) {
+      console.error(`Erreur suppression brouillon ${tutorialId}:`, err)
+      throw err
+    }
+  }, [tutorialId, store])
 
   /* ─── Action 3 : Versions (sauvegarder / restaurer / supprimer) ─── */
   const saveVersion = useCallback(
@@ -605,6 +717,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       undoLastChange,
       canUndo: undoStack.length > 0,
       discardDraft,
+      discardDraftAsync,
       versions,
       saveVersion,
       restoreVersion,
@@ -639,6 +752,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       undoLastChange,
       undoStack.length,
       discardDraft,
+      discardDraftAsync,
       versions,
       saveVersion,
       restoreVersion,

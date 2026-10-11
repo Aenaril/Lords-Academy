@@ -21,6 +21,8 @@ export interface DraftStore {
   saveDraft(tutorialId: string, content: EditableTutorial, baseRevision?: string): Promise<{ revision?: string }>
   /** Publie le contenu pour tous les visiteurs (remote uniquement). */
   publish?(tutorialId: string, content: EditableTutorial, baseRevision?: string): Promise<{ revision?: string; conflict?: boolean }>
+  /** Supprime le brouillon distant (KV). CORRECTION: Ajouter méthode pour abandonner le brouillon. */
+  deleteDraft?(tutorialId: string): Promise<void>
   /** Supprime le brouillon local (le remote conserve l'historique). */
   clearLocal?(): void
 }
@@ -46,6 +48,14 @@ export const localDraftStore: DraftStore = {
     }
     return {}
   },
+  async deleteDraft(tutorialId) {
+    // En local, "supprimer" = vider le localStorage
+    try {
+      localStorage.removeItem(LOCAL_KEY(tutorialId))
+    } catch {
+      /* ignore */
+    }
+  },
   clearLocal() {
     /* la clé effective dépend du tutoriel : géré par l'appelant */
   }
@@ -65,6 +75,10 @@ export const remoteDraftStore: DraftStore = {
   async publish(tutorialId, content, baseRevision) {
     const res = await adminApi.publish(tutorialId, content, baseRevision)
     return { revision: res.revision, conflict: !!res.conflict }
+  },
+  async deleteDraft(tutorialId) {
+    // CORRECTION: Appeler DELETE /api/draft pour supprimer le brouillon distant (KV)
+    await adminApi.deleteDraft(tutorialId)
   }
 }
 

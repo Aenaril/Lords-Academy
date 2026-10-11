@@ -61,6 +61,9 @@ export const onRequest: PagesFunction = async (context) => {
       case 'PUT /api/draft':
         response = await handleSaveDraft(request, env as any)
         break
+      case 'DELETE /api/draft':
+        response = await handleDeleteDraft(request, env as any, url)
+        break
       case 'POST /api/publish':
         response = await handlePublish(request, env as any)
         break
@@ -185,6 +188,24 @@ async function handleSaveDraft(req: Request, env: any): Promise<Response> {
     })
   )
   return json({ ok: true, revision })
+}
+
+/** CORRECTION: Nouveau handler pour supprimer le brouillon distant (KV). */
+async function handleDeleteDraft(
+  req: Request,
+  env: any,
+  url: URL
+): Promise<Response> {
+  if (!originAllowed(req, env)) return json({ error: 'Origine refusée' }, 403)
+  if (!csrfOk(req)) return json({ error: 'CSRF' }, 403)
+  if (!(await readSession(req, env))) return json({ error: 'Non authentifié' }, 401)
+
+  const tutorialId = sanitizeId(url.searchParams.get('tutorialId'))
+  if (!tutorialId) return json({ error: 'tutorialId invalide' }, 400)
+
+  // Supprimer la clé KV du brouillon
+  await env.DRAFTS.delete(`draft:${tutorialId}`)
+  return json({ ok: true })
 }
 
 /* ───────────────────────── Publication (GitHub) ───────────────────────── */
