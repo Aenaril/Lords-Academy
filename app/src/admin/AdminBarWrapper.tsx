@@ -8,27 +8,31 @@ import { isRemoteConfigured } from './api/client'
 /**
  * Wrapper conditionnel pour AdminBar + gestion du formulaire de connexion.
  * 
- * - En développement (local, DEV=true) : AdminBar toujours visible pour éditer.
- * - En production (DEV=false) :
- *   - Si API distante configurée (VITE_ADMIN_API_BASE non-vide) : AdminBar visible
- *   - Sinon : AdminBar masqué
+ * DÉVELOPPEMENT LOCAL (import.meta.env.DEV) :
+ * - Mode démo local disponible : édition sans authentification
+ * - Mode sécurisé disponible : simulation du flux d'authentification
+ * - Modale d'accueil : choix entre démo et connexion
+ * - AdminBar toujours visible
  * 
- * La modale d'accueil (AdminModeChoice) est centralisée ici et permet à l'utilisateur
- * de choisir entre :
- * - Mode démo local (localStorage)
- * - Mode sécurisé (connexion + publication)
+ * PRODUCTION (Cloudflare Pages) :
+ * - Mode démo local INDISPONIBLE (jamais montré aux visiteurs publics)
+ * - Clic « Mode admin » ou « Accès administration » → AdminLogin directement
+ * - AdminBar visible seulement si API distante configurée
  * 
- * Le formulaire de connexion (AdminLogin) s'ouvre après le choix « Mode sécurisé ».
+ * Sécurité côté navigateur :
+ * - toggleAdminMode() vérifie (remoteConfigured && !isAuthenticated)
+ *   → bloque l'activation directe sans authentification
+ * - En production : aucune route vers le mode démo local
  */
 
-// Ref globale pour permettre au pied de page d'ouvrir la modale d'accueil
+// Ref globale pour permettre au pied de page d'ouvrir la modale/formulaire
 const adminBarWrapperRef = {
-  openAdminModeModal: (() => {}) as () => void
+  openAdminForm: (() => {}) as () => void
 }
 
 export function openAdminLoginForm() {
   // Alias maintenu pour compatibilité (ancien API)
-  adminBarWrapperRef.openAdminModeModal()
+  adminBarWrapperRef.openAdminForm()
 }
 
 export default function AdminBarWrapper() {
@@ -41,19 +45,29 @@ export default function AdminBarWrapper() {
     closeAdminModeModal
   } = useAdmin()
   const [showLoginModal, setShowLoginModal] = useState(false)
-  const openAdminModeModalRef = useRef(() => openAdminModeModal())
+  const isDev = import.meta.env.DEV
+
+  // Décide quel formulaire afficher selon le contexte
+  const openAdminForm = useRef(() => {
+    if (isDev) {
+      // DÉVELOPPEMENT : proposer le choix démo vs connexion
+      openAdminModeModal()
+    } else {
+      // PRODUCTION : ouvrir directement le formulaire de connexion
+      setShowLoginModal(true)
+    }
+  })
 
   // Mettre à jour la ref avec la dernière fonction (cleanup approprié)
   useEffect(() => {
-    adminBarWrapperRef.openAdminModeModal = openAdminModeModalRef.current
+    adminBarWrapperRef.openAdminForm = openAdminForm.current
     return () => {
-      // Cleanup : ne pas laisser de ref orpheline
-      adminBarWrapperRef.openAdminModeModal = () => {}
+      adminBarWrapperRef.openAdminForm = () => {}
     }
-  }, [])
+  }, [isDev])
 
-  // En développement : toujours afficher
-  if (import.meta.env.DEV) {
+  // En développement : toujours afficher AdminBar
+  if (isDev) {
     return <AdminBar />
   }
 
@@ -75,16 +89,17 @@ export default function AdminBarWrapper() {
   return (
     <>
       <AdminBar />
-      
-      {showAdminModeModal && (
+
+      {/* DÉVELOPPEMENT UNIQUEMENT : modale d'accueil avec choix */}
+      {isDev && showAdminModeModal && (
         <AdminModeChoice
-          remoteConfigured={remoteAvailable}
           onChooseDemo={handleChooseDemo}
           onChooseLogin={handleChooseLogin}
           onClose={closeAdminModeModal}
         />
       )}
 
+      {/* PRODUCTION ET DÉVELOPPEMENT : formulaire de connexion */}
       {showLoginModal && (
         <AdminLogin
           onSuccess={() => {

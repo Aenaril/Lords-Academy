@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAdmin } from './AdminContext'
+import { openAdminLoginForm } from './AdminBarWrapper'
 import TutorialMetaPanel from './TutorialMetaPanel'
 import VersionHistory from './VersionHistory'
 import './AdminBar.css'
@@ -28,6 +29,7 @@ export default function AdminBar() {
   } = useAdmin()
   const [showMeta, setShowMeta] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const isDev = import.meta.env.DEV
 
   const handlePublish = async () => {
     if (!confirm('Publier ce contenu pour tous les visiteurs ?')) return
@@ -47,11 +49,12 @@ export default function AdminBar() {
         <button
           className="admin-bar__toggle"
           onClick={() => {
-            // Si API distante configurée ET non-authentifié : ouvrir la modale d'accueil
-            if (remoteConfigured && !isAuthenticated) {
+            // DÉVELOPPEMENT : ouvrir la modale d'accueil si non-authentifié
+            if (isDev && remoteConfigured && !isAuthenticated) {
               openAdminModeModal()
             } else {
-              // Sinon (démo local ou déjà authentifié) : activer directement l'édition
+              // PRODUCTION ou déjà authentifié : activer directement l'édition
+              // (toggleAdminMode vérifie l'authentification si nécessaire)
               toggleAdminMode()
             }
           }}
@@ -112,7 +115,7 @@ export default function AdminBar() {
             {!isAuthenticated ? (
               <button
                 className="admin-bar__btn admin-bar__btn--secure"
-                onClick={openAdminModeModal}
+                onClick={openAdminLoginForm}
                 title="Se connecter à l'administration sécurisée"
               >
                 🔐 Admin sécurisée

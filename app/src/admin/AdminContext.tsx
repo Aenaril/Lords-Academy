@@ -498,11 +498,17 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const toggleAdminMode = useCallback(() => {
+    // En mode distant (production) : exiger l'authentification pour activer l'édition
+    if (remoteConfigured && !isAuthenticated) {
+      // Ne pas afficher d'alerte : laisser les composants gérer la modale
+      return
+    }
+    
     setIsAdminMode((v) => {
       if (v) setIsPreview(false)
       return !v
     })
-  }, [])
+  }, [remoteConfigured, isAuthenticated])
 
   const openAdminModeModal = useCallback(() => {
     setShowAdminModeModal(true)

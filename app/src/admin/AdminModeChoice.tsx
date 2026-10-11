@@ -1,19 +1,24 @@
 import './AdminModeChoice.css'
 
 interface AdminModeChoiceProps {
-  remoteConfigured: boolean
   onChooseDemo: () => void
   onChooseLogin: () => void
   onClose: () => void
 }
 
 /**
- * Modale d'accueil : offrir à l'utilisateur un choix clair
- * - Mode démo local (localStorage, pas de publication)
- * - Mode sécurisé (connexion, publication vers GitHub)
+ * Modale d'accueil : choisir entre mode démo local et connexion sécurisée.
+ * 
+ * ⚠️ DÉVELOPPEMENT LOCAL UNIQUEMENT (import.meta.env.DEV)
+ * 
+ * En production (Cloudflare Pages), cette modale ne doit pas apparaître.
+ * Voir AdminBarWrapper pour la logique conditionnelle.
+ * 
+ * En développement :
+ * - Mode démo local : édition sans authentification (localStorage)
+ * - Connexion sécurisée : simulation de l'authentification R4
  */
 export default function AdminModeChoice({
-  remoteConfigured,
   onChooseDemo,
   onChooseLogin,
   onClose
@@ -22,7 +27,7 @@ export default function AdminModeChoice({
     <div className="admin-mode-choice__overlay" onClick={onClose}>
       <div className="admin-mode-choice" onClick={(e) => e.stopPropagation()}>
         <div className="admin-mode-choice__head">
-          <h2>🎛️ Mode d'administration</h2>
+          <h2>🎛️ Mode d'administration (DEV)</h2>
           <button
             className="admin-mode-choice__close"
             onClick={onClose}
@@ -43,37 +48,23 @@ export default function AdminModeChoice({
           >
             <span className="admin-mode-choice__btn-title">🏠 Mode démo local</span>
             <span className="admin-mode-choice__btn-desc">
-              Testez l'édition sur ce navigateur. Les modifications restent privées
-              dans le stockage local (localStorage) et ne sont visibles que par vous.
+              Testez l'édition sans authentification. Les modifications restent privées
+              dans le stockage local (localStorage) de ce navigateur.
               <br />
-              <strong>Rien n'est publié.</strong>
+              <strong>Développement uniquement.</strong>
             </span>
           </button>
 
-          {remoteConfigured && (
-            <button
-              className="admin-mode-choice__btn admin-mode-choice__btn--secure"
-              onClick={onChooseLogin}
-            >
-              <span className="admin-mode-choice__btn-title">🔐 Connexion sécurisée</span>
-              <span className="admin-mode-choice__btn-desc">
-                Connectez-vous avec le mot de passe partagé. Vos modifications
-                peuvent être <strong>publiées vers tous les visiteurs</strong> via GitHub.
-                <br />
-                Session signée et sécurisée.
-              </span>
-            </button>
-          )}
-
-          {!remoteConfigured && (
-            <div className="admin-mode-choice__notice">
-              <p>
-                <strong>Note :</strong> L'administration sécurisée (connexion distante)
-                n'est pas configurée sur cet environnement. Vous pouvez utiliser le mode
-                démo local pour tester l'édition.
-              </p>
-            </div>
-          )}
+          <button
+            className="admin-mode-choice__btn admin-mode-choice__btn--secure"
+            onClick={onChooseLogin}
+          >
+            <span className="admin-mode-choice__btn-title">🔐 Connexion sécurisée</span>
+            <span className="admin-mode-choice__btn-desc">
+              Testez le flux d'authentification en simulation. En production,
+              cela nécessite le mot de passe partagé R4.
+            </span>
+          </button>
         </div>
       </div>
     </div>
