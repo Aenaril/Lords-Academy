@@ -89,13 +89,11 @@ export class DraftsDoClass extends DurableObject {
    * 5. Retourner succès ou conflit
    */
   async save(params: DraftSaveParams): Promise<DraftSaveResponse> {
-    const sql = this.sql
-
     try {
-      // 1. BEGIN transaction
-      sql.exec('BEGIN')
+      // Utiliser transactionSync pour l'atomicité
+      const result = this.ctx.storage.transactionSync(() => {
+        const sql = this.ctx.storage.sql
 
-      try {
         // 1a. Lire révision actuelle
         const cursor = sql.exec(
           `SELECT revision FROM drafts WHERE tutorialId = ? LIMIT 1`,
@@ -107,8 +105,6 @@ export class DraftsDoClass extends DurableObject {
         // 2. Vérifier match de baseRevision
         if (params.baseRevision !== serverRevision) {
           // Conflit !
-          sql.exec('ROLLBACK')
-
           return {
             ok: false,
             conflict: true,
@@ -146,18 +142,15 @@ export class DraftsDoClass extends DurableObject {
           )
         }
 
-        // 5. COMMIT
-        sql.exec('COMMIT')
-
+        // 5. Retourner succès
         return {
           ok: true,
           revision: newRevision,
           conflict: false,
         }
-      } catch (err) {
-        sql.exec('ROLLBACK')
-        throw err
-      }
+      }) as any
+
+      return result
     } catch (err) {
       console.error(`[DraftsDoClass] save error for ${this.tutorialId}:`, err)
       return {
