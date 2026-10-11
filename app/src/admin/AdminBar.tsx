@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useAdmin } from './AdminContext'
 import TutorialMetaPanel from './TutorialMetaPanel'
-import AdminLogin from './AdminLogin'
 import VersionHistory from './VersionHistory'
 import './AdminBar.css'
 
@@ -14,6 +13,7 @@ export default function AdminBar() {
   const {
     isAdminMode,
     toggleAdminMode,
+    openAdminModeModal,
     isPreview,
     setPreview,
     isDirty,
@@ -22,13 +22,11 @@ export default function AdminBar() {
     discardDraft,
     remoteConfigured,
     isAuthenticated,
-    refreshSession,
     logout,
     publish,
     isPublishing
   } = useAdmin()
   const [showMeta, setShowMeta] = useState(false)
-  const [showLogin, setShowLogin] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
 
   const handlePublish = async () => {
@@ -48,7 +46,15 @@ export default function AdminBar() {
       <div className={`admin-bar ${isAdminMode ? 'admin-bar--active' : ''}`}>
         <button
           className="admin-bar__toggle"
-          onClick={toggleAdminMode}
+          onClick={() => {
+            // Si API distante configurée ET non-authentifié : ouvrir la modale d'accueil
+            if (remoteConfigured && !isAuthenticated) {
+              openAdminModeModal()
+            } else {
+              // Sinon (démo local ou déjà authentifié) : activer directement l'édition
+              toggleAdminMode()
+            }
+          }}
           title="Activer / désactiver le mode d'édition"
         >
           {isAdminMode ? '🔓 Mode édition activé' : '🔧 Mode admin'}
@@ -106,7 +112,7 @@ export default function AdminBar() {
             {!isAuthenticated ? (
               <button
                 className="admin-bar__btn admin-bar__btn--secure"
-                onClick={() => setShowLogin(true)}
+                onClick={openAdminModeModal}
                 title="Se connecter à l'administration sécurisée"
               >
                 🔐 Admin sécurisée
@@ -148,15 +154,6 @@ export default function AdminBar() {
 
       {showMeta && <TutorialMetaPanel onClose={() => setShowMeta(false)} />}
       {showHistory && <VersionHistory onClose={() => setShowHistory(false)} />}
-      {showLogin && (
-        <AdminLogin
-          onSuccess={() => {
-            setShowLogin(false)
-          }}
-          onRefreshSession={refreshSession}
-          onClose={() => setShowLogin(false)}
-        />
-      )}
     </>
   )
 }

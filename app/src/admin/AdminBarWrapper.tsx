@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import AdminBar from './AdminBar'
 import AdminLogin from './AdminLogin'
+import AdminModeChoice from './AdminModeChoice'
 import { useAdmin } from './AdminContext'
 import { isRemoteConfigured } from './api/client'
 
@@ -12,31 +13,42 @@ import { isRemoteConfigured } from './api/client'
  *   - Si API distante configurée (VITE_ADMIN_API_BASE non-vide) : AdminBar visible
  *   - Sinon : AdminBar masqué
  * 
- * Le formulaire de connexion est piloté par l'état local showLoginModal
- * et exposé via un ref que le pied de page peut appeler.
+ * La modale d'accueil (AdminModeChoice) est centralisée ici et permet à l'utilisateur
+ * de choisir entre :
+ * - Mode démo local (localStorage)
+ * - Mode sécurisé (connexion + publication)
+ * 
+ * Le formulaire de connexion (AdminLogin) s'ouvre après le choix « Mode sécurisé ».
  */
 
-// Ref globale pour permettre au pied de page d'ouvrir la modale
+// Ref globale pour permettre au pied de page d'ouvrir la modale d'accueil
 const adminBarWrapperRef = {
-  openLoginForm: (() => {}) as () => void
+  openAdminModeModal: (() => {}) as () => void
 }
 
 export function openAdminLoginForm() {
-  adminBarWrapperRef.openLoginForm()
+  // Alias maintenu pour compatibilité (ancien API)
+  adminBarWrapperRef.openAdminModeModal()
 }
 
 export default function AdminBarWrapper() {
   const remoteAvailable = isRemoteConfigured()
-  const { refreshSession } = useAdmin()
+  const {
+    toggleAdminMode,
+    refreshSession,
+    showAdminModeModal,
+    openAdminModeModal,
+    closeAdminModeModal
+  } = useAdmin()
   const [showLoginModal, setShowLoginModal] = useState(false)
-  const openLoginFormRef = useRef(() => setShowLoginModal(true))
+  const openAdminModeModalRef = useRef(() => openAdminModeModal())
 
   // Mettre à jour la ref avec la dernière fonction (cleanup approprié)
   useEffect(() => {
-    adminBarWrapperRef.openLoginForm = openLoginFormRef.current
+    adminBarWrapperRef.openAdminModeModal = openAdminModeModalRef.current
     return () => {
       // Cleanup : ne pas laisser de ref orpheline
-      adminBarWrapperRef.openLoginForm = () => {}
+      adminBarWrapperRef.openAdminModeModal = () => {}
     }
   }, [])
 
@@ -50,13 +62,35 @@ export default function AdminBarWrapper() {
     return null
   }
 
+  const handleChooseDemo = () => {
+    closeAdminModeModal()
+    toggleAdminMode()
+  }
+
+  const handleChooseLogin = () => {
+    closeAdminModeModal()
+    setShowLoginModal(true)
+  }
+
   return (
     <>
       <AdminBar />
+      
+      {showAdminModeModal && (
+        <AdminModeChoice
+          remoteConfigured={remoteAvailable}
+          onChooseDemo={handleChooseDemo}
+          onChooseLogin={handleChooseLogin}
+          onClose={closeAdminModeModal}
+        />
+      )}
+
       {showLoginModal && (
         <AdminLogin
           onSuccess={() => {
             setShowLoginModal(false)
+            // Après connexion réussie : activer le mode édition
+            toggleAdminMode()
           }}
           onRefreshSession={refreshSession}
           onClose={() => setShowLoginModal(false)}

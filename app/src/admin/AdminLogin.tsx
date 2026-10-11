@@ -11,13 +11,10 @@ interface AdminLoginProps {
 /**
  * Panneau de connexion R4 par mot de passe partagé.
  *
- * Le mot de passe n'est jamais stocké : il est envoyé une seule fois au Worker,
- * qui pose un cookie de session HttpOnly. Si aucune URL de Worker n'est
- * configurée (`VITE_ADMIN_API_BASE` absent), on l'indique clairement.
- * 
  * Après connexion réussie :
- * - Appelle onRefreshSession() pour actualiser isAuthenticated
- * - Puis appelle onSuccess() pour fermer la modale
+ * 1. Actualise la session avec onRefreshSession() pour mettre à jour isAuthenticated
+ * 2. Appelle onSuccess() pour fermer la modale et activer l'édition
+ * 3. Gère les erreurs de manière explicite (rate limiting, service indisponible, etc.)
  */
 export default function AdminLogin({ onSuccess, onRefreshSession, onClose }: AdminLoginProps) {
   const [password, setPassword] = useState('')
@@ -33,16 +30,25 @@ export default function AdminLogin({ onSuccess, onRefreshSession, onClose }: Adm
       const res = await adminApi.login(password)
       if (res.ok) {
         setPassword('')
-        // Actualiser la session PUIS fermer la modale
-        await onRefreshSession()
+        // Actualiser la session PUIS appeler onSuccess
+        // Cela garantit que isAuthenticated sera à jour avant que l'UI n'active l'édition
+        try {
+          await onRefreshSession()
+        } catch (err) {
+          // Si refreshSession échoue (réseau lent), on reste en attente
+          setError('Impossible de vérifier la session. Veuillez réessayer.')
+          setLoading(false)
+          return
+        }
+        // Succès : fermer la modale et activer l'édition
         onSuccess()
       } else {
-        setError(res.error ?? 'Connexion refusée')
+        setError(res.error ?? 'Mot de passe incorrect')
       }
     } catch (err) {
       if (err instanceof AdminApiError && err.status === 429) {
         const mins = err.retryAfter ? Math.ceil(err.retryAfter / 60) : 15
-        setError(`Trop de tentatives. Réessayez dans ~${mins} min.`)
+        setError(`Trop de tentatives. Veuillez réessayer dans ~${mins} min.`)
       } else {
         setError('Connexion impossible (service indisponible ?)')
       }
@@ -68,7 +74,7 @@ export default function AdminLogin({ onSuccess, onRefreshSession, onClose }: Adm
             </p>
             <p className="admin-login__hint">
               Pour l'instant, utilisez le <strong>mode démo local</strong>
-              (bouton « Mode démo admin »), qui enregistre vos essais dans ce
+              (bouton « Mode admin »), qui enregistre vos modifications dans ce
               navigateur sans rien publier.
             </p>
           </div>
@@ -90,8 +96,7 @@ export default function AdminLogin({ onSuccess, onRefreshSession, onClose }: Adm
               {loading ? 'Connexion…' : 'Se connecter'}
             </button>
             <p className="admin-login__hint">
-              Session sécurisée par cookie. Aucune donnée de mot de passe n'est
-              conservée dans le navigateur.
+              Session sécurisée par cookie HttpOnly. Aucune donnée n'est stockée en local.
             </p>
           </form>
         )}

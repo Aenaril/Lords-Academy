@@ -133,6 +133,12 @@ interface AdminContextValue {
   /** Mode démonstration admin activé (boutons crayon visibles). */
   isAdminMode: boolean
   toggleAdminMode: () => void
+  /** Ouvrir la modale d'accueil : choisir entre démo local ou connexion sécurisée. */
+  openAdminModeModal: () => void
+  /** Fermer la modale d'accueil (utilisée pour les deux choix). */
+  closeAdminModeModal: () => void
+  /** État de la modale d'accueil. */
+  showAdminModeModal: boolean
   /** Aperçu : masque temporairement les contrôles d'édition. */
   isPreview: boolean
   setPreview: (v: boolean) => void
@@ -184,6 +190,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   const [tutorial, setTutorial] = useState<EditableTutorial>(() => {
     return persistence.current.load() ?? hydrate()
   })
+  // État pour la modale d'accueil (choisir : démo ou connexion)
+  const [showAdminModeModal, setShowAdminModeModal] = useState(false)
   // Pile d'annulation (snapshots avant chaque modification)
   const [undoStack, setUndoStack] = useState<EditableTutorial[]>([])
   const [versions, setVersions] = useState<SavedVersion[]>(() =>
@@ -490,22 +498,27 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const toggleAdminMode = useCallback(() => {
-    // En mode distant (production) : exiger l'authentification pour activer l'édition
-    if (remoteConfigured && !isAuthenticated) {
-      alert('⚠️ Authentification requise. Veuillez vous connecter d\'abord.')
-      return
-    }
-    
     setIsAdminMode((v) => {
       if (v) setIsPreview(false)
       return !v
     })
-  }, [remoteConfigured, isAuthenticated])
+  }, [])
+
+  const openAdminModeModal = useCallback(() => {
+    setShowAdminModeModal(true)
+  }, [])
+
+  const closeAdminModeModal = useCallback(() => {
+    setShowAdminModeModal(false)
+  }, [])
 
   const value = useMemo<AdminContextValue>(
     () => ({
       isAdminMode,
       toggleAdminMode,
+      openAdminModeModal,
+      closeAdminModeModal,
+      showAdminModeModal,
       isPreview,
       setPreview: setIsPreview,
       tutorial,
@@ -538,6 +551,9 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     [
       isAdminMode,
       toggleAdminMode,
+      openAdminModeModal,
+      closeAdminModeModal,
+      showAdminModeModal,
       isPreview,
       tutorial,
       isDirty,
