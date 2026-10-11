@@ -1,0 +1,130 @@
+.framing-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+/* Aperçu */
+.framing-editor__frame {
+  position: relative;
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0a0a0c;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  touch-action: none; /* indispensable pour le drag tactile */
+  user-select: none;
+}
+
+.framing-editor__frame.is-dragging {
+  border-color: var(--primary-gold, #d4af37);
+}
+
+.framing-editor__frame img {
+  pointer-events: none;
+}
+
+.framing-editor__hint {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 20px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Groupes de boutons */
+.framing-editor__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.framing-editor__label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #cfcfcf;
+}
+
+.framing-editor__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.framing-editor__chip {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8e8e8;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.framing-editor__chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.framing-editor__chip.is-active {
+  background: var(--primary-gold, #d4af37);
+  color: #1a1a1a;
+  border-color: var(--primary-gold, #d4af37);
+  font-weight: 700;
+}
+
+/* Curseurs */
+.framing-editor__slider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.framing-editor__slider > span {
+  font-size: 0.78rem;
+  color: #cfcfcf;
+}
+.framing-editor__slider input[type='range'] {
+  width: 100%;
+  accent-color: var(--primary-gold, #d4af37);
+  cursor: pointer;
+}
+
+/* Actions */
+.framing-editor__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.framing-editor__btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f2f2f2;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.framing-editor__btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.framing-editor__btn--reset:hover {
+  background: rgba(211, 47, 47, 0.25);
+  border-color: rgba(211, 47, 47, 0.4);
+}
+
+@media (max-width: 768px) {
+  .framing-editor {
+    padding: 10px;
+  }
+  .framing-editor__chip {
+    padding: 8px 14px; /* cibles tactiles plus grandes */
+  }
+}

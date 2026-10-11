@@ -1,0 +1,380 @@
+.tutorial-page {
+  min-height: 100vh;
+  background-color: var(--bg-dark);
+  display: flex;
+  flex-direction: column;
+}
+
+.tutorial-page--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* Header */
+.tutorial-header {
+  background: linear-gradient(90deg, #1A1A1A 0%, #2B2B2B 100%);
+  border-bottom: 2px solid var(--primary-gold);
+  padding: 15px 20px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.tutorial-header__top {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.tutorial-header__progress {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 6px;
+  background-color: var(--border-subtle);
+  border-radius: 3px;
+  overflow: hidden;
+  min-width: 100px;
+}
+
+.progress-bar__fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-defense) 0%, var(--primary-gold) 100%);
+  transition: width 300ms ease-out;
+}
+
+.progress-text {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  min-width: 40px;
+}
+
+/* Main Layout */
+.tutorial-container {
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  gap: 0;
+  flex: 1;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Sidebar */
+.tutorial-sidebar {
+  background-color: #1A1A1A;
+  border-right: 1px solid var(--border-subtle);
+  padding: 30px 20px;
+  max-height: calc(100vh - 70px);
+  overflow-y: auto;
+  position: sticky;
+  top: 70px;
+}
+
+.tutorial-nav__title {
+  color: var(--primary-gold);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tutorial-nav__list {
+  list-style: none;
+}
+
+.tutorial-nav__item {
+  margin-bottom: 8px;
+}
+
+.tutorial-nav__link {
+  display: block;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+  width: 100%;
+}
+
+.tutorial-nav__link:hover {
+  color: var(--text-light);
+  background-color: var(--bg-card);
+}
+
+.tutorial-nav__link--active {
+  color: var(--primary-gold);
+  background-color: var(--bg-card);
+  font-weight: 600;
+  border-left: 3px solid var(--primary-gold);
+  padding-left: 9px;
+}
+
+/* Main Content */
+.tutorial-main {
+  padding: 40px;
+  flex: 1;
+}
+
+.section-header {
+  margin-bottom: 40px;
+  animation: slideUp var(--transition-normal);
+}
+
+.section-header h1 {
+  margin-bottom: 10px;
+  color: var(--primary-gold);
+}
+
+.section-meta {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.section-source {
+  color: var(--primary-gold);
+  opacity: 0.7;
+  font-size: 0.8rem;
+  cursor: help;
+}
+
+/* Titre de section éditable (mode admin) */
+.section-title-edit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.section-title-edit__pencil {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.section-title-edit__input {
+  flex: 1;
+  background: #15151a;
+  border: 2px dashed rgba(212, 175, 55, 0.5);
+  border-radius: 8px;
+  padding: 8px 14px;
+  color: var(--text-light, #f2f2f2);
+  font-size: 1.6rem;
+  font-weight: 700;
+  font-family: inherit;
+}
+
+.section-title-edit__input:focus {
+  outline: none;
+  border-style: solid;
+  border-color: var(--primary-gold, #d4af37);
+}
+
+.section-content {
+  margin-bottom: 60px;
+}
+
+/* ─── Section immersive : image de fond estompée + blocs superposés ─── */
+.section-content--immersive {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  padding: 32px;
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+  background: #0a0a0c;
+}
+
+.section-content__bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  /* Estompage de l'image en arrière-plan */
+  filter: brightness(0.4) saturate(0.9);
+  z-index: 0;
+}
+
+/* Voile dégradé supplémentaire pour garantir la lisibilité partout */
+.section-content--immersive::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(10, 10, 12, 0.55) 0%,
+    rgba(10, 10, 12, 0.45) 50%,
+    rgba(10, 10, 12, 0.65) 100%
+  );
+  z-index: 0;
+  pointer-events: none;
+}
+
+.section-content__blocks {
+  position: relative;
+  z-index: 1;
+}
+
+/* Sur fond immersif, on rend les cartes/blocs translucides pour laisser transparaître l'image */
+.section-content--immersive .comparison-item,
+.section-content--immersive .memo-block,
+.section-content--immersive .quiz-block {
+  background-color: rgba(20, 20, 24, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* Le texte simple reste lisible via ombre portée */
+.section-content--immersive .content-block--text {
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+}
+
+@media (max-width: 768px) {
+  .section-content--immersive {
+    padding: 18px;
+  }
+}
+
+/* Section Navigation */
+.section-navigation {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  margin-bottom: 40px;
+  padding-top: 30px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.section-navigation .btn {
+  flex: 1;
+}
+
+.section-navigation .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Memos Section */
+.memos-section {
+  background: linear-gradient(135deg, #2B2B2B 0%, #3B3B3B 100%);
+  padding: 30px;
+  border-radius: 12px;
+  border-left: 4px solid var(--primary-gold);
+  margin-top: 40px;
+}
+
+.memos-section h3 {
+  color: var(--primary-gold);
+  margin-bottom: 20px;
+}
+
+.memos-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.memo-card-inline {
+  display: flex;
+  gap: 15px;
+  padding: 15px;
+  background-color: var(--bg-card);
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+}
+
+.memo-icon {
+  font-size: 1.8rem;
+  min-width: 30px;
+  text-align: center;
+}
+
+.memo-card-inline strong {
+  color: var(--text-light);
+  display: block;
+  margin-bottom: 5px;
+}
+
+.memo-card-inline p {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+/* Responsive */
+@media (max-width: 968px) {
+  .tutorial-container {
+    grid-template-columns: 1fr;
+  }
+
+  .tutorial-sidebar {
+    display: none;
+  }
+
+  .tutorial-main {
+    padding: 30px 20px;
+  }
+
+  .section-navigation {
+    flex-direction: column;
+  }
+
+  .section-navigation .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .tutorial-header {
+    padding: 12px 10px;
+  }
+
+  .tutorial-header__top {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .tutorial-header__progress {
+    width: 100%;
+  }
+
+  .tutorial-main {
+    padding: 20px 15px;
+  }
+
+  .section-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .section-navigation {
+    gap: 10px;
+  }
+
+  .memos-section {
+    padding: 20px;
+  }
+
+  .memo-card-inline {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .memo-icon {
+    font-size: 1.5rem;
+  }
+}

@@ -1,0 +1,56 @@
+.add-block-bar {
+  margin: 16px 0 8px 0;
+}
+
+.add-block-bar__trigger {
+  width: 100%;
+  background: rgba(212, 175, 55, 0.08);
+  color: var(--primary-gold, #d4af37);
+  border: 1px dashed rgba(212, 175, 55, 0.5);
+  border-radius: 10px;
+  padding: 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background 150ms ease;
+}
+.add-block-bar__trigger:hover {
+  background: rgba(212, 175, 55, 0.15);
+}
+
+.add-block-bar__menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: #15151a;
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.add-block-bar__option {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f2f2f2;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 150ms ease;
+}
+.add-block-bar__option:hover {
+  background: rgba(212, 175, 55, 0.2);
+  border-color: rgba(212, 175, 55, 0.5);
+}
+
+.add-block-bar__cancel {
+  background: transparent;
+  color: #999;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  margin-left: auto;
+}
+.add-block-bar__cancel:hover {
+  color: #ccc;
+}

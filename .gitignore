@@ -1,0 +1,59 @@
+# ───────────────────────── Dépendances ─────────────────────────
+node_modules/
+app/node_modules/
+worker/node_modules/
+
+# ───────────────────────── Build ─────────────────────────
+app/dist/
+app/.vite/
+
+# ───────── Secrets et config locale — NE JAMAIS COMMITER ─────────
+.env
+.env.local
+app/.env
+app/.env.local
+worker/wrangler.toml
+worker/.dev.vars
+.wrangler/
+*.pem
+*.key
+
+# ─────────── Sources lourdes non destinées à GitHub ───────────
+# PowerPoint sources (77 Mo) : conservés en local uniquement
+Sources/
+# Images extraites brutes (74 Mo) : seules les images utilisées sont dans app/public/images
+phase1_images/
+
+# ─────────── Scripts et artefacts de travail (phase d'extraction) ───────────
+extract_full_content.py
+extract_images.py
+extract_pptx.py
+phase1_extraction_analysis.json
+phase1_full_content.json
+PHASE1_COMPLETE.md
+PHASE2_FICHIERS_CREES.txt
+RESUMÉ_PHASE2.md
+VÉRIFICATION_BUILD.txt
+LAUNCH_PROTOTYPE.md
+
+# ─────────── Images copiées mais NON utilisées dans le code ───────────
+# Seules 15–19.jpeg sont référencées ; on exclut les autres (0–14, png/svg)
+app/public/images/content/dragon-arena/0.png
+app/public/images/content/dragon-arena/1.svg
+app/public/images/content/dragon-arena/2.png
+app/public/images/content/dragon-arena/3.png
+app/public/images/content/dragon-arena/4.png
+app/public/images/content/dragon-arena/5.png
+app/public/images/content/dragon-arena/6.png
+app/public/images/content/dragon-arena/7.png
+app/public/images/content/dragon-arena/8.png
+app/public/images/content/dragon-arena/9.png
+app/public/images/content/dragon-arena/10.svg
+app/public/images/content/dragon-arena/11.png
+app/public/images/content/dragon-arena/12.svg
+app/public/images/content/dragon-arena/13.png
+app/public/images/content/dragon-arena/14.svg
+
+# ───────────────────────── Divers ─────────────────────────
+.DS_Store
+*.log

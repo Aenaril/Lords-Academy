@@ -1,0 +1,102 @@
+.admin-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  background: rgba(15, 15, 18, 0.96);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.admin-bar--active {
+  border-top: 2px solid var(--primary-gold, #d4af37);
+}
+
+.admin-bar__toggle {
+  background: var(--primary-gold, #d4af37);
+  color: #1a1a1a;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 150ms ease;
+  font-size: 0.9rem;
+}
+.admin-bar__toggle:hover {
+  filter: brightness(1.1);
+}
+
+.admin-bar__btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f2f2f2;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 150ms ease;
+}
+.admin-bar__btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+}
+.admin-bar__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.admin-bar__btn--on {
+  background: rgba(94, 146, 179, 0.4);
+  border-color: rgba(94, 146, 179, 0.7);
+}
+.admin-bar__btn--reset:hover:not(:disabled) {
+  background: rgba(211, 47, 47, 0.3);
+  border-color: rgba(211, 47, 47, 0.5);
+}
+
+.admin-bar__btn--secure {
+  background: rgba(94, 146, 179, 0.25);
+  border-color: rgba(94, 146, 179, 0.5);
+}
+.admin-bar__btn--secure:hover {
+  background: rgba(94, 146, 179, 0.4);
+}
+
+.admin-bar__btn--publish {
+  background: rgba(76, 175, 80, 0.3);
+  border-color: rgba(76, 175, 80, 0.6);
+  color: #a5f3a5;
+  font-weight: 700;
+}
+.admin-bar__btn--publish:hover:not(:disabled) {
+  background: rgba(76, 175, 80, 0.45);
+}
+
+.admin-bar__status {
+  font-size: 0.8rem;
+  color: #cfcfcf;
+}
+
+.admin-bar__warn {
+  font-size: 0.78rem;
+  color: #ffb84d;
+  margin-left: auto;
+}
+
+@media (max-width: 768px) {
+  .admin-bar {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .admin-bar__warn {
+    margin-left: 0;
+    width: 100%;
+    order: 10;
+  }
+}

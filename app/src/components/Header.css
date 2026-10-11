@@ -1,0 +1,98 @@
+.app-header {
+  background: linear-gradient(135deg, #1A1A1A 0%, #2B2B2B 50%, #3B6FA8 100%);
+  padding: 40px 20px;
+  border-bottom: 3px solid var(--primary-gold);
+  text-align: center;
+  animation: slideDown 600ms ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.app-header__content {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.app-header__logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+  margin-bottom: 10px;
+}
+
+.app-header__icon {
+  font-size: 2.5rem;
+  display: block;
+  animation: lift 2s ease-in-out infinite;
+}
+
+.app-header__logo h1 {
+  font-size: 2.5rem;
+  background: linear-gradient(135deg, #D4AF37 0%, #E5C158 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+}
+
+.app-header__tagline {
+  color: var(--text-muted);
+  font-size: 1rem;
+  margin: 0;
+  opacity: 0.9;
+}
+
+@media (max-width: 768px) {
+  .app-header {
+    padding: 30px 15px;
+  }
+
+  .app-header__logo {
+    gap: 10px;
+  }
+
+  .app-header__icon {
+    font-size: 2rem;
+  }
+
+  .app-header__logo h1 {
+    font-size: 1.8rem;
+  }
+
+  .app-header__tagline {
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-header {
+    padding: 20px 10px;
+  }
+
+  .app-header__logo {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .app-header__icon {
+    font-size: 1.5rem;
+  }
+
+  .app-header__logo h1 {
+    font-size: 1.3rem;
+  }
+
+  .app-header__tagline {
+    font-size: 0.8rem;
+  }
+}

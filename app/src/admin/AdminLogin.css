@@ -1,0 +1,113 @@
+.admin-login__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.admin-login {
+  background: #15151a;
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+}
+
+.admin-login__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.admin-login__head h3 {
+  margin: 0;
+  color: var(--primary-gold, #d4af37);
+  font-size: 1.05rem;
+}
+
+.admin-login__close {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f2f2f2;
+  border: none;
+  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+}
+.admin-login__close:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.admin-login__form,
+.admin-login__notice {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.admin-login__form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.admin-login__form label span {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #cfcfcf;
+}
+.admin-login__form input {
+  background: #0f0f12;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #f2f2f2;
+  font-size: 1rem;
+  font-family: inherit;
+}
+.admin-login__form input:focus {
+  outline: none;
+  border-color: var(--primary-gold, #d4af37);
+}
+
+.admin-login__submit {
+  background: var(--primary-gold, #d4af37);
+  color: #1a1a1a;
+  border: none;
+  border-radius: 8px;
+  padding: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.admin-login__submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-login__error {
+  color: #ff6b6b;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.admin-login__hint {
+  font-size: 0.78rem;
+  color: #999;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.admin-login__notice p {
+  margin: 0;
+  color: #cfcfcf;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}

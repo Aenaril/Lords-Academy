@@ -1,0 +1,8 @@
+.app {
+  min-height: 100vh;
+  background-color: var(--bg-dark);
+  color: var(--text-light);
+  overflow-x: hidden;
+  /* Laisse de la place à la barre d'admin flottante en bas */
+  padding-bottom: 56px;
+}

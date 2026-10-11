@@ -1,0 +1,134 @@
+.quiz-block {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.quiz-question {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-light);
+  margin: 0;
+}
+
+.quiz-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.quiz-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 15px;
+  background-color: var(--bg-card);
+  border: 2px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: var(--font-primary);
+  font-size: 0.95rem;
+  text-align: left;
+  color: var(--text-light);
+}
+
+.quiz-option:hover:not(:disabled) {
+  border-color: var(--primary-defense);
+  background-color: rgba(59, 111, 168, 0.1);
+  transform: translateX(4px);
+}
+
+.quiz-option:disabled {
+  cursor: default;
+}
+
+.quiz-option--selectable:hover {
+  border-color: var(--primary-defense);
+}
+
+.quiz-option--correct {
+  border-color: var(--success);
+  background-color: rgba(76, 175, 80, 0.15);
+}
+
+.quiz-option--incorrect {
+  border-color: var(--error);
+  background-color: rgba(244, 67, 54, 0.15);
+}
+
+.quiz-option--neutral {
+  opacity: 0.5;
+  border-color: var(--border-subtle);
+}
+
+.quiz-option__indicator {
+  font-weight: 700;
+  font-size: 1.1rem;
+  min-width: 20px;
+  text-align: center;
+  color: var(--primary-defense);
+}
+
+.quiz-option--correct .quiz-option__indicator {
+  color: var(--success);
+}
+
+.quiz-option--incorrect .quiz-option__indicator {
+  color: var(--error);
+}
+
+.quiz-option__text {
+  flex: 1;
+}
+
+.quiz-hint {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0;
+  opacity: 0.7;
+}
+
+.quiz-explanation {
+  padding: 15px;
+  border-radius: 8px;
+  animation: slideUp var(--transition-normal);
+}
+
+.quiz-explanation--success {
+  background-color: rgba(76, 175, 80, 0.15);
+  border-left: 4px solid var(--success);
+}
+
+.quiz-explanation--error {
+  background-color: rgba(244, 67, 54, 0.15);
+  border-left: 4px solid var(--error);
+}
+
+.quiz-explanation strong {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--text-light);
+}
+
+.quiz-explanation p {
+  margin: 0 0 15px 0;
+  font-size: 0.95rem;
+  color: var(--text-light);
+  line-height: 1.6;
+}
+
+.quiz-explanation .btn {
+  margin-top: 10px;
+}
+
+@media (max-width: 480px) {
+  .quiz-option {
+    padding: 10px 12px;
+    font-size: 0.9rem;
+  }
+
+  .quiz-option__indicator {
+    min-width: 18px;
+  }
+}

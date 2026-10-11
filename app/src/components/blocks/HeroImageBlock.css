@@ -1,0 +1,149 @@
+.hero-image-block {
+  margin: 0 0 10px 0;
+}
+
+.hero-image-block__frame {
+  position: relative;
+  width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--border-subtle);
+  background: #0a0a0c;
+}
+
+/*
+ * L'image conserve ses proportions réelles (height auto).
+ * Elle définit la hauteur du cadre et sert de fond estompé.
+ */
+.hero-image-block__img {
+  display: block;
+  width: 100%;
+  height: auto;
+  opacity: 0;
+  transition: opacity 500ms ease;
+  /* Estompage : on assombrit et désature légèrement l'image */
+  filter: brightness(0.5) saturate(0.9);
+}
+
+.hero-image-block__img--loaded {
+  opacity: 1;
+}
+
+.hero-image-block__skeleton {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, #2b2b2b 25%, #363636 50%, #2b2b2b 75%);
+  background-size: 200% 100%;
+  animation: heroShimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes heroShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Voile sombre supplémentaire pour renforcer la lisibilité du texte */
+.hero-image-block__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(10, 10, 12, 0.55) 0%,
+    rgba(10, 10, 12, 0.35) 45%,
+    rgba(10, 10, 12, 0.55) 100%
+  );
+  pointer-events: none;
+}
+
+/* Texte superposé, centré verticalement sur l'image */
+.hero-image-block__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 40px;
+}
+
+.hero-image-block__heading {
+  margin: 0 0 6px 0;
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--primary-gold);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+  line-height: 1.25;
+}
+
+.hero-image-block__text {
+  margin: 0;
+  max-width: 60%;
+  font-size: 1.02rem;
+  line-height: 1.65;
+  color: #f4f4f4;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.95);
+  white-space: pre-line;
+}
+
+/* Alignements */
+.hero-image-block__frame--left .hero-image-block__overlay {
+  align-items: flex-start;
+  text-align: left;
+}
+
+.hero-image-block__frame--right .hero-image-block__overlay {
+  align-items: flex-end;
+  text-align: right;
+}
+.hero-image-block__frame--right .hero-image-block__text {
+  margin-left: auto;
+}
+
+.hero-image-block__frame--center .hero-image-block__overlay {
+  align-items: center;
+  text-align: center;
+}
+.hero-image-block__frame--center .hero-image-block__text {
+  max-width: 80%;
+}
+
+.hero-image-block__caption {
+  margin: 10px 2px 0 2px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 768px) {
+  .hero-image-block__scrim {
+    background: linear-gradient(
+      180deg,
+      rgba(10, 10, 12, 0.55) 0%,
+      rgba(10, 10, 12, 0.5) 50%,
+      rgba(10, 10, 12, 0.72) 100%
+    );
+  }
+
+  .hero-image-block__overlay,
+  .hero-image-block__frame--right .hero-image-block__overlay,
+  .hero-image-block__frame--center .hero-image-block__overlay {
+    align-items: flex-start;
+    text-align: left;
+    padding: 20px;
+  }
+
+  .hero-image-block__heading {
+    font-size: 1.25rem;
+  }
+
+  .hero-image-block__text,
+  .hero-image-block__frame--right .hero-image-block__text,
+  .hero-image-block__frame--center .hero-image-block__text {
+    font-size: 0.95rem;
+    max-width: 100%;
+    margin-left: 0;
+  }
+}

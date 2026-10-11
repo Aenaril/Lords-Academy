@@ -1,0 +1,126 @@
+.comparison-block {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.comparison-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-light);
+  margin: 0;
+}
+
+.comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.comparison-item {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 20px;
+  transition: all var(--transition-normal);
+  animation: slideUp var(--transition-normal);
+}
+
+.comparison-item:nth-child(odd) {
+  border-left: 3px solid var(--primary-defense);
+}
+
+.comparison-item:nth-child(even) {
+  border-left: 3px solid var(--primary-attack);
+}
+
+.comparison-item:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-md);
+}
+
+.comparison-item__header {
+  margin-bottom: 15px;
+}
+
+.comparison-item__name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--primary-gold);
+  margin: 0;
+}
+
+.comparison-item__description {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0 0 20px 0;
+  line-height: 1.6;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.comparison-section {
+  margin-bottom: 15px;
+}
+
+.comparison-section:last-child {
+  margin-bottom: 0;
+}
+
+.comparison-section__title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-light);
+  margin: 0 0 10px 0;
+}
+
+.comparison-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.comparison-item__pro,
+.comparison-item__con {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0;
+  padding-left: 20px;
+  position: relative;
+  line-height: 1.5;
+}
+
+.comparison-item__pro::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  color: var(--success);
+  font-weight: 700;
+}
+
+.comparison-item__con::before {
+  content: '✗';
+  position: absolute;
+  left: 0;
+  color: var(--error);
+  font-weight: 700;
+}
+
+@media (max-width: 768px) {
+  .comparison-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .comparison-item {
+    padding: 15px;
+  }
+
+  .comparison-item__name {
+    font-size: 1rem;
+  }
+}

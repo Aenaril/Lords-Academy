@@ -1,0 +1,33 @@
+# Modèle de configuration du Worker Cloudflare.
+# Copier en `wrangler.toml` lors de la configuration (ne PAS commiter les secrets).
+# Aucun secret ne figure ici : les secrets passent par `wrangler secret put`.
+
+name = "lma-admin"
+main = "src/index.ts"
+compatibility_date = "2024-10-01"
+
+# Origine autorisée (votre site GitHub Pages). À adapter.
+[vars]
+ALLOWED_ORIGIN = "https://VOTRE-UTILISATEUR.github.io"
+GITHUB_REPO = "VOTRE-UTILISATEUR/lords-mobile-academy"
+GITHUB_BRANCH = "main"
+
+# Brouillons privés (jamais publics)
+[[kv_namespaces]]
+binding = "DRAFTS"
+id = "A_REMPLIR_APRES_CREATION"
+
+# Compteurs de limitation de connexion
+[[kv_namespaces]]
+binding = "RATE"
+id = "A_REMPLIR_APRES_CREATION"
+
+# Images publiques
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "lma-media"
+
+# Secrets à définir (NE PAS écrire ici) :
+#   wrangler secret put ADMIN_PASSWORD
+#   wrangler secret put SESSION_SIGNING_KEY
+#   wrangler secret put GITHUB_TOKEN

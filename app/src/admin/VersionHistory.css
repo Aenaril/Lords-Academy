@@ -1,0 +1,205 @@
+.version-history__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1150;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.version-history {
+  background: #15151a;
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 760px;
+  max-height: 88vh;
+  overflow-y: auto;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+}
+
+.version-history__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  position: sticky;
+  top: 0;
+  background: #15151a;
+  z-index: 2;
+}
+.version-history__head h3 {
+  margin: 0;
+  color: var(--primary-gold, #d4af37);
+  font-size: 1.1rem;
+}
+.version-history__close {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f2f2f2;
+  border: none;
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+}
+.version-history__close:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.version-history__source {
+  margin: 0;
+  padding: 12px 20px;
+  font-size: 0.82rem;
+  color: #ffb84d;
+  background: rgba(255, 184, 77, 0.08);
+}
+
+.version-history__error {
+  color: #ff6b6b;
+  padding: 12px 20px;
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.version-history__loading,
+.version-history__empty {
+  padding: 24px 20px;
+  color: #999;
+  font-style: italic;
+}
+
+.version-history__list {
+  list-style: none;
+  margin: 0;
+  padding: 12px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.version-history__list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.version-history__entry-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.version-history__entry-info strong {
+  color: #f2f2f2;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.version-history__entry-info small {
+  color: #999;
+  font-size: 0.76rem;
+}
+.version-history__entry-info code,
+.version-history__preview-bar code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+}
+
+.version-history__entry-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.version-history__btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f2f2f2;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 7px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.version-history__btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+}
+.version-history__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.version-history__btn--restore {
+  background: rgba(76, 175, 80, 0.25);
+  border-color: rgba(76, 175, 80, 0.5);
+  color: #a5f3a5;
+}
+.version-history__btn--restore:hover:not(:disabled) {
+  background: rgba(76, 175, 80, 0.4);
+}
+
+/* Prévisualisation */
+.version-history__preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 20px;
+  position: sticky;
+  top: 56px;
+  background: #15151a;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex-wrap: wrap;
+}
+.version-history__preview-bar > div {
+  display: flex;
+  gap: 6px;
+}
+.version-history__preview-bar span {
+  font-size: 0.85rem;
+  color: #cfcfcf;
+}
+
+.version-history__preview-content {
+  padding: 16px 20px 24px;
+  /* L'aperçu est en lecture seule */
+  pointer-events: none;
+}
+.version-history__preview-content h4 {
+  color: var(--primary-gold, #d4af37);
+  margin: 0 0 16px 0;
+}
+
+.version-history__section {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.version-history__section h5 {
+  color: #e8e8e8;
+  font-size: 1rem;
+  margin: 0 0 12px 0;
+}
+
+@media (max-width: 768px) {
+  .version-history__list li {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .version-history__entry-actions {
+    width: 100%;
+  }
+  .version-history__entry-actions .version-history__btn {
+    flex: 1;
+  }
+}

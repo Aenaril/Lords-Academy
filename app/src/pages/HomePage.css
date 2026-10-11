@@ -1,0 +1,222 @@
+.home-page {
+  min-height: 100vh;
+  background: var(--bg-dark);
+}
+
+/* Intro Section */
+.intro-section {
+  padding: 80px 20px;
+  text-align: center;
+  background: linear-gradient(135deg, var(--bg-dark) 0%, #2A2A2A 100%);
+  border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+}
+
+.intro-section::before {
+  content: '';
+  position: absolute;
+  top: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(212, 175, 55, 0.08) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.intro-content {
+  position: relative;
+  z-index: 1;
+  max-width: 800px;
+  margin: 0 auto;
+  animation: fadeInUp 600ms ease-out;
+}
+
+.intro-title {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--primary-gold);
+  margin-bottom: 30px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.intro-text {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.intro-text p {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  line-height: 1.8;
+  margin: 0;
+}
+
+/* Tutorials Section */
+.tutorials-section {
+  padding: 80px 20px;
+  background: var(--bg-dark);
+  position: relative;
+  overflow: hidden;
+}
+
+.tutorials-section::before {
+  content: '';
+  position: absolute;
+  bottom: -100px;
+  right: -200px;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(255, 107, 53, 0.06) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.tutorials-section__title {
+  color: var(--primary-gold);
+  margin-bottom: 60px;
+  text-align: center;
+  font-size: 2.2rem;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  position: relative;
+  z-index: 1;
+}
+
+.tutorials-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 30px;
+  margin-bottom: 20px;
+  position: relative;
+  z-index: 1;
+}
+
+.tutorials-section--coming-soon {
+  background-color: #1A1A1A;
+  border-top: 2px solid var(--border-subtle);
+}
+
+.tutorial-card--coming-soon {
+  opacity: 0.6;
+  cursor: not-allowed;
+  position: relative;
+  overflow: hidden;
+}
+
+.tutorial-card--coming-soon::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.05) 50%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Categories Section */
+.categories-section {
+  padding: 60px 20px;
+  background-color: var(--bg-dark);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.categories-section h2 {
+  color: var(--primary-gold);
+  margin-bottom: 40px;
+  text-align: center;
+}
+
+.categories-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.category-card {
+  background: linear-gradient(135deg, #2B2B2B 0%, #3B3B3B 100%);
+  padding: 30px;
+  border-radius: 12px;
+  text-align: center;
+  border: 1px solid var(--border-subtle);
+  transition: all var(--transition-normal);
+}
+
+.category-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--primary-gold);
+  box-shadow: var(--shadow-lg);
+}
+
+.category-card h3 {
+  color: var(--primary-gold);
+  margin-bottom: 15px;
+}
+
+.category-card p {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* Footer */
+.footer {
+  background-color: #0F0F0F;
+  padding: 40px 20px;
+  text-align: center;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.footer p {
+  color: var(--text-muted);
+  margin: 10px 0;
+  font-size: 0.95rem;
+}
+
+.footer-note {
+  color: var(--text-muted) !important;
+  opacity: 0.7;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .hero {
+    padding: 50px 20px;
+  }
+
+  .hero-title {
+    font-size: 2rem;
+    flex-direction: column;
+  }
+
+  .hero-icon {
+    font-size: 2rem;
+  }
+
+  .hero-subtitle {
+    font-size: 1rem;
+  }
+
+  .hero-stats {
+    gap: 30px;
+  }
+
+  .stat-number {
+    font-size: 1.5rem;
+  }
+
+  .tutorials-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .categories-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+  }
+
+  .category-card {
+    padding: 20px;
+  }
+}
