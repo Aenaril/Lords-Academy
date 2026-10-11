@@ -3,6 +3,7 @@ import './App.css'
 import HomePage from './pages/HomePage'
 import TutorialPage from './pages/TutorialPage'
 import AdminBarWrapper from './admin/AdminBarWrapper'
+import PWAInstallPrompt from './components/PWAInstallPrompt'
 
 type PageType = 'home' | 'tutorial'
 
@@ -32,6 +33,7 @@ function App() {
         />
       )}
       <AdminBarWrapper />
+      <PWAInstallPrompt />
     </div>
   )
 }
