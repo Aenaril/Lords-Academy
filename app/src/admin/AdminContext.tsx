@@ -179,25 +179,70 @@ interface AdminContextValue {
 const AdminContext = createContext<AdminContextValue | null>(null)
 
 export function AdminProvider({ children, tutorialId }: { children: ReactNode; tutorialId: string }) {
-  const persistence = useRef<TutorialPersistence>(localStoragePersistence)
+  // Sélectionner la store selon la configuration (local ou remote)
+  const store = getDraftStore()
+  
   const [isAdminMode, setIsAdminMode] = useState(false)
   const [isPreview, setIsPreview] = useState(false)
-  const [isDirty, setIsDirty] = useState(() => persistence.current.load(tutorialId) !== null)
+  const [isDirty, setIsDirty] = useState(false)
   const [tutorial, setTutorial] = useState<EditableTutorial>(() => {
-    return persistence.current.load(tutorialId) ?? hydrate(tutorialId) ?? ({} as EditableTutorial)
+    return hydrate(tutorialId) ?? ({} as EditableTutorial)
   })
   // État pour la modale d'accueil (choisir : démo ou connexion)
   const [showAdminModeModal, setShowAdminModeModal] = useState(false)
   // Pile d'annulation (snapshots avant chaque modification)
   const [undoStack, setUndoStack] = useState<EditableTutorial[]>([])
-  const [versions, setVersions] = useState<SavedVersion[]>(() =>
-    persistence.current.loadVersions(tutorialId)
-  )
+  const [versions, setVersions] = useState<SavedVersion[]>([])
   // Session admin distante (cookie HttpOnly côté Worker)
   const remoteConfigured = isRemoteConfigured()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isPublishing, setIsPublishing] = useState(false)
   const baseRevision = useRef<string | undefined>(undefined)
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // ═══════════════════════════════════════════════════════════════
+  // Charger le brouillon du tutorialId courant (local ou remote)
+  // ═══════════════════════════════════════════════════════════════
+  const localStore = localStoragePersistence  // Pour les versions locales
+  
+  useEffect(() => {
+    setIsPreview(false)
+    setUndoStack([])
+    setIsDirty(false)
+    baseRevision.current = undefined
+
+    // Charger les versions locales
+    if (store.mode === 'local') {
+      const loadedVersions = (store as any).loadVersions?.() ?? []
+      setVersions(loadedVersions)
+    } else {
+      // En mode remote, les versions viennent de l'API historique
+      setVersions([])
+    }
+
+    // Charger le brouillon
+    const loadDraft = async () => {
+      try {
+        const result = await store.loadDraft(tutorialId)
+        if (result.content) {
+          setTutorial(result.content)
+          baseRevision.current = result.revision
+          setIsDirty(false)
+        } else {
+          // Pas de brouillon, charger la source
+          const hydrated = hydrate(tutorialId)
+          setTutorial(hydrated ?? ({} as EditableTutorial))
+          setIsDirty(false)
+        }
+      } catch (err) {
+        console.error(`Erreur chargement brouillon ${tutorialId}:`, err)
+        const hydrated = hydrate(tutorialId)
+        setTutorial(hydrated ?? ({} as EditableTutorial))
+      }
+    }
+
+    loadDraft()
+  }, [tutorialId, store])
 
   // Vérifie la session au montage si le backend est configuré.
   useEffect(() => {
@@ -299,12 +344,35 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     [tutorialId, remoteConfigured, isAuthenticated, versions]
   )
 
-  // Persistance automatique à chaque changement, uniquement si "dirty".
+  // Persistance automatique avec débounce
   useEffect(() => {
-    if (isDirty) {
-      persistence.current.save(tutorialId, tutorial)
+    if (!isDirty || !tutorial) return
+
+    // Effacer le timeout précédent
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
     }
-  }, [tutorialId, tutorial, isDirty])
+
+    // Fixer un nouveau timeout (500ms debounce)
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        const result = await store.saveDraft(tutorialId, tutorial, baseRevision.current)
+        if (result.revision) {
+          baseRevision.current = result.revision
+        }
+        setIsDirty(false)
+      } catch (err) {
+        console.error(`Erreur sauvegarde brouillon ${tutorialId}:`, err)
+        // Laisser isDirty à true pour future tentative
+      }
+    }, 500)
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [isDirty, tutorial, tutorialId, store])
 
   const mutate = useCallback(
     (updater: (prev: EditableTutorial) => EditableTutorial) => {
@@ -444,7 +512,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
 
   /* ─── Action 2 : Abandonner tout le brouillon (retour à l'original) ─── */
   const discardDraft = useCallback(() => {
-    persistence.current.clear(tutorialId)
+    localStore.clear(tutorialId)
     const hydrated = hydrate(tutorialId)
     setTutorial(hydrated ?? ({} as EditableTutorial))
     setUndoStack([])
@@ -465,11 +533,11 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
           },
           ...prev
         ].slice(0, MAX_VERSIONS)
-        persistence.current.saveVersions(tutorialId, next)
+        localStore.saveVersions(tutorialId, next)
         return next
       })
     },
-    [tutorial]
+    [tutorial, tutorialId]
   )
 
   const restoreVersion = useCallback((id: string) => {
@@ -489,10 +557,10 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
   const deleteVersion = useCallback((id: string) => {
     setVersions((prev) => {
       const next = prev.filter((x) => x.id !== id)
-      persistence.current.saveVersions(tutorialId, next)
+      localStore.saveVersions(tutorialId, next)
       return next
     })
-  }, [])
+  }, [tutorialId])
 
   const toggleAdminMode = useCallback(() => {
     // En mode distant (production) : exiger l'authentification pour activer l'édition
