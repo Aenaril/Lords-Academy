@@ -1,0 +1,34 @@
+# Configuration Cloudflare Worker — Durable Objects SQLite pour brouillons R4
+# Voir : https://developers.cloudflare.com/workers/platform/bindings/durable-objects/
+
+name = "lma-drafts-worker"
+main = "dist/index.js"
+compatibility_date = "2024-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Durable Objects binding
+[[durable_objects.bindings]]
+name = "DRAFTS_DO"
+class_name = "DraftsDoClass"
+script_name = "lma-drafts-worker"
+
+# Migrations — crée la classe DO au déploiement
+[[migrations]]
+tag = "v1"
+new_classes = ["DraftsDoClass"]
+
+# Environnements
+[env.production]
+name = "lma-drafts-worker-prod"
+
+[env.preview]
+name = "lma-drafts-worker-preview"
+
+# Notes de déploiement
+# 
+# Phase 1 : Ne PAS déployer en production.
+# Créer en local avec : npm run dev
+# Tester avec miniflare : voir app/src/__tests__/drafts-do.integration.test.ts
+#
+# Phase 2 : Après validation, déployer avec : wrangler deploy
+# Puis lier dans Pages : Pages → Settings → Functions → Durable Objects Bindings
