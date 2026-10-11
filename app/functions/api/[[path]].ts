@@ -306,9 +306,17 @@ async function handleGetPublished(
   const api = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${path}`
   const res = await fetch(api)
 
+  // Headers stricts pour empêcher la mise en cache du contenu obsolète
+  // Workbox runtimeCaching + client cache: 'no-store' + ces headers = fraîcheur garantie
+  const cacheHeaders = {
+    'Cache-Control': 'no-cache, max-age=0, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0'
+  }
+
   if (!res.ok) {
     // Pas de contenu publié encore
-    return json({ content: null })
+    return json({ content: null }, 200, cacheHeaders)
   }
 
   let content: unknown = null
@@ -318,7 +326,7 @@ async function handleGetPublished(
     content = null
   }
 
-  return json({ content, revision: 'published' })
+  return json({ content, revision: 'published' }, 200, cacheHeaders)
 }
 
 /* ───────────────────────── Historique & restauration (GitHub) ───────────────────────── */
