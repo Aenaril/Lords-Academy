@@ -384,18 +384,64 @@ async function handleHistory(
   if (!tutorialId) return json({ error: 'tutorialId invalide' }, 400)
 
   const path = contentPath(tutorialId)
-  const api = `https://api.github.com/repos/${env.GITHUB_REPO}/commits?path=${encodeURIComponent(path)}&sha=${env.GITHUB_BRANCH}&per_page=30`
-  const res = await fetch(api, { headers: ghHeaders(env) })
-  if (!res.ok) return json({ error: 'Historique indisponible' }, 502)
 
-  const commits = (await res.json()) as any[]
-  const entries = commits.map((c) => ({
-    revision: c.sha,
-    date: c.commit?.committer?.date ?? c.commit?.author?.date ?? '',
-    message: c.commit?.message ?? '',
-    authorLabel: 'R4'
-  }))
-  return json({ tutorialId, entries })
+  // En-têtes stricts : l'historique ne doit jamais être servi depuis un cache
+  // obsolète (même stratégie que /api/published).
+  const cacheHeaders = {
+    'Cache-Control': 'no-cache, max-age=0, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0'
+  }
+
+  // Pagination : l'API GitHub /commits plafonne à 100 résultats par page.
+  // On parcourt les pages pour récupérer TOUTES les publications du fichier,
+  // pas seulement les 30 plus récentes. Borne de sécurité pour éviter une
+  // boucle infinie (20 pages × 100 = 2000 publications max).
+  const PER_PAGE = 100
+  const MAX_PAGES = 20
+  const collected: any[] = []
+
+  try {
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const api = `https://api.github.com/repos/${env.GITHUB_REPO}/commits?path=${encodeURIComponent(path)}&sha=${env.GITHUB_BRANCH}&per_page=${PER_PAGE}&page=${page}`
+      // cache: 'no-store' → force une récupération fraîche auprès de GitHub,
+      // sans passer par un éventuel cache Cloudflare.
+      const res = await fetch(api, { headers: ghHeaders(env), cache: 'no-store' })
+      if (!res.ok) {
+        // Si la première page échoue, l'historique est réellement indisponible.
+        if (page === 1) return json({ error: 'Historique indisponible' }, 502, cacheHeaders)
+        // Sinon, on s'arrête et on renvoie ce qui a déjà été collecté.
+        break
+      }
+
+      const batch = (await res.json()) as any[]
+      if (!Array.isArray(batch) || batch.length === 0) break
+      collected.push(...batch)
+
+      // Dernière page atteinte (lot incomplet).
+      if (batch.length < PER_PAGE) break
+    }
+  } catch (err) {
+    console.error('Error fetching history:', err)
+    if (collected.length === 0) return json({ error: 'Historique indisponible' }, 502, cacheHeaders)
+  }
+
+  const entries = collected
+    .map((c) => ({
+      revision: c.sha as string,
+      date: (c.commit?.committer?.date ?? c.commit?.author?.date ?? '') as string,
+      message: (c.commit?.message ?? '') as string,
+      authorLabel: 'R4'
+    }))
+    // Tri chronologique explicite : des plus récentes aux plus anciennes.
+    // (L'API GitHub renvoie déjà cet ordre, mais on le garantit ici.)
+    .sort((a, b) => {
+      const ta = Date.parse(a.date) || 0
+      const tb = Date.parse(b.date) || 0
+      return tb - ta
+    })
+
+  return json({ tutorialId, entries }, 200, cacheHeaders)
 }
 
 async function handleVersion(

@@ -28,7 +28,12 @@ export default function VersionHistory({ onClose }: VersionHistoryProps) {
     let cancelled = false
     fetchHistory()
       .then((e) => { if (!cancelled) setEntries(e) })
-      .catch(() => { if (!cancelled) setError('Impossible de charger l\'historique.') })
+      .catch(() => {
+        if (!cancelled) {
+          setEntries([])
+          setError('Impossible de charger l\'historique des publications. Vérifiez votre connexion, puis rouvrez cette fenêtre.')
+        }
+      })
     return () => { cancelled = true }
   }, [fetchHistory])
 
@@ -79,7 +84,9 @@ export default function VersionHistory({ onClose }: VersionHistoryProps) {
             : 'Mode démo local : versions enregistrées dans ce navigateur.'}
         </p>
 
-        {error && <p className="version-history__error">{error}</p>}
+        {error && (
+          <p className="version-history__error" role="alert">⚠️ {error}</p>
+        )}
 
         {/* Prévisualisation d'une version */}
         {preview ? (
@@ -113,20 +120,22 @@ export default function VersionHistory({ onClose }: VersionHistoryProps) {
           </div>
         ) : (
           <>
-            {!entries && !error && <p className="version-history__loading">Chargement…</p>}
-            {entries && entries.length === 0 && (
-              <p className="version-history__empty">Aucune version pour l'instant.</p>
+            {!entries && !error && (
+              <p className="version-history__loading">⏳ Chargement de l'historique…</p>
+            )}
+            {entries && entries.length === 0 && !error && (
+              <p className="version-history__empty">
+                Aucune version publiée pour l'instant. Publiez le tutoriel pour créer la première version.
+              </p>
             )}
             {entries && entries.length > 0 && (
               <ul className="version-history__list">
                 {entries.map((e) => (
                   <li key={e.revision}>
                     <div className="version-history__entry-info">
-                      <strong>{formatMessage(e.message)}</strong>
+                      <strong>{formatVersionLabel(e.date)}</strong>
                       <small>
-                        {formatDate(e.date)}
-                        {' · '}
-                        <code>{e.revision.slice(0, 7)}</code>
+                        Publication <code>{e.revision.slice(0, 7)}</code>
                       </small>
                     </div>
                     <div className="version-history__entry-actions">
@@ -156,13 +165,15 @@ export default function VersionHistory({ onClose }: VersionHistoryProps) {
   )
 }
 
-function formatDate(iso: string): string {
-  if (!iso) return 'date inconnue'
+/**
+ * Libellé principal d'une version : « Version du JJ/MM/AAAA à HH:MM ».
+ * Repli explicite si la date du commit est absente ou illisible.
+ */
+function formatVersionLabel(iso: string): string {
+  if (!iso) return 'Version (date inconnue)'
   const d = new Date(iso)
-  return isNaN(d.getTime()) ? iso : d.toLocaleString('fr-FR')
-}
-
-function formatMessage(msg: string): string {
-  // Garde la première ligne du message de commit.
-  return (msg || 'Publication').split('\n')[0]
+  if (isNaN(d.getTime())) return 'Version (date inconnue)'
+  const date = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const time = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  return `Version du ${date} à ${time}`
 }

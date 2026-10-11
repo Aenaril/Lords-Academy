@@ -1,6 +1,4 @@
-import { useState } from 'react'
 import { useAdmin } from './AdminContext'
-import VersionHistory from './VersionHistory'
 import './TutorialMetaPanel.css'
 
 interface TutorialMetaPanelProps {
@@ -14,18 +12,15 @@ const DIFFICULTIES: { value: 'easy' | 'medium' | 'hard' | 'expert'; label: strin
   { value: 'expert', label: 'Expert' }
 ]
 
-/** Panneau modal : métadonnées du tutoriel + gestion des versions. */
+/**
+ * Panneau modal : métadonnées du tutoriel uniquement
+ * (titre, icône, description, difficulté, durée).
+ *
+ * L'historique des publications n'est PAS géré ici : il est accessible
+ * directement depuis la barre R4 (bouton « Historique des versions »).
+ */
 export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
-  const {
-    tutorial,
-    updateTutorialMeta,
-    remoteConfigured
-  } = useAdmin()
-  const [showVersionHistory, setShowVersionHistory] = useState(false)
-
-  if (showVersionHistory) {
-    return <VersionHistory onClose={() => setShowVersionHistory(false)} />
-  }
+  const { tutorial, updateTutorialMeta } = useAdmin()
 
   return (
     <div className="meta-panel__overlay" onClick={onClose}>
@@ -85,22 +80,6 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
               />
             </label>
           </div>
-        </section>
-
-        {/* Historique des publications */}
-        <section className="meta-panel__section">
-          <h4>📚 Historique des publications</h4>
-          <p className="meta-panel__history-info">
-            {remoteConfigured
-              ? 'Chaque publication crée automatiquement une version restaurable dans l\'historique GitHub.'
-              : 'Mode démo local : consulter les versions enregistrées localement.'}
-          </p>
-          <button
-            className="meta-panel__history-btn"
-            onClick={() => setShowVersionHistory(true)}
-          >
-            🕑 Consulter les versions publiées
-          </button>
         </section>
       </div>
     </div>

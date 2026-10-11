@@ -78,9 +78,9 @@ export default function AdminBar() {
             <button
               className="admin-bar__btn"
               onClick={() => setShowMeta(true)}
-              title="Réglages du tutoriel et gestion des versions"
+              title="Réglages du tutoriel (titre, icône, description, difficulté, durée)"
             >
-              ⚙️ Réglages & versions
+              ⚙️ Réglages
             </button>
 
             <button

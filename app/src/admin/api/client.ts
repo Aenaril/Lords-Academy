@@ -42,14 +42,17 @@ async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  // Pour /published : toujours vérifier le réseau, ne pas utiliser le cache navigateur
-  // Note : path est "/published", pas "/api/published" (le préfixe est ajouté par apiBase())
-  const isPublished = path === '/published' || path.startsWith('/published?')
+  // Lectures d'état qui doivent TOUJOURS être fraîches (jamais servies depuis
+  // le cache navigateur) : le contenu publié et l'historique des publications.
+  // Note : le préfixe "/api" est ajouté par apiBase(), donc on teste "/published"
+  // et "/history" (et non "/api/...").
+  const freshPaths = ['/published', '/history']
+  const needsFresh = freshPaths.some((p) => path === p || path.startsWith(p + '?'))
   
   const res = await fetch(apiBase() + path, {
     credentials: 'include',
-    // Forcer le rechargement réseau pour le contenu publié
-    cache: isPublished ? 'no-store' : 'default',
+    // Forcer le rechargement réseau pour ces lectures sensibles à la fraîcheur
+    cache: needsFresh ? 'no-store' : 'default',
     headers: {
       'X-Requested-With': 'lma-admin',
       ...(options.body && !(options.body instanceof FormData)
