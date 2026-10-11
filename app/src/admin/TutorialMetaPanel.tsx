@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAdmin } from './AdminContext'
+import VersionHistory from './VersionHistory'
 import './TutorialMetaPanel.css'
 
 interface TutorialMetaPanelProps {
@@ -18,12 +19,13 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
   const {
     tutorial,
     updateTutorialMeta,
-    versions,
-    saveVersion,
-    restoreVersion,
-    deleteVersion
+    remoteConfigured
   } = useAdmin()
-  const [versionLabel, setVersionLabel] = useState('')
+  const [showVersionHistory, setShowVersionHistory] = useState(false)
+
+  if (showVersionHistory) {
+    return <VersionHistory onClose={() => setShowVersionHistory(false)} />
+  }
 
   return (
     <div className="meta-panel__overlay" onClick={onClose}>
@@ -85,59 +87,20 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
           </div>
         </section>
 
-        {/* Versions */}
+        {/* Historique des publications */}
         <section className="meta-panel__section">
-          <h4>Versions enregistrées</h4>
-          <div className="meta-panel__save-version">
-            <input
-              type="text"
-              placeholder="Nom de la version (ex. avant refonte quiz)"
-              value={versionLabel}
-              onChange={(e) => setVersionLabel(e.target.value)}
-            />
-            <button
-              onClick={() => {
-                saveVersion(versionLabel)
-                setVersionLabel('')
-              }}
-            >
-              💾 Enregistrer une version
-            </button>
-          </div>
-
-          {versions.length === 0 ? (
-            <p className="meta-panel__empty">Aucune version enregistrée pour l'instant.</p>
-          ) : (
-            <ul className="meta-panel__versions">
-              {versions.map((v) => (
-                <li key={v.id}>
-                  <div className="meta-panel__version-info">
-                    <strong>{v.label}</strong>
-                    <small>{new Date(v.savedAt).toLocaleString('fr-FR')}</small>
-                  </div>
-                  <div className="meta-panel__version-actions">
-                    <button
-                      onClick={() => {
-                        if (confirm(`Restaurer « ${v.label} » ? Le contenu actuel sera remplacé (annulable).`)) {
-                          restoreVersion(v.id)
-                        }
-                      }}
-                    >
-                      ↶ Restaurer
-                    </button>
-                    <button
-                      className="meta-panel__del"
-                      onClick={() => {
-                        if (confirm('Supprimer définitivement cette version ?')) deleteVersion(v.id)
-                      }}
-                    >
-                      🗑
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <h4>📚 Historique des publications</h4>
+          <p className="meta-panel__history-info">
+            {remoteConfigured
+              ? 'Chaque publication crée automatiquement une version restaurable dans l\'historique GitHub.'
+              : 'Mode démo local : consulter les versions enregistrées localement.'}
+          </p>
+          <button
+            className="meta-panel__history-btn"
+            onClick={() => setShowVersionHistory(true)}
+          >
+            🕑 Consulter les versions publiées
+          </button>
         </section>
       </div>
     </div>

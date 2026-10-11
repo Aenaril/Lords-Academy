@@ -103,6 +103,30 @@
   gap: 12px;
 }
 
+.meta-panel__history-info {
+  color: #999;
+  font-size: 0.85rem;
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+
+.meta-panel__history-btn {
+  width: 100%;
+  background: var(--primary-gold, #d4af37);
+  color: #1a1a1a;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.meta-panel__history-btn:hover {
+  background: #e8c547;
+}
+
 .meta-panel__save-version {
   display: flex;
   gap: 8px;
