@@ -64,6 +64,8 @@ export default {
           return withCors(await handleSession(req, env), cors)
         case 'GET /api/draft':
           return withCors(await handleGetDraft(req, env, url), cors)
+        case 'GET /api/published':
+          return withCors(await handleGetPublished(req, env, url), cors)
         case 'PUT /api/draft':
           return withCors(await handleSaveDraft(req, env), cors)
         case 'POST /api/publish':
@@ -146,6 +148,54 @@ async function handleGetDraft(req: Request, env: Env, url: URL): Promise<Respons
     lastEditedLabel: parsed.lastEditedLabel,
     updatedAt: parsed.updatedAt
   })
+}
+
+/**
+ * Récupère le contenu publié d'un tutoriel (accessible sans authentification).
+ * Lit depuis GitHub raw.githubusercontent.com.
+ * Ajoute les en-têtes Cache-Control pour garantir une vérification réseau fraîche.
+ */
+async function handleGetPublished(req: Request, env: Env, url: URL): Promise<Response> {
+  const tutorialId = sanitizeId(url.searchParams.get('tutorialId'))
+  if (!tutorialId) return json({ error: 'tutorialId invalide' }, 400)
+
+  // Lire depuis GitHub raw (contenu publié)
+  const ghUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/app/public/content/${tutorialId}.json`
+  
+  try {
+    const res = await fetch(ghUrl)
+    if (!res.ok) {
+      return json({ content: null }, 200, {
+        'Cache-Control': 'no-cache, max-age=0, must-revalidate'
+      })
+    }
+
+    const text = await res.text()
+    let content: unknown = null
+    try {
+      content = JSON.parse(text)
+    } catch {
+      // JSON invalide → retourner null
+      content = null
+    }
+
+    // Réponse avec headers de cache strict pour contenu public
+    return json(
+      { content, revision: res.headers.get('ETag') ?? undefined },
+      200,
+      {
+        // Headers critiques pour éviter la mise en cache du contenu obsolète
+        'Cache-Control': 'no-cache, max-age=0, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
+    )
+  } catch (err) {
+    // Erreur réseau → retourner null
+    return json({ content: null }, 200, {
+      'Cache-Control': 'no-cache, max-age=0, must-revalidate'
+    })
+  }
 }
 
 async function handleSaveDraft(req: Request, env: Env): Promise<Response> {

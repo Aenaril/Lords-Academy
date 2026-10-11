@@ -42,8 +42,9 @@ async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  // Pour /api/published : toujours vérifier le réseau, ne pas utiliser le cache navigateur
-  const isPublished = path.includes('/api/published')
+  // Pour /published : toujours vérifier le réseau, ne pas utiliser le cache navigateur
+  // Note : path est "/published", pas "/api/published" (le préfixe est ajouté par apiBase())
+  const isPublished = path === '/published' || path.startsWith('/published?')
   
   const res = await fetch(apiBase() + path, {
     credentials: 'include',

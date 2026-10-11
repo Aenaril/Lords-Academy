@@ -1,12 +1,11 @@
 # Fichier de configuration des en-têtes HTTP pour Cloudflare Pages
 # Voir: https://developers.cloudflare.com/pages/platform/headers/
 
-# Les fichiers de contenu publié : pas de cache du navigateur
-/api/published*
-  Cache-Control: no-cache, max-age=0, must-revalidate
-  Pragma: no-cache
+# Note: Les routes /api/published* sont gérées par le Cloudflare Worker
+# qui ajoute les headers Cache-Control directement à la réponse.
+# Ce fichier s'applique aux assets statiques uniquement.
 
-# Les fichiers pédagogiques : cache limité
+# Les fichiers pédagogiques statiques : cache limité
 /content/*
   Cache-Control: public, max-age=3600
 
@@ -14,7 +13,7 @@
 /images/*
   Cache-Control: public, max-age=31536000, immutable
 
-# L'application shell : cache court avec revalidation
+# L'application shell : cache long terme (hachés)
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
@@ -25,3 +24,4 @@
 # Service Worker : pas de cache
 /sw.js
   Cache-Control: no-cache, max-age=0, must-revalidate
+
