@@ -121,22 +121,26 @@ function hydrate(tutorialId: string): EditableTutorial | null {
  * Charge le contenu de référence : en mode remote authentifié, charge la dernière
  * version publiée ; sinon, charge la source intégrée.
  * 
- * En cas d'erreur de chargement du contenu publié, retourne null (refuse de
- * charger silencieusement une ancienne version).
+ * Retourne {content, error} où :
+ * - content: contenu chargé ou null si pas d'erreur mais pas de contenu
+ * - error: message d'erreur si vrai problème de récupération
  */
 async function loadPublishedOrSource(
   tutorialId: string,
   remoteConfigured: boolean,
   isAuthenticated: boolean
-): Promise<EditableTutorial | null> {
+): Promise<{ content: EditableTutorial | null; error?: string }> {
   // Mode remote authentifié : charger la version publiée
   if (remoteConfigured && isAuthenticated) {
     try {
-      const published = await adminApi.getPublished(tutorialId)
-      if (published.content) {
+      // Appeler l'API directement sans passer par adminApi (qui intercepte les erreurs)
+      // pour pouvoir distinguer erreur réseau d'absence de contenu
+      const response = await adminApi.getPublished(tutorialId)
+      
+      if (response.content) {
         // Convertir Tutorial en EditableTutorial avec UIDs
-        const t = structuredClone(published.content as Tutorial)
-        return {
+        const t = structuredClone(response.content as Tutorial)
+        const editable: EditableTutorial = {
           ...t,
           sections: (t.sections ?? []).map((s) => ({
             ...s,
@@ -144,18 +148,24 @@ async function loadPublishedOrSource(
             blocks: s.blocks.map((b) => ({ ...b, _uid: makeUid('b') }))
           }))
         }
+        return { content: editable }
       }
-      // Pas de version publiée → retourner null (pas de fallback)
-      return null
+      
+      // Pas de contenu retourné, mais pas d'erreur explicite
+      // adminApi.getPublished() intercepte les erreurs et retourne {content: null}
+      // On ne peut pas distinguer absence de contenu d'erreur réseau ici.
+      // Traiter comme absence de contenu.
+      return { content: null }
     } catch (err) {
-      console.error(`Erreur chargement version publiée ${tutorialId}:`, err)
-      // Erreur → retourner null (refuse silencieuse fallback)
-      return null
+      // En cas d'exception, c'est une vrai erreur
+      const message = (err as any)?.message ?? 'Erreur serveur'
+      return { content: null, error: message }
     }
   }
 
   // Mode démo ou non authentifié : charger la source
-  return hydrate(tutorialId)
+  const hydrated = hydrate(tutorialId)
+  return { content: hydrated }
 }
 
 /* ─── Fabrique de blocs vierges par type ─── */
@@ -214,6 +224,7 @@ interface AdminContextValue {
   /** Publie vers le backend (si configuré + authentifié). */
   publish: () => Promise<{ ok: boolean; conflict?: boolean; error?: string }>
   isPublishing: boolean
+  publishLoadError: string | null  // Erreur lors du chargement de la version publiée (accès refusé, offline, etc.)
   /* Historique & restauration (GitHub en distant ; versions locales en démo) */
   fetchHistory: () => Promise<import('./api/contract').HistoryEntry[]>
   fetchVersionContent: (revision: string) => Promise<EditableTutorial | null>
@@ -242,6 +253,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
   const remoteConfigured = isRemoteConfigured()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isPublishing, setIsPublishing] = useState(false)
+  const [publishLoadError, setPublishLoadError] = useState<string | null>(null) // Erreur de chargement version publiée
   
   // CORRECTION: Séparer draftRevision (UUID/KV) et publishedRevision (SHA/GitHub)
   const draftRevision = useRef<string | undefined>(undefined)
@@ -293,6 +305,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
             setTutorial(hydrated ?? ({} as EditableTutorial))
             setHasDraft(false)
             setIsDirty(false)
+            setPublishLoadError(null)
           }
           return
         }
@@ -307,6 +320,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
           draftRevision.current = result.revision
           setHasDraft(true)
           setIsDirty(false)
+          setPublishLoadError(null)
         } else {
           // Pas de brouillon : charger version publiée (remote auth) ou source (local/non-auth)
           const published = await loadPublishedOrSource(
@@ -317,26 +331,48 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
           
           if (cancelled) return
           
-          if (published) {
-            setTutorial(published)
+          if (published.error) {
+            // Erreur récupération version publiée en mode remote auth
+            // ⚠️ NE PAS FAIRE DE FALLBACK
+            if (remoteConfigured && isAuthenticated) {
+              console.error(`Erreur critique: impossible charger version publiée ${tutorialId}:`, published.error)
+              setPublishLoadError(`Erreur accès version publiée: ${published.error}`)
+              // Laisser UI avec message d'erreur, ne pas charger ancienne version
+              setTutorial({} as EditableTutorial)
+              setHasDraft(false)
+              setIsDirty(false)
+              return
+            }
+          }
+          
+          // Mode local ou non-auth : published.content est toujours disponible (hydrate)
+          if (published.content) {
+            setTutorial(published.content)
             setHasDraft(false)
             setIsDirty(false)
+            setPublishLoadError(null)
           } else {
-            // Erreur : aucun brouillon ET pas de version publiée
-            console.warn(`Aucun brouillon ni version publiée pour ${tutorialId}`)
-            // Fallback : charger la source plutôt que laisser vide
-            const hydrated = hydrate(tutorialId)
-            setTutorial(hydrated ?? ({} as EditableTutorial))
+            // Aucun contenu publié en mode remote auth (cas rare)
+            setTutorial({} as EditableTutorial)
             setHasDraft(false)
             setIsDirty(false)
+            setPublishLoadError(null)
           }
         }
       } catch (err) {
         console.error(`Erreur chargement brouillon ${tutorialId}:`, err)
         if (!cancelled) {
-          // Erreur réseau/API : charger la source
-          const hydrated = hydrate(tutorialId)
-          setTutorial(hydrated ?? ({} as EditableTutorial))
+          // Erreur réseau/API
+          if (remoteConfigured && isAuthenticated) {
+            // Mode remote auth : ne pas faire de fallback
+            setPublishLoadError(`Erreur réseau lors du chargement: ${(err as any)?.message ?? 'erreur inconnue'}`)
+            setTutorial({} as EditableTutorial)
+          } else {
+            // Mode local/non-auth : fallback acceptable
+            const hydrated = hydrate(tutorialId)
+            setTutorial(hydrated ?? ({} as EditableTutorial))
+            setPublishLoadError(null)
+          }
         }
       }
     }
@@ -376,6 +412,11 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
   }, [remoteConfigured])
 
   const publish = useCallback(async () => {
+    // Vérifier s'il y a une erreur de chargement de la version publiée
+    if (publishLoadError) {
+      return { ok: false, error: `Publication bloquée: ${publishLoadError}` }
+    }
+    
     const store = getDraftStore()
     if (store.mode !== 'remote' || !store.publish) {
       return { ok: false, error: 'Publication indisponible en mode local.' }
@@ -397,7 +438,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     } finally {
       setIsPublishing(false)
     }
-  }, [tutorialId, tutorial])
+  }, [tutorialId, tutorial, publishLoadError])
 
   /* ─── Historique & restauration ───
    * En distant : historique natif GitHub (commits).
@@ -712,27 +753,45 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
         return { ok: false, error: 'Sauvegarde en cours, merci de patienter et de réessayer' }
       }
       
-      // Étape 5 : Si en mode remote, appeler DELETE /api/draft en premier
-      // SEULEMENT ENSUITE réinitialiser l'état local (en cas d'échec DELETE)
+      // Étape 5 : AVANT suppression du brouillon distant, valider qu'on peut
+      // charger la version publiée (en mode remote auth uniquement)
+      if (remoteConfigured && isAuthenticated) {
+        const published = await loadPublishedOrSource(
+          tutorialId,
+          remoteConfigured,
+          isAuthenticated
+        )
+        if (published.error) {
+          // Erreur : impossible charger version publiée de remplacement
+          // Ne pas supprimer le brouillon en mode remote auth
+          isAbandoningRef.current = false
+          return { ok: false, error: `Impossible valider version publiée avant suppression: ${published.error}` }
+        }
+        // Si aucune version publiée non plus (published.content === null), on accepte
+        // car c'est un cas légitime (jamais publié)
+      }
+      
+      // Étape 6 : Si en mode remote, appeler DELETE /api/draft
       if (store.mode === 'remote' && store.deleteDraft) {
         await store.deleteDraft(tutorialId)
       }
       
-      // Étape 6 : DELETE a réussi (ou mode local) — charger version publiée ou source
+      // Étape 7 : DELETE a réussi — charger version publiée (déjà validée) ou source
       localStore.clear(tutorialId)
       
-      // Recharger le contenu de référence (version publiée ou source)
       const published = await loadPublishedOrSource(
         tutorialId,
         remoteConfigured,
         isAuthenticated
       )
       
-      setTutorial(published ?? hydrate(tutorialId) ?? ({} as EditableTutorial))
+      // published ne doit pas avoir d'erreur car on a validé en étape 5
+      setTutorial(published.content ?? hydrate(tutorialId) ?? ({} as EditableTutorial))
       setUndoStack([])
       setIsDirty(false)
       setHasDraft(false)
       setIsPreview(false)
+      setPublishLoadError(null)
       draftRevision.current = undefined
       isAbandoningRef.current = false
       
@@ -849,6 +908,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       logout,
       publish,
       isPublishing,
+      publishLoadError,
       fetchHistory,
       fetchVersionContent,
       restorePublishedVersion
@@ -862,6 +922,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       isPreview,
       tutorial,
       isDirty,
+      hasDraft,
       updateBlock,
       addBlock,
       removeBlock,
@@ -884,6 +945,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       logout,
       publish,
       isPublishing,
+      publishLoadError,
       fetchHistory,
       fetchVersionContent,
       restorePublishedVersion
