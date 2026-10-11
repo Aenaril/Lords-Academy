@@ -1,0 +1,447 @@
+/**
+ * Cloudflare Pages Function — Administration R4 sécurisée
+ * 
+ * Adaptation du Worker existant pour Pages Functions.
+ * Gère les routes `/api/*` de l'administration R4 :
+ *  - Authentification par mot de passe partagé
+ *  - Brouillons privés (KV)
+ *  - Publication via GitHub (commits)
+ *  - Historique et restauration
+ * 
+ * Secrets requis (Cloudflare Dashboard) :
+ *  - ADMIN_PASSWORD
+ *  - SESSION_SIGNING_KEY
+ *  - GITHUB_TOKEN
+ * 
+ * Bindings (wrangler.toml) :
+ *  - DRAFTS : KV Namespace
+ *  - RATE : KV Namespace
+ * 
+ * Vars (wrangler.toml) :
+ *  - ALLOWED_ORIGIN
+ *  - GITHUB_REPO
+ *  - GITHUB_BRANCH
+ */
+
+export const onRequest: PagesFunction = async (context) => {
+  const { request, env, params } = context
+  const url = new URL(request.url)
+
+  // Récupérer le chemin depuis params (pages/[...path] capture tout après /api/)
+  const pathParts = (params.path as string[] | undefined) ?? []
+  const path = pathParts.join('/')
+
+  // Reconstruire l'URL pour router
+  const pathname = `/api/${path}`
+
+  // CORS strict
+  const cors = corsHeaders(request, env as any)
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: cors })
+  }
+
+  try {
+    const route = `${request.method} ${pathname}`
+
+    let response: Response
+
+    switch (route) {
+      case 'POST /api/login':
+        response = await handleLogin(request, env as any)
+        break
+      case 'POST /api/logout':
+        response = handleLogout(env as any)
+        break
+      case 'GET /api/session':
+        response = await handleSession(request, env as any)
+        break
+      case 'GET /api/draft':
+        response = await handleGetDraft(request, env as any, url)
+        break
+      case 'PUT /api/draft':
+        response = await handleSaveDraft(request, env as any)
+        break
+      case 'POST /api/publish':
+        response = await handlePublish(request, env as any)
+        break
+      case 'GET /api/history':
+        response = await handleHistory(request, env as any, url)
+        break
+      case 'GET /api/version':
+        response = await handleVersion(request, env as any, url)
+        break
+      case 'POST /api/restore':
+        response = await handleRestore(request, env as any)
+        break
+      default:
+        response = json({ error: 'Not found' }, 404)
+    }
+
+    return withCors(response, cors)
+  } catch (err) {
+    console.error('API error:', err)
+    return withCors(json({ error: 'Erreur serveur' }, 500), cors)
+  }
+}
+
+/* ───────────────────────── Auth & sessions ───────────────────────── */
+
+async function handleLogin(req: Request, env: any): Promise<Response> {
+  if (!originAllowed(req, env)) return json({ error: 'Origine refusée' }, 403)
+
+  const ip = req.headers.get('CF-Connecting-IP') ?? 'unknown'
+  const rateKey = `login:${ip}`
+  const attempts = Number((await env.DRAFTS.get(rateKey)) ?? '0')
+  
+  const LOGIN_MAX = 5
+  const LOGIN_WINDOW = 15 * 60
+
+  if (attempts >= LOGIN_MAX) {
+    return json(
+      { ok: false, error: 'Trop de tentatives', retryAfter: LOGIN_WINDOW },
+      429,
+      { 'Retry-After': String(LOGIN_WINDOW) }
+    )
+  }
+
+  const body = (await req.json().catch(() => null)) as { password?: string } | null
+  const password = body?.password ?? ''
+
+  // Comparaison à temps constant
+  const ok = password.length > 0 && timingSafeEqual(password, env.ADMIN_PASSWORD)
+  if (!ok) {
+    await env.RATE.put(rateKey, String(attempts + 1), { expirationTtl: LOGIN_WINDOW })
+    return json({ ok: false, error: 'Identifiants invalides' }, 401)
+  }
+
+  await env.RATE.delete(rateKey)
+  const SESSION_TTL = 2 * 60 * 60
+  const expiresAt = Date.now() + SESSION_TTL * 1000
+  const token = await signSession(expiresAt, env.SESSION_SIGNING_KEY)
+
+  return json(
+    { ok: true, session: { authenticated: true, expiresAt } },
+    200,
+    { 'Set-Cookie': sessionCookie(token, SESSION_TTL) }
+  )
+}
+
+function handleLogout(_env: any): Response {
+  return json({ ok: true }, 200, { 'Set-Cookie': sessionCookie('', 0) })
+}
+
+async function handleSession(req: Request, env: any): Promise<Response> {
+  const session = await readSession(req, env)
+  return json({ authenticated: !!session, expiresAt: session?.expiresAt })
+}
+
+/* ───────────────────────── Brouillons (KV privé) ───────────────────────── */
+
+async function handleGetDraft(
+  req: Request,
+  env: any,
+  url: URL
+): Promise<Response> {
+  if (!(await readSession(req, env))) return json({ error: 'Non authentifié' }, 401)
+  const tutorialId = sanitizeId(url.searchParams.get('tutorialId'))
+  if (!tutorialId) return json({ error: 'tutorialId invalide' }, 400)
+
+  const raw = await env.DRAFTS.get(`draft:${tutorialId}`)
+  if (!raw) return json({ content: null })
+  const parsed = JSON.parse(raw)
+  return json({
+    content: parsed.content,
+    revision: parsed.revision,
+    lastEditedLabel: parsed.lastEditedLabel,
+    updatedAt: parsed.updatedAt
+  })
+}
+
+async function handleSaveDraft(req: Request, env: any): Promise<Response> {
+  if (!originAllowed(req, env)) return json({ error: 'Origine refusée' }, 403)
+  if (!csrfOk(req)) return json({ error: 'CSRF' }, 403)
+  if (!(await readSession(req, env))) return json({ error: 'Non authentifié' }, 401)
+
+  const body = (await req.json().catch(() => null)) as any
+  const tutorialId = sanitizeId(body?.tutorialId)
+  if (!tutorialId || !validateTutorial(body?.content)) {
+    return json({ ok: false, error: 'Données invalides' }, 400)
+  }
+
+  const revision = crypto.randomUUID()
+  await env.DRAFTS.put(
+    `draft:${tutorialId}`,
+    JSON.stringify({
+      content: body.content,
+      revision,
+      updatedAt: Date.now(),
+      lastEditedLabel: 'R4'
+    })
+  )
+  return json({ ok: true, revision })
+}
+
+/* ───────────────────────── Publication (GitHub) ───────────────────────── */
+
+async function handlePublish(req: Request, env: any): Promise<Response> {
+  if (!originAllowed(req, env)) return json({ error: 'Origine refusée' }, 403)
+  if (!csrfOk(req)) return json({ error: 'CSRF' }, 403)
+  if (!(await readSession(req, env))) return json({ error: 'Non authentifié' }, 401)
+
+  const body = (await req.json().catch(() => null)) as any
+  const tutorialId = sanitizeId(body?.tutorialId)
+  if (!tutorialId || !validateTutorial(body?.content)) {
+    return json({ ok: false, error: 'Données invalides' }, 400)
+  }
+
+  const path = `app/public/content/${tutorialId}.json`
+  const apiBase = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}`
+  const headers = {
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    'User-Agent': 'lma-pages-function',
+    Accept: 'application/vnd.github+json'
+  }
+
+  // Récupère le sha courant
+  const current = await fetch(`${apiBase}?ref=${env.GITHUB_BRANCH}`, { headers })
+  let sha: string | undefined
+  if (current.ok) sha = ((await current.json()) as any).sha
+
+  if (body.baseRevision && sha && body.baseRevision !== sha) {
+    return json({ ok: false, conflict: { serverRevision: sha } }, 409)
+  }
+
+  const contentB64 = btoa(unescape(encodeURIComponent(JSON.stringify(body.content, null, 2))))
+  const commit = await fetch(apiBase, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({
+      message: `Publication tutoriel ${tutorialId} (R4) — ${new Date().toISOString()}`,
+      content: contentB64,
+      branch: env.GITHUB_BRANCH,
+      sha
+    })
+  })
+
+  if (!commit.ok) return json({ ok: false, error: 'Échec publication' }, 502)
+  const result = (await commit.json()) as any
+  return json({ ok: true, revision: result.content?.sha })
+}
+
+/* ───────────────────────── Historique & restauration (GitHub) ───────────────────────── */
+
+function contentPath(tutorialId: string): string {
+  return `app/public/content/${tutorialId}.json`
+}
+
+function ghHeaders(env: any) {
+  return {
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    'User-Agent': 'lma-pages-function',
+    Accept: 'application/vnd.github+json'
+  }
+}
+
+async function handleHistory(
+  req: Request,
+  env: any,
+  url: URL
+): Promise<Response> {
+  if (!(await readSession(req, env))) return json({ error: 'Non authentifié' }, 401)
+  const tutorialId = sanitizeId(url.searchParams.get('tutorialId'))
+  if (!tutorialId) return json({ error: 'tutorialId invalide' }, 400)
+
+  const path = contentPath(tutorialId)
+  const api = `https://api.github.com/repos/${env.GITHUB_REPO}/commits?path=${encodeURIComponent(path)}&sha=${env.GITHUB_BRANCH}&per_page=30`
+  const res = await fetch(api, { headers: ghHeaders(env) })
+  if (!res.ok) return json({ error: 'Historique indisponible' }, 502)
+
+  const commits = (await res.json()) as any[]
+  const entries = commits.map((c) => ({
+    revision: c.sha,
+    date: c.commit?.committer?.date ?? c.commit?.author?.date ?? '',
+    message: c.commit?.message ?? '',
+    authorLabel: 'R4'
+  }))
+  return json({ tutorialId, entries })
+}
+
+async function handleVersion(
+  req: Request,
+  env: any,
+  url: URL
+): Promise<Response> {
+  if (!(await readSession(req, env))) return json({ error: 'Non authentifié' }, 401)
+  const tutorialId = sanitizeId(url.searchParams.get('tutorialId'))
+  const revision = (url.searchParams.get('revision') ?? '').replace(/[^a-f0-9]/gi, '')
+  if (!tutorialId || !revision) return json({ error: 'Paramètres invalides' }, 400)
+
+  const path = contentPath(tutorialId)
+  const api = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}?ref=${revision}`
+  const res = await fetch(api, { headers: ghHeaders(env) })
+  if (!res.ok) return json({ error: 'Version introuvable' }, 404)
+
+  const data = (await res.json()) as any
+  let content: unknown = null
+  try {
+    const decoded = decodeURIComponent(escape(atob((data.content ?? '').replace(/\n/g, ''))))
+    content = JSON.parse(decoded)
+  } catch {
+    content = null
+  }
+  return json({ revision, content })
+}
+
+async function handleRestore(req: Request, env: any): Promise<Response> {
+  if (!originAllowed(req, env)) return json({ error: 'Origine refusée' }, 403)
+  if (!csrfOk(req)) return json({ error: 'CSRF' }, 403)
+  if (!(await readSession(req, env))) return json({ error: 'Non authentifié' }, 401)
+
+  const body = (await req.json().catch(() => null)) as any
+  const tutorialId = sanitizeId(body?.tutorialId)
+  const revision = (body?.revision ?? '').replace(/[^a-f0-9]/gi, '')
+  if (!tutorialId || !revision) return json({ ok: false, error: 'Paramètres invalides' }, 400)
+
+  const path = contentPath(tutorialId)
+  const oldRes = await fetch(
+    `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}?ref=${revision}`,
+    { headers: ghHeaders(env) }
+  )
+  if (!oldRes.ok) return json({ ok: false, error: 'Version introuvable' }, 404)
+  const oldData = (await oldRes.json()) as any
+
+  let parsed: any = null
+  try {
+    parsed = JSON.parse(decodeURIComponent(escape(atob((oldData.content ?? '').replace(/\n/g, '')))))
+  } catch {
+    return json({ ok: false, error: 'Contenu de version illisible' }, 422)
+  }
+  if (!validateTutorial(parsed)) {
+    return json({ ok: false, error: 'Version invalide (structure)' }, 422)
+  }
+
+  const headRes = await fetch(
+    `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}?ref=${env.GITHUB_BRANCH}`,
+    { headers: ghHeaders(env) }
+  )
+  const currentSha = headRes.ok ? ((await headRes.json()) as any).sha : undefined
+
+  const commit = await fetch(
+    `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}`,
+    {
+      method: 'PUT',
+      headers: ghHeaders(env),
+      body: JSON.stringify({
+        message: `Restauration tutoriel ${tutorialId} depuis ${revision.slice(0, 7)} (R4) — ${new Date().toISOString()}`,
+        content: oldData.content,
+        branch: env.GITHUB_BRANCH,
+        sha: currentSha
+      })
+    }
+  )
+  if (!commit.ok) return json({ ok: false, error: 'Échec restauration' }, 502)
+  const result = (await commit.json()) as any
+  return json({ ok: true, revision: result.content?.sha })
+}
+
+/* ───────────────────────── Helpers sécurité ───────────────────────── */
+
+function corsHeaders(req: Request, env: any): Record<string, string> {
+  const origin = req.headers.get('Origin') ?? ''
+  const allow = origin === env.ALLOWED_ORIGIN ? origin : env.ALLOWED_ORIGIN
+  return {
+    'Access-Control-Allow-Origin': allow,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type,X-Requested-With',
+    Vary: 'Origin'
+  }
+}
+
+function withCors(res: Response, cors: Record<string, string>): Response {
+  const headers = new Headers(res.headers)
+  for (const [k, v] of Object.entries(cors)) headers.set(k, v)
+  return new Response(res.body, { status: res.status, headers })
+}
+
+function originAllowed(req: Request, env: any): boolean {
+  const origin = req.headers.get('Origin')
+  return !origin || origin === env.ALLOWED_ORIGIN
+}
+
+function csrfOk(req: Request): boolean {
+  return req.headers.get('X-Requested-With') === 'lma-admin'
+}
+
+function sessionCookie(token: string, ttl: number): string {
+  const parts = [
+    `lma_session=${token}`,
+    'Path=/',
+    'HttpOnly',
+    'Secure',
+    'SameSite=Strict'
+  ]
+  parts.push(ttl > 0 ? `Max-Age=${ttl}` : 'Max-Age=0')
+  return parts.join('; ')
+}
+
+async function signSession(expiresAt: number, key: string): Promise<string> {
+  const payload = `${expiresAt}`
+  const sig = await hmac(payload, key)
+  return `${btoa(payload)}.${sig}`
+}
+
+async function readSession(req: Request, env: any): Promise<{ expiresAt: number } | null> {
+  const cookie = req.headers.get('Cookie') ?? ''
+  const match = cookie.match(/lma_session=([^;]+)/)
+  if (!match) return null
+  const [payloadB64, sig] = match[1].split('.')
+  if (!payloadB64 || !sig) return null
+  const payload = atob(payloadB64)
+  const expected = await hmac(payload, env.SESSION_SIGNING_KEY)
+  if (!timingSafeEqual(sig, expected)) return null
+  const expiresAt = Number(payload)
+  if (!expiresAt || Date.now() > expiresAt) return null
+  return { expiresAt }
+}
+
+async function hmac(data: string, key: string): Promise<string> {
+  const enc = new TextEncoder()
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(key),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const sig = await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(data))
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return diff === 0
+}
+
+function sanitizeId(id: string | null | undefined): string | null {
+  if (!id) return null
+  return /^[a-z0-9-]{1,64}$/.test(id) ? id : null
+}
+
+function validateTutorial(content: any): boolean {
+  if (!content || typeof content !== 'object') return false
+  if (typeof content.id !== 'string') return false
+  if (!Array.isArray(content.sections)) return false
+  return content.sections.every(
+    (s: any) => s && typeof s.title === 'string' && typeof s.sourceSlide === 'number'
+  )
+}
+
+function json(body: unknown, status = 200, extra: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...extra }
+  })
+}

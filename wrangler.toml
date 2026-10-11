@@ -1,0 +1,48 @@
+# Configuration Cloudflare Pages + Functions
+# Utilisé par Cloudflare Pages lors du déploiement et des Pages Functions
+
+name = "lords-mobile-academy"
+main = "src/index.ts"
+compatibility_date = "2024-10-01"
+
+# Build output pour Cloudflare Pages
+# Le framework construit dans app/dist, Cloudflare Pages le publie
+build = { command = "cd app && npm run build", cwd = "." }
+site = { include = "app/dist" }
+
+# Pages Functions — répertoire contenant les handlers
+functions = { directory = "app/functions" }
+
+# Variables publiques (pas des secrets)
+[env.production.vars]
+ALLOWED_ORIGIN = "https://lords-mobile-academy.pages.dev"
+GITHUB_REPO = "Aenaril/Lords-Academy"
+GITHUB_BRANCH = "main"
+
+[env.development.vars]
+ALLOWED_ORIGIN = "http://localhost:5173"
+GITHUB_REPO = "Aenaril/Lords-Academy"
+GITHUB_BRANCH = "main"
+
+# KV Namespaces (brouillons privés et rate limiting)
+# Les IDs seront remplis après création dans le Dashboard Cloudflare
+[[env.production.kv_namespaces]]
+binding = "DRAFTS"
+id = "REMPLACER_PAR_ID_CLOUDFLARE"
+preview_id = "REMPLACER_PAR_ID_PREVIEW"
+
+[[env.production.kv_namespaces]]
+binding = "RATE"
+id = "REMPLACER_PAR_ID_CLOUDFLARE"
+preview_id = "REMPLACER_PAR_ID_PREVIEW"
+
+# Secrets (NE JAMAIS écrire ici, utiliser Cloudflare Dashboard)
+# ADMIN_PASSWORD        : mot de passe partagé des R4
+# SESSION_SIGNING_KEY   : clé HMAC pour sessions HttpOnly
+# GITHUB_TOKEN          : token GitHub fine-grained (scope: contenu du repo)
+
+# Instructions configuration :
+# 1. Créer 2 KV namespaces dans Cloudflare Dashboard
+# 2. Noter les IDs et remplir ci-dessus
+# 3. Ajouter les 3 secrets via Cloudflare Dashboard
+# 4. Déployer : wrangler publish (ou Cloudflare Pages CI/CD)
