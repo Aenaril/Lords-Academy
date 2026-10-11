@@ -4,6 +4,7 @@ import HomePage from './pages/HomePage'
 import TutorialPage from './pages/TutorialPage'
 import AdminBarWrapper from './admin/AdminBarWrapper'
 import PWAInstallPrompt from './components/PWAInstallPrompt'
+import PWAUpdatePrompt from './components/PWAUpdatePrompt'
 
 type PageType = 'home' | 'tutorial'
 
@@ -34,6 +35,7 @@ function App() {
       )}
       <AdminBarWrapper />
       <PWAInstallPrompt />
+      <PWAUpdatePrompt />
     </div>
   )
 }
