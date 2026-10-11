@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode
 } from 'react'
-import { type ContentBlock, type ImageDisplaySettings } from '../data/tutorials'
+import { type ContentBlock, type ImageDisplaySettings, type Tutorial } from '../data/tutorials'
 import { getTutorialById } from '../data/registry'
 import {
   makeUid,
@@ -115,6 +115,47 @@ function hydrate(tutorialId: string): EditableTutorial | null {
       blocks: s.blocks.map((b) => ({ ...b, _uid: makeUid('b') }))
     }))
   }
+}
+
+/**
+ * Charge le contenu de référence : en mode remote authentifié, charge la dernière
+ * version publiée ; sinon, charge la source intégrée.
+ * 
+ * En cas d'erreur de chargement du contenu publié, retourne null (refuse de
+ * charger silencieusement une ancienne version).
+ */
+async function loadPublishedOrSource(
+  tutorialId: string,
+  remoteConfigured: boolean,
+  isAuthenticated: boolean
+): Promise<EditableTutorial | null> {
+  // Mode remote authentifié : charger la version publiée
+  if (remoteConfigured && isAuthenticated) {
+    try {
+      const published = await adminApi.getPublished(tutorialId)
+      if (published.content) {
+        // Convertir Tutorial en EditableTutorial avec UIDs
+        const t = structuredClone(published.content as Tutorial)
+        return {
+          ...t,
+          sections: (t.sections ?? []).map((s) => ({
+            ...s,
+            _uid: makeUid('s'),
+            blocks: s.blocks.map((b) => ({ ...b, _uid: makeUid('b') }))
+          }))
+        }
+      }
+      // Pas de version publiée → retourner null (pas de fallback)
+      return null
+    } catch (err) {
+      console.error(`Erreur chargement version publiée ${tutorialId}:`, err)
+      // Erreur → retourner null (refuse silencieuse fallback)
+      return null
+    }
+  }
+
+  // Mode démo ou non authentifié : charger la source
+  return hydrate(tutorialId)
 }
 
 /* ─── Fabrique de blocs vierges par type ─── */
@@ -229,7 +270,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     setIsPreview(false)
     setUndoStack([])
     setIsDirty(false)
-    setHasDraft(false) // NOUVEAU : Réinitialiser hasDraft au changement de tutoriel
+    setHasDraft(false)
     draftRevision.current = undefined
     publishedRevision.current = undefined
 
@@ -238,27 +279,19 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       const loadedVersions = (store as any).loadVersions?.() ?? []
       setVersions(loadedVersions)
     } else {
-      // En mode remote, les versions viennent de l'API historique
       setVersions([])
     }
 
-    // Flag de cleanup pour éviter que une réponse tardive de loadDraft(A)
-    // ne contamienne le contenu du tutoriel B après un changement de tutorialId
     let cancelled = false
 
-    // Charger le brouillon
     const loadDraft = async () => {
       try {
-        // CORRECTION 2: Garde d'authentification — ne charger que si prêt
-        // En mode remote, vérifier que l'utilisateur est authentifié AVANT de lancer
-        // une requête asynchrone. Si pas authentifié en mode remote, charger la
-        // source (hydrate) et sortir.
+        // Mode remote non authentifié : charger la source
         if (store.mode === 'remote' && !isAuthenticated) {
-          // Pas encore authentifié — charger la source de démonstration
           const hydrated = hydrate(tutorialId)
           if (!cancelled) {
             setTutorial(hydrated ?? ({} as EditableTutorial))
-            setHasDraft(false) // NOUVEAU : Aucun brouillon en mode démo
+            setHasDraft(false)
             setIsDirty(false)
           }
           return
@@ -266,28 +299,42 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
 
         const result = await store.loadDraft(tutorialId)
         
-        // CORRECTION 1: Vérifier le flag cancelled avant de mettre à jour l'état
-        // Si loadDraft(A) était en cours et l'utilisateur passe à B, on ignore
-        // la réponse de A.
         if (cancelled) return
 
         if (result.content) {
+          // Brouillon existe
           setTutorial(result.content)
           draftRevision.current = result.revision
-          setHasDraft(true) // NOUVEAU : Un brouillon a été chargé
+          setHasDraft(true)
           setIsDirty(false)
         } else {
-          // Pas de brouillon, charger la source
-          const hydrated = hydrate(tutorialId)
-          setTutorial(hydrated ?? ({} as EditableTutorial))
-          setHasDraft(false) // NOUVEAU : Aucun brouillon
-          setIsDirty(false)
+          // Pas de brouillon : charger version publiée (remote auth) ou source (local/non-auth)
+          const published = await loadPublishedOrSource(
+            tutorialId,
+            remoteConfigured,
+            isAuthenticated
+          )
+          
+          if (cancelled) return
+          
+          if (published) {
+            setTutorial(published)
+            setHasDraft(false)
+            setIsDirty(false)
+          } else {
+            // Erreur : aucun brouillon ET pas de version publiée
+            console.warn(`Aucun brouillon ni version publiée pour ${tutorialId}`)
+            // Fallback : charger la source plutôt que laisser vide
+            const hydrated = hydrate(tutorialId)
+            setTutorial(hydrated ?? ({} as EditableTutorial))
+            setHasDraft(false)
+            setIsDirty(false)
+          }
         }
       } catch (err) {
         console.error(`Erreur chargement brouillon ${tutorialId}:`, err)
-        // En cas d'erreur (ex: 401 Non authentifié, 403 Accès refusé), charger
-        // la source plutôt que laisser la UI vide.
         if (!cancelled) {
+          // Erreur réseau/API : charger la source
           const hydrated = hydrate(tutorialId)
           setTutorial(hydrated ?? ({} as EditableTutorial))
         }
@@ -296,11 +343,10 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
 
     loadDraft()
 
-    // Cleanup : marquer comme cancelled si tutorialId change ou si le composant est unmounté
     return () => {
       cancelled = true
     }
-  }, [tutorialId, store, isAuthenticated])
+  }, [tutorialId, store, isAuthenticated, remoteConfigured])
 
   // Vérifie la session au montage si le backend est configuré.
   useEffect(() => {
@@ -672,16 +718,23 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
         await store.deleteDraft(tutorialId)
       }
       
-      // Étape 6 : DELETE a réussi (ou mode local) — effacer l'état local
+      // Étape 6 : DELETE a réussi (ou mode local) — charger version publiée ou source
       localStore.clear(tutorialId)
-      const hydrated = hydrate(tutorialId)
-      setTutorial(hydrated ?? ({} as EditableTutorial))
+      
+      // Recharger le contenu de référence (version publiée ou source)
+      const published = await loadPublishedOrSource(
+        tutorialId,
+        remoteConfigured,
+        isAuthenticated
+      )
+      
+      setTutorial(published ?? hydrate(tutorialId) ?? ({} as EditableTutorial))
       setUndoStack([])
       setIsDirty(false)
-      setHasDraft(false) // Le brouillon a été abandonné
+      setHasDraft(false)
       setIsPreview(false)
       draftRevision.current = undefined
-      isAbandoningRef.current = false // Restaurer flag
+      isAbandoningRef.current = false
       
       return { ok: true }
     } catch (err) {
@@ -697,7 +750,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       }
       return { ok: false, error: (err as any)?.message ?? 'Erreur serveur lors de la suppression' }
     }
-  }, [tutorialId, store, tutorial, isDirty, performSave])
+  }, [tutorialId, store, tutorial, isDirty, performSave, remoteConfigured, isAuthenticated])
 
   /* ─── Action 3 : Versions (sauvegarder / restaurer / supprimer) ─── */
   const saveVersion = useCallback(
