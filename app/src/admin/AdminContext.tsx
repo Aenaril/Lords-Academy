@@ -123,19 +123,19 @@ function hydrate(tutorialId: string): EditableTutorial | null {
  * 
  * Retourne {content, error} où :
  * - content: contenu chargé ou null si pas d'erreur mais pas de contenu
- * - error: message d'erreur si vrai problème de récupération
+ * - error: message d'erreur si vrai problème de récupération (erreur réseau, 404, 500, etc.)
  */
 async function loadPublishedOrSource(
   tutorialId: string,
   remoteConfigured: boolean,
   isAuthenticated: boolean
 ): Promise<{ content: EditableTutorial | null; error?: string }> {
-  // Mode remote authentifié : charger la version publiée
+  // Mode remote authentifié : charger la version publiée avec gestion d'erreur stricte
   if (remoteConfigured && isAuthenticated) {
     try {
-      // Appeler l'API directement sans passer par adminApi (qui intercepte les erreurs)
-      // pour pouvoir distinguer erreur réseau d'absence de contenu
-      const response = await adminApi.getPublished(tutorialId)
+      // Utiliser getPublishedStrict() pour que les erreurs réseau/HTTP remontent
+      // (contrairement à getPublished() qui les intercepte)
+      const response = await adminApi.getPublishedStrict(tutorialId)
       
       if (response.content) {
         // Convertir Tutorial en EditableTutorial avec UIDs
@@ -151,13 +151,10 @@ async function loadPublishedOrSource(
         return { content: editable }
       }
       
-      // Pas de contenu retourné, mais pas d'erreur explicite
-      // adminApi.getPublished() intercepte les erreurs et retourne {content: null}
-      // On ne peut pas distinguer absence de contenu d'erreur réseau ici.
-      // Traiter comme absence de contenu.
+      // Pas de contenu publié (cas valide: jamais publié)
       return { content: null }
     } catch (err) {
-      // En cas d'exception, c'est une vrai erreur
+      // Erreur réelle (réseau, timeout, 404, 403, 500, etc.)
       const message = (err as any)?.message ?? 'Erreur serveur'
       return { content: null, error: message }
     }
@@ -753,8 +750,9 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
         return { ok: false, error: 'Sauvegarde en cours, merci de patienter et de réessayer' }
       }
       
-      // Étape 5 : AVANT suppression du brouillon distant, valider qu'on peut
-      // charger la version publiée (en mode remote auth uniquement)
+      // Étape 5 : AVANT suppression du brouillon distant, valider et mémoriser
+      // la version publiée (en mode remote auth uniquement)
+      let publishedContent: EditableTutorial | null = null
       if (remoteConfigured && isAuthenticated) {
         const published = await loadPublishedOrSource(
           tutorialId,
@@ -767,8 +765,8 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
           isAbandoningRef.current = false
           return { ok: false, error: `Impossible valider version publiée avant suppression: ${published.error}` }
         }
-        // Si aucune version publiée non plus (published.content === null), on accepte
-        // car c'est un cas légitime (jamais publié)
+        // Mémoriser la version validée (content peut être null si jamais publié)
+        publishedContent = published.content
       }
       
       // Étape 6 : Si en mode remote, appeler DELETE /api/draft
@@ -776,17 +774,21 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
         await store.deleteDraft(tutorialId)
       }
       
-      // Étape 7 : DELETE a réussi — charger version publiée (déjà validée) ou source
+      // Étape 7 : DELETE a réussi — utiliser version publiée validée en étape 5
       localStore.clear(tutorialId)
       
-      const published = await loadPublishedOrSource(
-        tutorialId,
-        remoteConfigured,
-        isAuthenticated
-      )
+      // En mode remote auth: utiliser la version mémorisée (déjà validée)
+      // En mode local: charger la source
+      let contentToLoad: EditableTutorial
+      if (remoteConfigured && isAuthenticated) {
+        // Ne jamais faire de fallback hydrate() en mode remote auth
+        contentToLoad = publishedContent ?? ({} as EditableTutorial)
+      } else {
+        // Mode local/non-auth: fallback acceptable
+        contentToLoad = hydrate(tutorialId) ?? ({} as EditableTutorial)
+      }
       
-      // published ne doit pas avoir d'erreur car on a validé en étape 5
-      setTutorial(published.content ?? hydrate(tutorialId) ?? ({} as EditableTutorial))
+      setTutorial(contentToLoad)
       setUndoStack([])
       setIsDirty(false)
       setHasDraft(false)

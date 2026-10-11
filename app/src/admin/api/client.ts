@@ -190,5 +190,19 @@ export const adminApi = {
       // Si l'API n'est pas accessible ou la route n'existe pas, retourner null
       return { content: null }
     }
+  },
+
+  /**
+   * Récupère le contenu publié d'un tutoriel avec gestion d'erreur stricte.
+   * Utilisée en mode admin pour distinguer absence de contenu d'erreur réseau.
+   * 
+   * Laisse les erreurs remonter (AdminApiError) contrairement à getPublished().
+   */
+  async getPublishedStrict(tutorialId: string): Promise<TutorialFetchResponse> {
+    // N'intercepte PAS les erreurs — elles remontent à l'appelant
+    return request<TutorialFetchResponse>(
+      `${API_ROUTES.publishedGet}?tutorialId=${encodeURIComponent(tutorialId)}`,
+      { method: 'GET' }
+    )
   }
 }
