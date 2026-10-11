@@ -1,4 +1,5 @@
 import './HeroSection.css'
+import { assetPath } from '../utils/assetPath'
 
 interface HeroSectionProps {
   backgroundImage?: string
@@ -6,7 +7,7 @@ interface HeroSectionProps {
 }
 
 export default function HeroSection({ 
-  backgroundImage = '/images/content/dragon-arena/16.jpeg',
+  backgroundImage = assetPath('/images/content/dragon-arena/16.jpeg'),
   overlayOpacity = 0.5 
 }: HeroSectionProps) {
   return (

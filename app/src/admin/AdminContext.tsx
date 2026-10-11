@@ -16,6 +16,7 @@ import {
 } from './types'
 import { adminApi, isRemoteConfigured } from './api/client'
 import { getDraftStore } from './persistence'
+import { assetPath } from '../utils/assetPath'
 
 /**
  * ──────────────────────────────────────────────────────────────────────────
@@ -114,9 +115,9 @@ export function createEmptyBlock(type: ContentBlock['type']): EditableBlock {
     case 'text':
       return { ...base, type: 'text', content: 'Nouveau paragraphe à éditer…' }
     case 'image':
-      return { ...base, type: 'image', imagePath: '/images/content/dragon-arena/15.jpeg', alt: 'Image', caption: '' }
+      return { ...base, type: 'image', imagePath: assetPath('/images/content/dragon-arena/15.jpeg'), alt: 'Image', caption: '' }
     case 'hero-image':
-      return { ...base, type: 'hero-image', imagePath: '/images/content/dragon-arena/17.jpeg', alt: 'Image', heading: 'Titre', content: 'Texte superposé', align: 'left', caption: '' }
+      return { ...base, type: 'hero-image', imagePath: assetPath('/images/content/dragon-arena/17.jpeg'), alt: 'Image', heading: 'Titre', content: 'Texte superposé', align: 'left', caption: '' }
     case 'quiz':
       return { ...base, type: 'quiz', question: 'Nouvelle question ?', options: ['Réponse A', 'Réponse B'], correctAnswerIndex: 0, explanation: 'Explication de la bonne réponse.' }
     case 'comparison':
