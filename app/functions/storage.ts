@@ -108,7 +108,7 @@ export class DOStorage implements StorageBackend {
   constructor(private doNamespace: any) {}
 
   async get(tutorialId: string): Promise<DraftData | null> {
-    const doId = this.doNamespace.idFromString(tutorialId)
+    const doId = this.doNamespace.idFromName(tutorialId)
     const stub = this.doNamespace.get(doId)
     return await stub.load()
   }
@@ -118,13 +118,13 @@ export class DOStorage implements StorageBackend {
     content: any,
     baseRevision?: string
   ): Promise<DraftResponse & { revision?: string }> {
-    const doId = this.doNamespace.idFromString(tutorialId)
+    const doId = this.doNamespace.idFromName(tutorialId)
     const stub = this.doNamespace.get(doId)
     return await stub.save({ content, baseRevision })
   }
 
   async delete(tutorialId: string): Promise<{ ok: boolean; error?: string }> {
-    const doId = this.doNamespace.idFromString(tutorialId)
+    const doId = this.doNamespace.idFromName(tutorialId)
     const stub = this.doNamespace.get(doId)
     return stub.delete()
   }
@@ -138,11 +138,19 @@ export function getStorageBackend(env: any): StorageBackend {
   // Par défaut : KV (sécurité et compatibilité)
   const backend = (env.STORAGE_BACKEND ?? 'kv').toLowerCase()
 
-  if (backend === 'do' && env.DRAFTS_DO) {
+  if (backend === 'do') {
+    // DO explicitement demandé
+    if (!env.DRAFTS_DO) {
+      throw new Error(
+        'STORAGE_BACKEND=do configured but DRAFTS_DO binding not found. ' +
+        'Configure the binding in Cloudflare Dashboard → Pages Settings → Functions → Bindings'
+      )
+    }
     console.log('📦 Utilisation du stockage : Durable Objects')
     return new DOStorage(env.DRAFTS_DO)
   }
 
+  // KV par défaut (si STORAGE_BACKEND absent ou = 'kv')
   console.log('📦 Utilisation du stockage : KV (par défaut)')
   return new KVStorage(env.DRAFTS)
 }
