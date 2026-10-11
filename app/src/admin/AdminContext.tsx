@@ -218,6 +218,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       try { await adminApi.logout() } catch { /* ignore */ }
     }
     setIsAuthenticated(false)
+    // Désactiver immédiatement le mode édition après déconnexion
+    setIsAdminMode(false)
   }, [remoteConfigured])
 
   const publish = useCallback(async () => {

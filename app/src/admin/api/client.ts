@@ -28,12 +28,14 @@ export class AdminApiError extends Error {
 
 function apiBase(): string {
   const base = (import.meta.env.VITE_ADMIN_API_BASE as string | undefined) ?? ''
-  return base.replace(/\/$/, '') + '/api' // Ajouter le préfixe /api à la base
+  const cleaned = base.replace(/\/$/, '')
+  return cleaned.length > 0 ? cleaned + '/api' : ''
 }
 
 /** L'admin distante est-elle configurée (URL du Worker fournie) ? */
 export function isRemoteConfigured(): boolean {
-  return apiBase().length > 0
+  const base = (import.meta.env.VITE_ADMIN_API_BASE as string | undefined) ?? ''
+  return base.trim().length > 0
 }
 
 async function request<T>(
@@ -159,5 +161,18 @@ export const adminApi = {
       method: 'POST',
       body: JSON.stringify({ tutorialId, revision })
     })
+  },
+
+  /** Récupère le contenu publié d'un tutoriel (accessible sans authentification). */
+  async getPublished(tutorialId: string): Promise<TutorialFetchResponse> {
+    try {
+      return await request<TutorialFetchResponse>(
+        `${API_ROUTES.publishedGet}?tutorialId=${encodeURIComponent(tutorialId)}`,
+        { method: 'GET' }
+      )
+    } catch {
+      // Si l'API n'est pas accessible ou la route n'existe pas, retourner null
+      return { content: null }
+    }
   }
 }

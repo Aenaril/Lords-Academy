@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { dragonArenaTutorial, Tutorial } from '../data/tutorials'
 import ContentBlockComponent from '../components/ContentBlock'
 import { useAdmin } from '../admin/AdminContext'
+import { adminApi } from '../admin/api/client'
 import type { EditableSection } from '../admin/types'
 import EditableBlockWrapper from '../admin/EditableBlockWrapper'
 import AddBlockBar from '../admin/AddBlockBar'
@@ -16,7 +17,19 @@ interface TutorialPageProps {
 export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageProps) {
   const { isAdminMode, isPreview, tutorial: editableTutorial, updateSectionTitle } = useAdmin()
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0)
+  const [publishedTutorial, setPublishedTutorial] = useState<Tutorial | null>(null)
   const sectionHeaderRef = useRef<HTMLDivElement>(null)
+
+  // Charger le tutoriel publié depuis GitHub (si disponible)
+  useEffect(() => {
+    if (tutorialId === 'dragon-arena') {
+      adminApi.getPublished('dragon-arena').then((res) => {
+        if (res.content) {
+          setPublishedTutorial(res.content as Tutorial)
+        }
+      })
+    }
+  }, [tutorialId])
 
   // Scroll vers le haut + fade in smooth lors du changement de section
   useEffect(() => {
@@ -26,11 +39,16 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
     }
   }, [currentSectionIndex])
 
-  // Source de vérité : pour Dragon Arena, on lit le store admin éditable.
-  // Les autres tutoriels resteront sur leurs données statiques (non implémentés).
+  // Source de vérité : Dragon Arena peut venir de trois sources :
+  // 1. Brouillon en édition (editableTutorial, si connecté en admin)
+  // 2. Version publiée sur GitHub (publishedTutorial)
+  // 3. Fallback statique (dragonArenaTutorial)
   const tutorial: Tutorial | undefined =
-    tutorialId === 'dragon-arena' ? editableTutorial : undefined
-  // Fallback défensif si le store est vide (ne devrait pas arriver).
+    tutorialId === 'dragon-arena'
+      ? isAdminMode && editableTutorial
+        ? editableTutorial
+        : publishedTutorial ?? dragonArenaTutorial
+      : undefined
   const fallback = tutorialId === 'dragon-arena' ? dragonArenaTutorial : undefined
 
   const resolved = tutorial ?? fallback

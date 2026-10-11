@@ -64,6 +64,12 @@ export const onRequest: PagesFunction = async (context) => {
       case 'POST /api/publish':
         response = await handlePublish(request, env as any)
         break
+      case 'POST /api/upload':
+        response = await handleUpload(request, env as any)
+        break
+      case 'GET /api/published':
+        response = await handleGetPublished(request, env as any, url)
+        break
       case 'GET /api/history':
         response = await handleHistory(request, env as any, url)
         break
@@ -91,7 +97,7 @@ async function handleLogin(req: Request, env: any): Promise<Response> {
 
   const ip = req.headers.get('CF-Connecting-IP') ?? 'unknown'
   const rateKey = `login:${ip}`
-  const attempts = Number((await env.DRAFTS.get(rateKey)) ?? '0')
+  const attempts = Number((await env.RATE.get(rateKey)) ?? '0')
   
   const LOGIN_MAX = 5
   const LOGIN_WINDOW = 15 * 60
@@ -226,6 +232,93 @@ async function handlePublish(req: Request, env: any): Promise<Response> {
   if (!commit.ok) return json({ ok: false, error: 'Échec publication' }, 502)
   const result = (await commit.json()) as any
   return json({ ok: true, revision: result.content?.sha })
+}
+
+/* ───────────────────────── Upload d'images (GitHub) ───────────────────────── */
+
+async function handleUpload(req: Request, env: any): Promise<Response> {
+  if (!originAllowed(req, env)) return json({ error: 'Origine refusée' }, 403)
+  if (!csrfOk(req)) return json({ error: 'CSRF' }, 403)
+  if (!(await readSession(req, env))) return json({ error: 'Non authentifié' }, 401)
+
+  const formData = await req.formData().catch(() => null)
+  if (!formData) return json({ ok: false, error: 'FormData invalide' }, 400)
+
+  const file = formData.get('file') as File | null
+  if (!file) return json({ ok: false, error: 'Fichier manquant' }, 400)
+
+  // Vérifier le type MIME
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+  if (!allowedTypes.includes(file.type)) {
+    return json({ ok: false, error: 'Type d\'image non supporté' }, 400)
+  }
+
+  // Vérifier la taille (3 Mo max)
+  const maxSize = 3 * 1024 * 1024
+  if (file.size > maxSize) {
+    return json({ ok: false, error: 'Fichier trop volumineux' }, 400)
+  }
+
+  const bytes = await file.arrayBuffer()
+  const base64 = btoa(String.fromCharCode(...new Uint8Array(bytes)))
+  const ext = file.name.split('.').pop() || 'png'
+  const filename = `image-${Date.now()}.${ext}`
+  const path = `app/public/images/${filename}`
+
+  const headers = {
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    'User-Agent': 'lma-pages-function',
+    Accept: 'application/vnd.github+json'
+  }
+
+  const apiBase = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}`
+  const commitRes = await fetch(apiBase, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({
+      message: `Upload image ${filename} (R4) — ${new Date().toISOString()}`,
+      content: base64,
+      branch: env.GITHUB_BRANCH
+    })
+  })
+
+  if (!commitRes.ok) {
+    return json({ ok: false, error: 'Échec upload' }, 502)
+  }
+
+  // Retourner l'URL publique de l'image
+  const imageUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${path}`
+  return json({ ok: true, url: imageUrl })
+}
+
+/* ───────────────────────── Contenu publié (GitHub) ───────────────────────── */
+
+async function handleGetPublished(
+  req: Request,
+  env: any,
+  url: URL
+): Promise<Response> {
+  // Route publique : pas d'authentification requise
+  const tutorialId = sanitizeId(url.searchParams.get('tutorialId'))
+  if (!tutorialId) return json({ error: 'tutorialId invalide' }, 400)
+
+  const path = contentPath(tutorialId)
+  const api = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${path}`
+  const res = await fetch(api)
+
+  if (!res.ok) {
+    // Pas de contenu publié encore
+    return json({ content: null })
+  }
+
+  let content: unknown = null
+  try {
+    content = await res.json()
+  } catch {
+    content = null
+  }
+
+  return json({ content, revision: 'published' })
 }
 
 /* ───────────────────────── Historique & restauration (GitHub) ───────────────────────── */
