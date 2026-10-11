@@ -12,10 +12,10 @@ name = "DRAFTS_DO"
 class_name = "DraftsDoClass"
 script_name = "lma-drafts-worker"
 
-# Migrations — crée la classe DO au déploiement
+# Migrations — crée la classe DO avec SQLite au déploiement
 [[migrations]]
 tag = "v1"
-new_classes = ["DraftsDoClass"]
+new_sqlite_classes = ["DraftsDoClass"]
 
 # Environnements
 [env.production]
