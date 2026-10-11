@@ -303,30 +303,61 @@ async function handleGetPublished(
   if (!tutorialId) return json({ error: 'tutorialId invalide' }, 400)
 
   const path = contentPath(tutorialId)
-  const api = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${path}`
-  const res = await fetch(api)
-
+  
   // Headers stricts pour empêcher la mise en cache du contenu obsolète
-  // Workbox runtimeCaching + client cache: 'no-store' + ces headers = fraîcheur garantie
   const cacheHeaders = {
     'Cache-Control': 'no-cache, max-age=0, must-revalidate',
     'Pragma': 'no-cache',
     'Expires': '0'
   }
 
-  if (!res.ok) {
-    // Pas de contenu publié encore
+  try {
+    // Étape 1 : Obtenir le SHA courant du fichier via l'API GitHub (authentifiée)
+    // Cela force Cloudflare à revalider auprès de GitHub
+    const apiUrl = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}?ref=${env.GITHUB_BRANCH}`
+    const apiRes = await fetch(apiUrl, {
+      headers: ghHeaders(env),
+      // Force la revalidation à chaque fois
+      cache: 'no-store'
+    })
+
+    let sha: string | undefined
+    if (apiRes.ok) {
+      const data = (await apiRes.json()) as any
+      sha = data.sha
+    }
+
+    // Étape 2 : Récupérer le contenu publié
+    // Utiliser le SHA comme cache-bust pour éviter le cache Cloudflare
+    let rawUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${path}`
+    if (sha) {
+      // Ajouter le SHA en paramètre pour garantir une URL unique par version
+      rawUrl += `?v=${sha}`
+    } else {
+      // Fallback : utiliser un timestamp si le SHA n'est pas disponible
+      rawUrl += `?t=${Date.now()}`
+    }
+
+    const res = await fetch(rawUrl, { cache: 'no-store' })
+
+    if (!res.ok) {
+      // Pas de contenu publié
+      return json({ content: null }, 200, cacheHeaders)
+    }
+
+    let content: unknown = null
+    try {
+      content = await res.json()
+    } catch {
+      content = null
+    }
+
+    return json({ content, revision: sha || 'published' }, 200, cacheHeaders)
+  } catch (err) {
+    // Erreur lors de la récupération : retourner null au lieu de servir une ancienne version
+    console.error('Error fetching published content:', err)
     return json({ content: null }, 200, cacheHeaders)
   }
-
-  let content: unknown = null
-  try {
-    content = await res.json()
-  } catch {
-    content = null
-  }
-
-  return json({ content, revision: 'published' }, 200, cacheHeaders)
 }
 
 /* ───────────────────────── Historique & restauration (GitHub) ───────────────────────── */
