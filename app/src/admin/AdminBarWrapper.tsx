@@ -1,22 +1,31 @@
+import { useMemo } from 'react'
 import AdminBar from './AdminBar'
+import { isRemoteConfigured } from './api/client'
 
 /**
  * Wrapper conditionnel pour AdminBar.
  * 
- * - En développement (local) : Affiche AdminBar pour éditer en mode démo.
- * - En production (GitHub Pages) : AdminBar est masqué.
+ * - En développement (local, DEV=true) : AdminBar toujours visible pour éditer.
+ * - En production (DEV=false) :
+ *   - Si API distante configurée (VITE_ADMIN_API_BASE non-vide) : AdminBar visible
+ *     (les visiteurs sans session voient le formulaire de connexion)
+ *   - Sinon : AdminBar masqué
  * 
- * L'architecture admin reste fonctionnelle pour permettre l'authentification
- * sécurisée lorsque le Worker Cloudflare sera configuré.
- * 
- * Les visiteurs voient uniquement le contenu pédagogique ; l'authentification
- * passera par le Worker (par exemple en détectant une clé admin en cookie)
- * sans exposer de boutons au navigateur.
+ * L'interface de connexion sécurisée (mot de passe + cookie HttpOnly) reste
+ * invisible jusqu'à ce qu'un R4 authentifié le souhaite.
  */
 export default function AdminBarWrapper() {
-  // import.meta.env.DEV est true en local, false en production (GitHub Pages)
-  if (!import.meta.env.DEV) {
+  const remoteAvailable = useMemo(() => isRemoteConfigured(), [])
+  
+  // En développement : toujours afficher
+  if (import.meta.env.DEV) {
+    return <AdminBar />
+  }
+  
+  // En production : afficher uniquement si API distante configurée
+  if (!remoteAvailable) {
     return null
   }
+  
   return <AdminBar />
 }

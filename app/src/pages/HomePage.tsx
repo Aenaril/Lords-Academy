@@ -111,6 +111,20 @@ export default function HomePage({ onSelectTutorial }: HomePageProps) {
           <p className="footer-note">
             Inspiré par la communauté Lords Mobile. Aucun lien avec IGG Games.
           </p>
+          <p className="footer-admin">
+            <small>
+              R4 ? <button 
+                className="footer-admin__btn"
+                onClick={() => {
+                  const btn = document.querySelector('.admin-bar__toggle') as HTMLButtonElement
+                  btn?.click()
+                }}
+                title="Ouvrir le panneau d'administration"
+              >
+                Accès administration
+              </button>
+            </small>
+          </p>
         </div>
       </footer>
     </div>
