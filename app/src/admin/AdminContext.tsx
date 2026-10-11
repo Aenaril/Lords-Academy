@@ -13,6 +13,7 @@ import { getTutorialById } from '../data/registry'
 import {
   makeUid,
   type EditableBlock,
+  type EditableSection,
   type EditableTutorial
 } from './types'
 import { adminApi, isRemoteConfigured } from './api/client'
@@ -201,6 +202,10 @@ interface AdminContextValue {
   updateSectionTitle: (sectionUid: string, title: string) => void
   updateSectionBackground: (sectionUid: string, backgroundImage: string | undefined) => void
   updateSectionBackgroundDisplay: (sectionUid: string, display: ImageDisplaySettings) => void
+  addSection: (afterSectionUid?: string) => void
+  removeSection: (sectionUid: string) => void
+  duplicateSection: (sectionUid: string) => void
+  moveSection: (sectionUid: string, direction: -1 | 1) => void
   /* Mutations — métadonnées du tutoriel */
   updateTutorialMeta: (patch: Partial<Pick<EditableTutorial, 'title' | 'description' | 'difficulty' | 'estimatedDuration' | 'coverIcon'>>) => void
   /* Session — distinction claire des 3 actions */
@@ -690,6 +695,81 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     [mutate]
   )
 
+  /* ─── Mutations section management ─── */
+  const addSection = useCallback(
+    (afterSectionUid?: string) => {
+      mutate((prev) => {
+        const newSection: EditableSection = {
+          id: crypto.randomUUID(),
+          _uid: makeUid('s'),
+          title: 'Nouvelle section',
+          sourceSlide: 0,
+          sourceTitle: 'Source',
+          blocks: []
+        }
+        const sections = [...prev.sections]
+        if (afterSectionUid) {
+          const idx = sections.findIndex((s) => s._uid === afterSectionUid)
+          if (idx >= 0) {
+            sections.splice(idx + 1, 0, newSection)
+            return { ...prev, sections }
+          }
+        }
+        sections.push(newSection)
+        return { ...prev, sections }
+      })
+    },
+    [mutate]
+  )
+
+  const removeSection = useCallback(
+    (sectionUid: string) => {
+      mutate((prev) => ({
+        ...prev,
+        sections: prev.sections.filter((s) => s._uid !== sectionUid)
+      }))
+    },
+    [mutate]
+  )
+
+  const duplicateSection = useCallback(
+    (sectionUid: string) => {
+      mutate((prev) => {
+        const sections = [...prev.sections]
+        const idx = sections.findIndex((s) => s._uid === sectionUid)
+        if (idx < 0) return prev
+        
+        const source = sections[idx]
+        const clone: EditableSection = {
+          ...structuredClone(source),
+          id: crypto.randomUUID(),
+          _uid: makeUid('s'),
+          blocks: source.blocks.map((b) => ({
+            ...structuredClone(b),
+            _uid: makeUid('b')
+          }))
+        }
+        sections.splice(idx + 1, 0, clone)
+        return { ...prev, sections }
+      })
+    },
+    [mutate]
+  )
+
+  const moveSection = useCallback(
+    (sectionUid: string, direction: -1 | 1) => {
+      mutate((prev) => {
+        const sections = [...prev.sections]
+        const i = sections.findIndex((s) => s._uid === sectionUid)
+        const j = i + direction
+        if (i < 0 || j < 0 || j >= sections.length) return prev
+        ;[sections[i], sections[j]] = [sections[j], sections[i]]
+        return { ...prev, sections }
+      })
+    },
+    [mutate]
+  )
+
   /* ─── Action 1 : Annuler la dernière modification ─── */
   const undoLastChange = useCallback(() => {
     setUndoStack((stack) => {
@@ -895,6 +975,10 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       updateSectionTitle,
       updateSectionBackground,
       updateSectionBackgroundDisplay,
+      addSection,
+      removeSection,
+      duplicateSection,
+      moveSection,
       updateTutorialMeta,
       undoLastChange,
       canUndo: undoStack.length > 0,
@@ -932,6 +1016,10 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       updateSectionTitle,
       updateSectionBackground,
       updateSectionBackgroundDisplay,
+      addSection,
+      removeSection,
+      duplicateSection,
+      moveSection,
       updateTutorialMeta,
       undoLastChange,
       undoStack.length,

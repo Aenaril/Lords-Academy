@@ -16,7 +16,7 @@ interface TutorialPageProps {
 }
 
 export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageProps) {
-  const { isAdminMode, isPreview, tutorial: editableTutorial, updateSectionTitle } = useAdmin()
+  const { isAdminMode, isPreview, tutorial: editableTutorial, updateSectionTitle, addSection, removeSection, duplicateSection, moveSection } = useAdmin()
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0)
   const [publishedTutorial, setPublishedTutorial] = useState<Tutorial | null>(null)
   const sectionHeaderRef = useRef<HTMLDivElement>(null)
@@ -158,6 +158,55 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
                   onChange={(e) => updateSectionTitle(sectionUid!, e.target.value)}
                   aria-label="Titre de la section"
                 />
+                {/* Section action buttons */}
+                <div className="section-actions">
+                  <button
+                    className="btn btn-small btn-secondary"
+                    onClick={() => addSection(sectionUid)}
+                    title="Ajouter une section après celle-ci"
+                  >
+                    ➕
+                  </button>
+                  <button
+                    className="btn btn-small btn-secondary"
+                    onClick={() => duplicateSection(sectionUid)}
+                    title="Dupliquer cette section"
+                  >
+                    📋
+                  </button>
+                  <button
+                    className="btn btn-small btn-secondary"
+                    onClick={() => {
+                      if (sections.length > 1 && window.confirm(`Êtes-vous sûr de vouloir supprimer la section "${currentSection.title}" ? Cette action est irréversible.`)) {
+                        removeSection(sectionUid)
+                        // Ajuster l'index si nécessaire
+                        if (currentSectionIndex >= sections.length - 1) {
+                          setCurrentSectionIndex(Math.max(0, sections.length - 2))
+                        }
+                      }
+                    }}
+                    title="Supprimer cette section"
+                    disabled={sections.length <= 1}
+                  >
+                    🗑️
+                  </button>
+                  <button
+                    className="btn btn-small btn-secondary"
+                    onClick={() => moveSection(sectionUid, -1)}
+                    title="Déplacer vers le haut"
+                    disabled={currentSectionIndex === 0}
+                  >
+                    ▲
+                  </button>
+                  <button
+                    className="btn btn-small btn-secondary"
+                    onClick={() => moveSection(sectionUid, 1)}
+                    title="Déplacer vers le bas"
+                    disabled={currentSectionIndex >= sections.length - 1}
+                  >
+                    ▼
+                  </button>
+                </div>
               </div>
             ) : (
               <h1>{currentSection.title}</h1>
