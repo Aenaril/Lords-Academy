@@ -4,7 +4,7 @@
  * Adaptation du Worker existant pour Pages Functions.
  * Gère les routes `/api/*` de l'administration R4 :
  *  - Authentification par mot de passe partagé
- *  - Brouillons privés (KV)
+ *  - Brouillons privés (KV ou Durable Objects)
  *  - Publication via GitHub (commits)
  *  - Historique et restauration
  * 
@@ -14,14 +14,17 @@
  *  - GITHUB_TOKEN
  * 
  * Bindings (wrangler.toml) :
- *  - DRAFTS : KV Namespace
- *  - RATE : KV Namespace
+ *  - DRAFTS : KV Namespace (par défaut)
+ *  - DRAFTS_DO : Durable Objects (optionnel, futur)
  * 
  * Vars (wrangler.toml) :
  *  - ALLOWED_ORIGIN
  *  - GITHUB_REPO
  *  - GITHUB_BRANCH
+ *  - STORAGE_BACKEND : "kv" (défaut) ou "do"
  */
+
+import { getStorageBackend } from './storage'
 
 export const onRequest: PagesFunction = async (context) => {
   const { request, env, params } = context
@@ -144,7 +147,7 @@ async function handleSession(req: Request, env: any): Promise<Response> {
   return json({ authenticated: !!session, expiresAt: session?.expiresAt })
 }
 
-/* ───────────────────────── Brouillons (KV privé) ───────────────────────── */
+/* ───────────────────────── Brouillons (stockage abstrait) ───────────────────────── */
 
 async function handleGetDraft(
   req: Request,
@@ -155,14 +158,15 @@ async function handleGetDraft(
   const tutorialId = sanitizeId(url.searchParams.get('tutorialId'))
   if (!tutorialId) return json({ error: 'tutorialId invalide' }, 400)
 
-  const raw = await env.DRAFTS.get(`draft:${tutorialId}`)
-  if (!raw) return json({ content: null })
-  const parsed = JSON.parse(raw)
+  const storage = getStorageBackend(env)
+  const draft = await storage.get(tutorialId)
+
+  if (!draft) return json({ content: null })
   return json({
-    content: parsed.content,
-    revision: parsed.revision,
-    lastEditedLabel: parsed.lastEditedLabel,
-    updatedAt: parsed.updatedAt
+    content: draft.content,
+    revision: draft.revision,
+    lastEditedLabel: draft.lastEditedLabel,
+    updatedAt: draft.updatedAt,
   })
 }
 
@@ -177,40 +181,16 @@ async function handleSaveDraft(req: Request, env: any): Promise<Response> {
     return json({ ok: false, error: 'Données invalides' }, 400)
   }
 
-  // CORRECTION : Vérifier si baseRevision (revision du brouillon KV client) match celui du serveur
-  // Cela protège contre l'écrasement silencieux par un autre R4 ou session concurrente
-  if (body.baseRevision) {
-    const existing = await env.DRAFTS.get(`draft:${tutorialId}`)
-    if (existing) {
-      const existingData = JSON.parse(existing)
-      const serverRevision = existingData.revision
-      if (body.baseRevision !== serverRevision) {
-        // Conflit : le brouillon a été modifié par un autre
-        return json({
-          ok: false,
-          conflict: true,
-          serverRevision,
-          message: 'Le brouillon a été modifié par un autre administrateur. Rechargez avant de réessayer.'
-        }, 409)
-      }
-    }
-    // Sinon : baseRevision était fourni mais aucun brouillon n'existe → créer
+  const storage = getStorageBackend(env)
+  const result = await storage.save(tutorialId, body.content, body.baseRevision)
+
+  if (!result.ok) {
+    return json(result, result.conflict ? 409 : 500)
   }
 
-  const revision = crypto.randomUUID()
-  await env.DRAFTS.put(
-    `draft:${tutorialId}`,
-    JSON.stringify({
-      content: body.content,
-      revision,
-      updatedAt: Date.now(),
-      lastEditedLabel: 'R4'
-    })
-  )
-  return json({ ok: true, revision })
+  return json({ ok: true, revision: result.revision })
 }
 
-/** CORRECTION: Nouveau handler pour supprimer le brouillon distant (KV). */
 async function handleDeleteDraft(
   req: Request,
   env: any,
@@ -223,8 +203,13 @@ async function handleDeleteDraft(
   const tutorialId = sanitizeId(url.searchParams.get('tutorialId'))
   if (!tutorialId) return json({ error: 'tutorialId invalide' }, 400)
 
-  // Supprimer la clé KV du brouillon
-  await env.DRAFTS.delete(`draft:${tutorialId}`)
+  const storage = getStorageBackend(env)
+  const result = await storage.delete(tutorialId)
+
+  if (!result.ok) {
+    return json(result, 500)
+  }
+
   return json({ ok: true })
 }
 
