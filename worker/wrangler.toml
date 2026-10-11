@@ -5,6 +5,7 @@ name = "lma-drafts-worker"
 main = "dist/index.js"
 compatibility_date = "2024-10-01"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = false
 
 # Durable Objects binding
 [[durable_objects.bindings]]

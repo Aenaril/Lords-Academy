@@ -132,25 +132,23 @@ export class DOStorage implements StorageBackend {
 
 /**
  * Factory pour obtenir le backend de stockage actif
+ * 
+ * Sélection intelligente :
+ * - tutorialId === "test-do-validation" → Durable Objects (si disponible)
+ * - Tous les autres → KV (défaut)
  */
-export function getStorageBackend(env: any): StorageBackend {
-  // Sélection par variable d'environnement
-  // Par défaut : KV (sécurité et compatibilité)
-  const backend = (env.STORAGE_BACKEND ?? 'kv').toLowerCase()
-
-  if (backend === 'do') {
-    // DO explicitement demandé
-    if (!env.DRAFTS_DO) {
-      throw new Error(
-        'STORAGE_BACKEND=do configured but DRAFTS_DO binding not found. ' +
-        'Configure the binding in Cloudflare Dashboard → Pages Settings → Functions → Bindings'
-      )
-    }
-    console.log('📦 Utilisation du stockage : Durable Objects')
+export function getStorageBackend(env: any, tutorialId?: string): StorageBackend {
+  // Sélection par tutorialId pour test contrôlé de Durable Objects
+  if (tutorialId === 'test-do-validation' && env.DRAFTS_DO) {
+    console.log(`📦 [${tutorialId}] Utilisation : Durable Objects (test)`)
     return new DOStorage(env.DRAFTS_DO)
   }
 
-  // KV par défaut (si STORAGE_BACKEND absent ou = 'kv')
-  console.log('📦 Utilisation du stockage : KV (par défaut)')
+  // Pour tous les autres tutoriels ou si DO non disponible : KV
+  if (tutorialId) {
+    console.log(`📦 [${tutorialId}] Utilisation : KV (défaut)`)
+  } else {
+    console.log('📦 Utilisation du stockage : KV (par défaut)')
+  }
   return new KVStorage(env.DRAFTS)
 }

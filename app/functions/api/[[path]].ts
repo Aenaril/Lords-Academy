@@ -158,7 +158,7 @@ async function handleGetDraft(
   const tutorialId = sanitizeId(url.searchParams.get('tutorialId'))
   if (!tutorialId) return json({ error: 'tutorialId invalide' }, 400)
 
-  const storage = getStorageBackend(env)
+  const storage = getStorageBackend(env, tutorialId)
   const draft = await storage.get(tutorialId)
 
   if (!draft) return json({ content: null })
@@ -181,7 +181,7 @@ async function handleSaveDraft(req: Request, env: any): Promise<Response> {
     return json({ ok: false, error: 'Données invalides' }, 400)
   }
 
-  const storage = getStorageBackend(env)
+  const storage = getStorageBackend(env, tutorialId)
   const result = await storage.save(tutorialId, body.content, body.baseRevision)
 
   if (!result.ok) {
@@ -203,7 +203,7 @@ async function handleDeleteDraft(
   const tutorialId = sanitizeId(url.searchParams.get('tutorialId'))
   if (!tutorialId) return json({ error: 'tutorialId invalide' }, 400)
 
-  const storage = getStorageBackend(env)
+  const storage = getStorageBackend(env, tutorialId)
   const result = await storage.delete(tutorialId)
 
   if (!result.ok) {
