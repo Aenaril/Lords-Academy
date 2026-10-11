@@ -18,6 +18,7 @@ export default function AdminBar() {
     isPreview,
     setPreview,
     isDirty,
+    hasDraft, // NOUVEAU : Ajouter hasDraft
     canUndo,
     undoLastChange,
     discardDraft,
@@ -122,7 +123,7 @@ export default function AdminBar() {
             <button
               className="admin-bar__btn admin-bar__btn--reset"
               onClick={handleDiscard}
-              disabled={!isDirty}
+              disabled={!isDirty && !hasDraft} // CORRIGÉ : Activer si modifications locales OU brouillon existe
               title="Abandonner l'intégralité du brouillon (local et distant si sécurisé)"
             >
               🗑 Abandonner le brouillon
@@ -158,7 +159,7 @@ export default function AdminBar() {
             )}
 
             <span className="admin-bar__status">
-              {isDirty ? '● Brouillon non publié' : '○ Aucune modification'}
+              {isDirty ? '● Modifications en cours' : (hasDraft ? '● Brouillon enregistré' : '○ Aucune modification')}
             </span>
 
             <span className="admin-bar__warn">

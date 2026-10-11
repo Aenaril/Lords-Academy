@@ -142,6 +142,8 @@ interface AdminContextValue {
   tutorial: EditableTutorial
   /** Des modifications locales existent-elles ? */
   isDirty: boolean
+  /** Un brouillon existe-t-il réellement sur le serveur (ou en local) ? */
+  hasDraft: boolean
   /* Mutations — blocs */
   updateBlock: (sectionUid: string, blockUid: string, patch: Partial<EditableBlock>) => void
   addBlock: (sectionUid: string, type: ContentBlock['type'], afterBlockUid?: string) => void
@@ -186,6 +188,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
   const [isAdminMode, setIsAdminMode] = useState(false)
   const [isPreview, setIsPreview] = useState(false)
   const [isDirty, setIsDirty] = useState(false)
+  const [hasDraft, setHasDraft] = useState(false) // NOUVEAU : Un brouillon existe réellement (distant ou local)
   const [tutorial, setTutorial] = useState<EditableTutorial>(() => {
     return hydrate(tutorialId) ?? ({} as EditableTutorial)
   })
@@ -225,6 +228,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     setIsPreview(false)
     setUndoStack([])
     setIsDirty(false)
+    setHasDraft(false) // NOUVEAU : Réinitialiser hasDraft au changement de tutoriel
     draftRevision.current = undefined
     publishedRevision.current = undefined
 
@@ -253,6 +257,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
           const hydrated = hydrate(tutorialId)
           if (!cancelled) {
             setTutorial(hydrated ?? ({} as EditableTutorial))
+            setHasDraft(false) // NOUVEAU : Aucun brouillon en mode démo
             setIsDirty(false)
           }
           return
@@ -268,11 +273,13 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
         if (result.content) {
           setTutorial(result.content)
           draftRevision.current = result.revision
+          setHasDraft(true) // NOUVEAU : Un brouillon a été chargé
           setIsDirty(false)
         } else {
           // Pas de brouillon, charger la source
           const hydrated = hydrate(tutorialId)
           setTutorial(hydrated ?? ({} as EditableTutorial))
+          setHasDraft(false) // NOUVEAU : Aucun brouillon
           setIsDirty(false)
         }
       } catch (err) {
@@ -442,6 +449,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       
       if (result.revision) {
         draftRevision.current = result.revision
+        setHasDraft(true) // NOUVEAU : La sauvegarde a créé/mis à jour le brouillon
       }
     } catch (err) {
       console.error(`Erreur sauvegarde brouillon ${tutorialId}:`, err)
@@ -616,13 +624,14 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     setTutorial(hydrated ?? ({} as EditableTutorial))
     setUndoStack([])
     setIsDirty(false)
+    setHasDraft(false) // NOUVEAU : Le brouillon a été abandonné
     setIsPreview(false)
     draftRevision.current = undefined
   }, [tutorialId])
 
   /* ─── Action 2b : Abandonner brouillon distant (avec confirmation) ─── */
   const discardDraftAsync = useCallback(async () => {
-    // CORRECTION: Supprimer aussi le brouillon distant (KV) après confirmation
+    // CORRECTION: Supprimer aussi le brouillon distant (DO) après confirmation
     // Cette fonction est async et supporte le mode remote.
     
     // Étape 1 : Confirmation utilisateur
@@ -632,16 +641,23 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     if (!confirmed) return
 
     try {
-      // Étape 2 : Supprimer localement d'abord
+      // Étape 2 : Annuler toute sauvegarde en attente ou en cours
+      // pour éviter une recréation du brouillon après sa suppression
+      if (saveQueueRef.current) clearTimeout(saveQueueRef.current)
+      pendingModificationRef.current = null
+      
+      // Étape 3 : Effacer l'état local AVANT l'appel DELETE distant
+      // (pour éviter qu'une sauvegarde tardive recrée le brouillon)
       localStore.clear(tutorialId)
       const hydrated = hydrate(tutorialId)
       setTutorial(hydrated ?? ({} as EditableTutorial))
       setUndoStack([])
       setIsDirty(false)
+      setHasDraft(false) // NOUVEAU : Le brouillon a été abandonné
       setIsPreview(false)
       draftRevision.current = undefined
 
-      // Étape 3 : Si en mode remote, appeler DELETE /api/draft (côté backend)
+      // Étape 4 : Si en mode remote, appeler DELETE /api/draft (côté backend DO)
       if (store.mode === 'remote' && store.deleteDraft) {
         await store.deleteDraft(tutorialId)
       }
@@ -725,6 +741,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       setPreview: setIsPreview,
       tutorial,
       isDirty,
+      hasDraft, // NOUVEAU : Exposer hasDraft au contexte
       updateBlock,
       addBlock,
       removeBlock,
