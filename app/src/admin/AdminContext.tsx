@@ -8,7 +8,8 @@ import {
   useState,
   type ReactNode
 } from 'react'
-import { dragonArenaTutorial, type ContentBlock, type ImageDisplaySettings } from '../data/tutorials'
+import { type ContentBlock, type ImageDisplaySettings } from '../data/tutorials'
+import { getTutorialById } from '../data/registry'
 import {
   makeUid,
   type EditableBlock,
@@ -34,8 +35,8 @@ import { createEmptyBlockSeed } from '../blocks/registry'
  * les composants d'édition.
  */
 
-const STORAGE_KEY = 'lma.r4.dragon-arena.draft.v1'
-const VERSIONS_KEY = 'lma.r4.dragon-arena.versions.v1'
+const STORAGE_KEY = (id: string) => `lma.r4.${id}.draft.v1`
+const VERSIONS_KEY = (id: string) => `lma.r4.${id}.versions.v1`
 const MAX_VERSIONS = 10
 
 /** Une version sauvegardée (restaurable). */
@@ -48,47 +49,47 @@ export interface SavedVersion {
 
 /* ─── Abstraction de persistance (remplaçable par un backend sécurisé) ─── */
 export interface TutorialPersistence {
-  load(): EditableTutorial | null
-  save(tutorial: EditableTutorial): void
-  clear(): void
-  loadVersions(): SavedVersion[]
-  saveVersions(versions: SavedVersion[]): void
+  load(tutorialId: string): EditableTutorial | null
+  save(tutorialId: string, tutorial: EditableTutorial): void
+  clear(tutorialId: string): void
+  loadVersions(tutorialId: string): SavedVersion[]
+  saveVersions(tutorialId: string, versions: SavedVersion[]): void
 }
 
 const localStoragePersistence: TutorialPersistence = {
-  load() {
+  load(tutorialId) {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY)
+      const raw = localStorage.getItem(STORAGE_KEY(tutorialId))
       return raw ? (JSON.parse(raw) as EditableTutorial) : null
     } catch {
       return null
     }
   },
-  save(tutorial) {
+  save(tutorialId, tutorial) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(tutorial))
+      localStorage.setItem(STORAGE_KEY(tutorialId), JSON.stringify(tutorial))
     } catch {
       /* quota ou mode privé : on ignore silencieusement en démo */
     }
   },
-  clear() {
+  clear(tutorialId) {
     try {
-      localStorage.removeItem(STORAGE_KEY)
+      localStorage.removeItem(STORAGE_KEY(tutorialId))
     } catch {
       /* ignore */
     }
   },
-  loadVersions() {
+  loadVersions(tutorialId) {
     try {
-      const raw = localStorage.getItem(VERSIONS_KEY)
+      const raw = localStorage.getItem(VERSIONS_KEY(tutorialId))
       return raw ? (JSON.parse(raw) as SavedVersion[]) : []
     } catch {
       return []
     }
   },
-  saveVersions(versions) {
+  saveVersions(tutorialId, versions) {
     try {
-      localStorage.setItem(VERSIONS_KEY, JSON.stringify(versions))
+      localStorage.setItem(VERSIONS_KEY(tutorialId), JSON.stringify(versions))
     } catch {
       /* ignore */
     }
@@ -96,8 +97,16 @@ const localStoragePersistence: TutorialPersistence = {
 }
 
 /* ─── Hydratation : ajoute des _uid stables sans toucher aux données source ─── */
-function hydrate(): EditableTutorial {
-  const t = structuredClone(dragonArenaTutorial)
+/**
+ * Initialise un tutoriel éditable à partir de sa source
+ * @param tutorialId identifiant du tutoriel
+ * @returns tutoriel avec UIDs générés pour les sections et blocs, ou null si le tutoriel n'existe pas
+ */
+function hydrate(tutorialId: string): EditableTutorial | null {
+  const source = getTutorialById(tutorialId)
+  if (!source) return null
+  
+  const t = structuredClone(source)
   return {
     ...t,
     sections: (t.sections ?? []).map((s) => ({
@@ -169,20 +178,20 @@ interface AdminContextValue {
 
 const AdminContext = createContext<AdminContextValue | null>(null)
 
-export function AdminProvider({ children }: { children: ReactNode }) {
+export function AdminProvider({ children, tutorialId }: { children: ReactNode; tutorialId: string }) {
   const persistence = useRef<TutorialPersistence>(localStoragePersistence)
   const [isAdminMode, setIsAdminMode] = useState(false)
   const [isPreview, setIsPreview] = useState(false)
-  const [isDirty, setIsDirty] = useState(() => persistence.current.load() !== null)
+  const [isDirty, setIsDirty] = useState(() => persistence.current.load(tutorialId) !== null)
   const [tutorial, setTutorial] = useState<EditableTutorial>(() => {
-    return persistence.current.load() ?? hydrate()
+    return persistence.current.load(tutorialId) ?? hydrate(tutorialId) ?? ({} as EditableTutorial)
   })
   // État pour la modale d'accueil (choisir : démo ou connexion)
   const [showAdminModeModal, setShowAdminModeModal] = useState(false)
   // Pile d'annulation (snapshots avant chaque modification)
   const [undoStack, setUndoStack] = useState<EditableTutorial[]>([])
   const [versions, setVersions] = useState<SavedVersion[]>(() =>
-    persistence.current.loadVersions()
+    persistence.current.loadVersions(tutorialId)
   )
   // Session admin distante (cookie HttpOnly côté Worker)
   const remoteConfigured = isRemoteConfigured()
@@ -224,7 +233,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     }
     setIsPublishing(true)
     try {
-      const res = await store.publish('dragon-arena', tutorial, baseRevision.current)
+      const res = await store.publish(tutorialId, tutorial, baseRevision.current)
       if (res.conflict) return { ok: false, conflict: true }
       if (res.revision) baseRevision.current = res.revision
       return { ok: true }
@@ -233,7 +242,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsPublishing(false)
     }
-  }, [tutorial])
+  }, [tutorialId, tutorial])
 
   /* ─── Historique & restauration ───
    * En distant : historique natif GitHub (commits).
@@ -242,7 +251,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
    */
   const fetchHistory = useCallback(async () => {
     if (remoteConfigured && isAuthenticated) {
-      const res = await adminApi.history('dragon-arena')
+      const res = await adminApi.history(tutorialId)
       return res.entries
     }
     // Démo locale : map des versions enregistrées → entrées d'historique.
@@ -252,25 +261,25 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       message: v.label,
       authorLabel: 'local'
     }))
-  }, [remoteConfigured, isAuthenticated, versions])
+  }, [tutorialId, remoteConfigured, isAuthenticated, versions])
 
   const fetchVersionContent = useCallback(
     async (revision: string): Promise<EditableTutorial | null> => {
       if (remoteConfigured && isAuthenticated) {
-        const res = await adminApi.version('dragon-arena', revision)
+        const res = await adminApi.version(tutorialId, revision)
         return (res.content as EditableTutorial) ?? null
       }
       const v = versions.find((x) => x.id === revision)
       return v ? v.tutorial : null
     },
-    [remoteConfigured, isAuthenticated, versions]
+    [tutorialId, remoteConfigured, isAuthenticated, versions]
   )
 
   const restorePublishedVersion = useCallback(
     async (revision: string): Promise<{ ok: boolean; error?: string }> => {
       if (remoteConfigured && isAuthenticated) {
         try {
-          const res = await adminApi.restore('dragon-arena', revision)
+          const res = await adminApi.restore(tutorialId, revision)
           if (res.ok && res.revision) baseRevision.current = res.revision
           return { ok: res.ok, error: res.error }
         } catch (e: any) {
@@ -287,15 +296,15 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       setIsDirty(true)
       return { ok: true }
     },
-    [remoteConfigured, isAuthenticated, versions]
+    [tutorialId, remoteConfigured, isAuthenticated, versions]
   )
 
   // Persistance automatique à chaque changement, uniquement si "dirty".
   useEffect(() => {
     if (isDirty) {
-      persistence.current.save(tutorial)
+      persistence.current.save(tutorialId, tutorial)
     }
-  }, [tutorial, isDirty])
+  }, [tutorialId, tutorial, isDirty])
 
   const mutate = useCallback(
     (updater: (prev: EditableTutorial) => EditableTutorial) => {
@@ -435,12 +444,13 @@ export function AdminProvider({ children }: { children: ReactNode }) {
 
   /* ─── Action 2 : Abandonner tout le brouillon (retour à l'original) ─── */
   const discardDraft = useCallback(() => {
-    persistence.current.clear()
-    setTutorial(hydrate())
+    persistence.current.clear(tutorialId)
+    const hydrated = hydrate(tutorialId)
+    setTutorial(hydrated ?? ({} as EditableTutorial))
     setUndoStack([])
     setIsDirty(false)
     setIsPreview(false)
-  }, [])
+  }, [tutorialId])
 
   /* ─── Action 3 : Versions (sauvegarder / restaurer / supprimer) ─── */
   const saveVersion = useCallback(
@@ -455,7 +465,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           },
           ...prev
         ].slice(0, MAX_VERSIONS)
-        persistence.current.saveVersions(next)
+        persistence.current.saveVersions(tutorialId, next)
         return next
       })
     },
@@ -479,7 +489,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   const deleteVersion = useCallback((id: string) => {
     setVersions((prev) => {
       const next = prev.filter((x) => x.id !== id)
-      persistence.current.saveVersions(next)
+      persistence.current.saveVersions(tutorialId, next)
       return next
     })
   }, [])

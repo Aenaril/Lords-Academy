@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { dragonArenaTutorial, Tutorial } from '../data/tutorials'
+import { getTutorialById } from '../data/registry'
+import { type Tutorial } from '../data/tutorials'
 import ContentBlockComponent from '../components/ContentBlock'
 import { useAdmin } from '../admin/AdminContext'
 import { adminApi } from '../admin/api/client'
@@ -22,13 +23,11 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
 
   // Charger le tutoriel publié depuis GitHub (si disponible)
   useEffect(() => {
-    if (tutorialId !== 'dragon-arena') return
-
     let refreshTimeout: number
 
     const loadPublished = async () => {
       try {
-        const res = await adminApi.getPublished('dragon-arena')
+        const res = await adminApi.getPublished(tutorialId)
         if (res.content) {
           setPublishedTutorial(res.content as Tutorial)
         }
@@ -69,17 +68,16 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
     }
   }, [currentSectionIndex])
 
-  // Source de vérité : Dragon Arena peut venir de trois sources :
+  // Source de vérité : le tutoriel peut venir de trois sources :
   // 1. Brouillon en édition (editableTutorial, si connecté en admin)
   // 2. Version publiée sur GitHub (publishedTutorial)
-  // 3. Fallback statique (dragonArenaTutorial)
+  // 3. Fallback statique depuis le registre
+  const sourceTutorial = getTutorialById(tutorialId)
   const tutorial: Tutorial | undefined =
-    tutorialId === 'dragon-arena'
-      ? isAdminMode && editableTutorial
-        ? editableTutorial
-        : publishedTutorial ?? dragonArenaTutorial
-      : undefined
-  const fallback = tutorialId === 'dragon-arena' ? dragonArenaTutorial : undefined
+    isAdminMode && editableTutorial
+      ? editableTutorial
+      : publishedTutorial ?? sourceTutorial ?? undefined
+  const fallback = sourceTutorial ?? undefined
 
   const resolved = tutorial ?? fallback
 
@@ -133,7 +131,7 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
           <nav className="tutorial-nav">
             <h3 className="tutorial-nav__title">Table des matières</h3>
             <ul className="tutorial-nav__list">
-              {sections.map((section, idx) => (
+              {sections.map((section: any, idx: number) => (
                 <li key={section.id} className="tutorial-nav__item">
                   <button
                     className={`tutorial-nav__link ${idx === safeIndex ? 'tutorial-nav__link--active' : ''}`}
@@ -206,7 +204,7 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
                       isLast={idx === arr.length - 1}
                     />
                   ))
-                : currentSection.blocks.map((block, idx) => (
+                : currentSection.blocks.map((block: any, idx: number) => (
                     <ContentBlockComponent
                       key={(block as any)._uid ?? idx}
                       block={block}
@@ -247,13 +245,13 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
           </div>
 
           {/* Memos section (lecture visiteur uniquement — masquée en édition pour éviter la double saisie) */}
-          {!editing && currentSection.blocks.some(b => b.type === 'memo') && (
+          {!editing && currentSection.blocks.some((b: any) => b.type === 'memo') && (
             <div className="memos-section">
               <h3>Fiches Essentielles</h3>
               <div className="memos-list">
                 {currentSection.blocks
-                  .filter(b => b.type === 'memo')
-                  .map((block, idx) => (
+                  .filter((b: any) => b.type === 'memo')
+                  .map((block: any, idx: number) => (
                     <div key={idx} className="memo-card-inline">
                       <span className="memo-icon">{(block as any).icon}</span>
                       <div>

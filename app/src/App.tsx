@@ -5,12 +5,13 @@ import TutorialPage from './pages/TutorialPage'
 import AdminBarWrapper from './admin/AdminBarWrapper'
 import PWAInstallPrompt from './components/PWAInstallPrompt'
 import PWAUpdatePrompt from './components/PWAUpdatePrompt'
+import { AdminProvider } from './admin/AdminContext'
 
 type PageType = 'home' | 'tutorial'
 
 function App() {
   const [currentPage, setCurrentPage] = useState<PageType>('home')
-  const [selectedTutorialId, setSelectedTutorialId] = useState<string>('')
+  const [selectedTutorialId, setSelectedTutorialId] = useState<string>('dragon-arena')
 
   const handleSelectTutorial = (tutorialId: string) => {
     setSelectedTutorialId(tutorialId)
@@ -19,24 +20,27 @@ function App() {
 
   const handleReturnHome = () => {
     setCurrentPage('home')
-    setSelectedTutorialId('')
+    // NB: on ne réinitialise pas selectedTutorialId, ce qui permet à l'utilisateur
+    // de conserver son état d'édition en arrière-plan (même s'il retourne à l'accueil)
   }
 
   return (
-    <div className="app">
-      {currentPage === 'home' && (
-        <HomePage onSelectTutorial={handleSelectTutorial} />
-      )}
-      {currentPage === 'tutorial' && selectedTutorialId && (
-        <TutorialPage 
-          tutorialId={selectedTutorialId} 
-          onReturnHome={handleReturnHome}
-        />
-      )}
-      <AdminBarWrapper />
-      <PWAInstallPrompt />
-      <PWAUpdatePrompt />
-    </div>
+    <AdminProvider tutorialId={selectedTutorialId}>
+      <div className="app">
+        {currentPage === 'home' && (
+          <HomePage onSelectTutorial={handleSelectTutorial} />
+        )}
+        {currentPage === 'tutorial' && selectedTutorialId && (
+          <TutorialPage 
+            tutorialId={selectedTutorialId} 
+            onReturnHome={handleReturnHome}
+          />
+        )}
+        <AdminBarWrapper />
+        <PWAInstallPrompt />
+        <PWAUpdatePrompt />
+      </div>
+    </AdminProvider>
   )
 }
 
