@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { dragonArenaTutorial, Tutorial } from '../data/tutorials'
 import ContentBlockComponent from '../components/ContentBlock'
 import { useAdmin } from '../admin/AdminContext'
@@ -16,6 +16,11 @@ interface TutorialPageProps {
 export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageProps) {
   const { isAdminMode, isPreview, tutorial: editableTutorial, updateSectionTitle } = useAdmin()
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0)
+
+  // Scroll vers le haut quand la section change
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [currentSectionIndex])
 
   // Source de vérité : pour Dragon Arena, on lit le store admin éditable.
   // Les autres tutoriels resteront sur leurs données statiques (non implémentés).
