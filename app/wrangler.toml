@@ -1,22 +1,16 @@
-# Configuration Wrangler pour tests Cloudflare Workers
-# Utilisé uniquement pour les tests Vitest avec @cloudflare/vitest-plugin
+# Configuration Wrangler pour Pages Functions
+# Permet aux Pages Functions d'accéder au Worker Durable Objects
 
-name = "lords-mobile-academy-test"
-main = "src/index.ts"
+name = "lords-mobile-academy"
+main = "dist/index.js"
 compatibility_date = "2024-10-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Durable Objects pour tests
+# Binding vers le Worker Durable Objects lma-drafts-worker
 [[durable_objects.bindings]]
 name = "DRAFTS_DO"
 class_name = "DraftsDoClass"
-script_name = "lords-mobile-academy-test"
+script_name = "lma-drafts-worker"
 
-# Migrations
-[[migrations]]
-tag = "v1"
-new_classes = ["DraftsDoClass"]
-
-# NOTE: Ce wrangler.toml est pour tests locaux uniquement
-# Les Pages Functions utilisent app/functions/api/[[path]].ts
-# Le Worker réel se trouve dans worker/wrangler.toml
+# NOTE: Pages Functions utilisent app/functions/api/[[path]].ts
+# Le Worker Durable Objects se trouve dans worker/wrangler.toml (lma-drafts-worker)
