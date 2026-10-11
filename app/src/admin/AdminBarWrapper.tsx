@@ -23,6 +23,11 @@ import { isRemoteConfigured } from './api/client'
  * - toggleAdminMode() vérifie (remoteConfigured && !isAuthenticated)
  *   → bloque l'activation directe sans authentification
  * - En production : aucune route vers le mode démo local
+ * 
+ * Activation fiable après connexion :
+ * - AdminLogin appelle refreshSession(), puis onSuccess()
+ * - L'effet activateAfterAuth se déclenche quand isAuthenticated devient true
+ * - Cela évite les closures obsolètes sur le state de isAuthenticated
  */
 
 // Ref globale pour permettre au pied de page d'ouvrir la modale/formulaire
@@ -38,6 +43,7 @@ export function openAdminLoginForm() {
 export default function AdminBarWrapper() {
   const remoteAvailable = isRemoteConfigured()
   const {
+    isAuthenticated,
     toggleAdminMode,
     refreshSession,
     showAdminModeModal,
@@ -45,6 +51,7 @@ export default function AdminBarWrapper() {
     closeAdminModeModal
   } = useAdmin()
   const [showLoginModal, setShowLoginModal] = useState(false)
+  const [shouldActivateAfterAuth, setShouldActivateAfterAuth] = useState(false)
   const isDev = import.meta.env.DEV
 
   // Décide quel formulaire afficher selon le contexte
@@ -65,6 +72,16 @@ export default function AdminBarWrapper() {
       adminBarWrapperRef.openAdminForm = () => {}
     }
   }, [isDev])
+
+  // Effet : activation fiable après authentification réussie
+  // Se déclenche quand isAuthenticated passe à true après une connexion
+  useEffect(() => {
+    if (shouldActivateAfterAuth && isAuthenticated) {
+      // isAuthenticated est maintenant à jour (pas de fermeture obsolète)
+      toggleAdminMode()
+      setShouldActivateAfterAuth(false)
+    }
+  }, [isAuthenticated, shouldActivateAfterAuth, toggleAdminMode])
 
   // En développement : toujours afficher AdminBar
   if (isDev) {
@@ -104,8 +121,8 @@ export default function AdminBarWrapper() {
         <AdminLogin
           onSuccess={() => {
             setShowLoginModal(false)
-            // Après connexion réussie : activer le mode édition
-            toggleAdminMode()
+            // Marquer que l'édition doit s'activer après confirmation d'auth
+            setShouldActivateAfterAuth(true)
           }}
           onRefreshSession={refreshSession}
           onClose={() => setShowLoginModal(false)}

@@ -52,9 +52,11 @@ export default function AdminBar() {
             // DÉVELOPPEMENT : ouvrir la modale d'accueil si non-authentifié
             if (isDev && remoteConfigured && !isAuthenticated) {
               openAdminModeModal()
+            } else if (remoteConfigured && !isAuthenticated) {
+              // PRODUCTION : ouvrir le formulaire de connexion si non-authentifié
+              openAdminLoginForm()
             } else {
-              // PRODUCTION ou déjà authentifié : activer directement l'édition
-              // (toggleAdminMode vérifie l'authentification si nécessaire)
+              // Déjà authentifié (dev ou prod) : activer/désactiver l'édition
               toggleAdminMode()
             }
           }}
