@@ -28,7 +28,7 @@ export class AdminApiError extends Error {
 
 function apiBase(): string {
   const base = (import.meta.env.VITE_ADMIN_API_BASE as string | undefined) ?? ''
-  return base.replace(/\/$/, '')
+  return base.replace(/\/$/, '') + '/api' // Ajouter le préfixe /api à la base
 }
 
 /** L'admin distante est-elle configurée (URL du Worker fournie) ? */

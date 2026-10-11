@@ -98,19 +98,19 @@ export interface VersionResponse {
   date?: string
 }
 
-/** Chemins d'API (relatifs à la base configurée). */
+/** Chemins d'API (sans préfixe `/api` — ajouté automatiquement à la base URL). */
 export const API_ROUTES = {
-  login: '/api/login',
-  logout: '/api/logout',
-  session: '/api/session',
-  draftGet: '/api/draft', // GET ?tutorialId=
-  draftPut: '/api/draft', // PUT
-  publish: '/api/publish', // POST
-  upload: '/api/upload', // POST (multipart)
-  publishedGet: '/api/published', // GET ?tutorialId=
-  history: '/api/history', // GET ?tutorialId= — liste des commits
-  version: '/api/version', // GET ?tutorialId=&revision= — contenu d'une version
-  restore: '/api/restore' // POST — republie une version (nouveau commit)
+  login: '/login',
+  logout: '/logout',
+  session: '/session',
+  draftGet: '/draft', // GET ?tutorialId=
+  draftPut: '/draft', // PUT
+  publish: '/publish', // POST
+  upload: '/upload', // POST (multipart)
+  publishedGet: '/published', // GET ?tutorialId=
+  history: '/history', // GET ?tutorialId= — liste des commits
+  version: '/version', // GET ?tutorialId=&revision= — contenu d'une version
+  restore: '/restore' // POST — republie une version (nouveau commit)
 } as const
 
 /** Limites de sécurité partagées (le Worker fait foi). */

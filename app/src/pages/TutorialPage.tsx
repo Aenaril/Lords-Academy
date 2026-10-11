@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { dragonArenaTutorial, Tutorial } from '../data/tutorials'
 import ContentBlockComponent from '../components/ContentBlock'
 import { useAdmin } from '../admin/AdminContext'
@@ -16,10 +16,14 @@ interface TutorialPageProps {
 export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageProps) {
   const { isAdminMode, isPreview, tutorial: editableTutorial, updateSectionTitle } = useAdmin()
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0)
+  const sectionHeaderRef = useRef<HTMLDivElement>(null)
 
-  // Scroll vers le haut quand la section change
+  // Scroll vers le haut + fade in smooth lors du changement de section
   useEffect(() => {
-    window.scrollTo(0, 0)
+    if (sectionHeaderRef.current) {
+      // Scroll vers le titre avec décalage pour le header sticky
+      sectionHeaderRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
   }, [currentSectionIndex])
 
   // Source de vérité : pour Dragon Arena, on lit le store admin éditable.
@@ -98,7 +102,7 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
         {/* Main Content */}
         <main className="tutorial-main">
           {/* Section Title */}
-          <div className="section-header">
+          <div className="section-header" ref={sectionHeaderRef}>
             {editing ? (
               <div className="section-title-edit">
                 <span className="section-title-edit__pencil" title="Modifier le titre de la section">✏️</span>

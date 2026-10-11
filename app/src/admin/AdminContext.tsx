@@ -488,11 +488,17 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const toggleAdminMode = useCallback(() => {
+    // En mode distant (production) : exiger l'authentification pour activer l'édition
+    if (remoteConfigured && !isAuthenticated) {
+      alert('⚠️ Authentification requise. Veuillez vous connecter d\'abord.')
+      return
+    }
+    
     setIsAdminMode((v) => {
       if (v) setIsPreview(false)
       return !v
     })
-  }, [])
+  }, [remoteConfigured, isAuthenticated])
 
   const value = useMemo<AdminContextValue>(
     () => ({

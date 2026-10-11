@@ -134,6 +134,7 @@
 .section-header {
   margin-bottom: 40px;
   animation: slideUp var(--transition-normal);
+  scroll-margin-top: 100px; /* Compenser le header sticky + padding */
 }
 
 .section-header h1 {
