@@ -9,11 +9,20 @@ import './PWAUpdatePrompt.css'
  * - Affiche une notification quand une nouvelle version est prête
  * - L'utilisateur peut mettre à jour immédiatement ou différer
  * - Vérifie aussi périodiquement (toutes les 60s) pour plus de fiabilité
+ * - Après activation d'une mise à jour : recharge la page
+ * 
+ * À noter :
+ * - Le contenu pédagogique (tutoriels) a sa propre stratégie :
+ *   - /api/published utilise NetworkFirst (toujours vérifier le réseau)
+ *   - TutorialPage recharge toutes les 5 min
+ *   - Un rechargement normal montre la nouvelle version
+ * - Cette modale est pour les mises à jour de l'APPLICATION (JS, CSS, etc.)
  */
 
 export default function PWAUpdatePrompt() {
   const [showUpdatePrompt, setShowUpdatePrompt] = useState(false)
   const [updateRegistration, setUpdateRegistration] = useState<ServiceWorkerRegistration | null>(null)
+  const [updateMessage, setUpdateMessage] = useState('Une nouvelle version de l\'application est disponible.')
 
   useEffect(() => {
     if (!navigator.serviceWorker) return
@@ -33,6 +42,9 @@ export default function PWAUpdatePrompt() {
             // Quand le nouveau worker est 'installed' ET qu'il y a un controller actif
             // = une mise à jour est disponible (swap en attente)
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              // Déterminer le type de mise à jour
+              const message = detectUpdateType()
+              setUpdateMessage(message)
               setShowUpdatePrompt(true)
               setUpdateRegistration(reg)
             }
@@ -62,6 +74,13 @@ export default function PWAUpdatePrompt() {
       if (checkTimeout) clearInterval(checkTimeout)
     }
   }, [])
+
+  const detectUpdateType = (): string => {
+    // Si on peut accéder à l'historique, déterminer si c'est une grosse mise à jour ou petite
+    // Pour l'instant, message générique
+    return '🔄 Une nouvelle version de l\'application est disponible. ' +
+           'Les tutoriels et l\'interface ont été mis à jour.'
+  }
 
   const handleUpdate = () => {
     if (!updateRegistration) return
@@ -102,8 +121,7 @@ export default function PWAUpdatePrompt() {
           <button className="pwa-update-prompt__close" onClick={handleDismiss}>✕</button>
         </div>
         <p className="pwa-update-prompt__text">
-          Une nouvelle version de Lords Mobile Academy est disponible. 
-          Les tutoriels et contenus ont été mis à jour.
+          {updateMessage}
         </p>
         <div className="pwa-update-prompt__actions">
           <button className="pwa-update-prompt__btn pwa-update-prompt__btn--primary" onClick={handleUpdate}>
@@ -114,7 +132,7 @@ export default function PWAUpdatePrompt() {
           </button>
         </div>
         <p className="pwa-update-prompt__note">
-          La mise à jour s'appliquera au prochain rechargement.
+          Une fois mise à jour activée, la page se rechargera automatiquement.
         </p>
       </div>
     </div>

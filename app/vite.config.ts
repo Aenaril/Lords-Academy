@@ -40,6 +40,20 @@ export default defineConfig({
         // Exclure les routes API de tout type de cache
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
+          // Contenu publié (tutoriels) : toujours vérifier le réseau
+          // NetworkFirst = essayer réseau d'abord, fallback au cache si offline
+          {
+            urlPattern: /^https:\/\/lords-academy\.pages\.dev\/api\/published/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'published-content-cache',
+              networkTimeoutSeconds: 5,
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 60 // 1 heure max en cache
+              }
+            }
+          },
           // Images publiques : cache long terme (30 jours)
           {
             urlPattern: /^https:\/\/lords-academy\.pages\.dev\/images\//,
@@ -51,15 +65,25 @@ export default defineConfig({
                 maxAgeSeconds: 30 * 24 * 60 * 60
               }
             }
+          },
+          // Fichiers statiques de contenu (JSON, etc.) : StaleWhileRevalidate
+          {
+            urlPattern: /^https:\/\/lords-academy\.pages\.dev\/content\//,
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'content-cache',
+              expiration: {
+                maxEntries: 20,
+                maxAgeSeconds: 7 * 24 * 60 * 60 // 7 jours
+              }
+            }
           }
-          // Les fichiers JS/CSS/HTML : Workbox auto (stale-while-revalidate par défaut)
-          // Les routes /api : jamais cachées (navigateFallbackDenylist)
         ],
         // Nettoyer les anciens caches
         cleanupOutdatedCaches: true,
-        // Compatibilité maximale
-        skipWaiting: false,
-        clientsClaim: false
+        // Activations plus agressives
+        skipWaiting: true,        // ← Mise à jour immédiate du SW
+        clientsClaim: true        // ← Reprendre les clients immédiatement
       },
       // Injecter le Service Worker avec détection de mise à jour explicite
       injectRegister: 'auto',

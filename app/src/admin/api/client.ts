@@ -42,8 +42,13 @@ async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  // Pour /api/published : toujours vérifier le réseau, ne pas utiliser le cache navigateur
+  const isPublished = path.includes('/api/published')
+  
   const res = await fetch(apiBase() + path, {
     credentials: 'include',
+    // Forcer le rechargement réseau pour le contenu publié
+    cache: isPublished ? 'no-store' : 'default',
     headers: {
       'X-Requested-With': 'lma-admin',
       ...(options.body && !(options.body instanceof FormData)

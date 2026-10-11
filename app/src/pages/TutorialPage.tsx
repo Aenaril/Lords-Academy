@@ -22,12 +22,42 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
 
   // Charger le tutoriel publié depuis GitHub (si disponible)
   useEffect(() => {
-    if (tutorialId === 'dragon-arena') {
-      adminApi.getPublished('dragon-arena').then((res) => {
+    if (tutorialId !== 'dragon-arena') return
+
+    let refreshTimeout: number
+
+    const loadPublished = async () => {
+      try {
+        const res = await adminApi.getPublished('dragon-arena')
         if (res.content) {
           setPublishedTutorial(res.content as Tutorial)
         }
-      })
+      } catch {
+        // Ignorer silencieusement les erreurs (fallback au contenu statique)
+      }
+    }
+
+    // Charger immédiatement au montage
+    loadPublished()
+
+    // Vérifier toutes les 5 minutes si une nouvelle version est disponible
+    refreshTimeout = window.setInterval(loadPublished, 5 * 60 * 1000)
+
+    // Recharger aussi quand le Service Worker se met à jour
+    if (navigator.serviceWorker) {
+      const handleSWUpdate = () => {
+        loadPublished()
+      }
+
+      navigator.serviceWorker.addEventListener('controllerchange', handleSWUpdate)
+      return () => {
+        window.clearInterval(refreshTimeout)
+        navigator.serviceWorker.removeEventListener('controllerchange', handleSWUpdate)
+      }
+    }
+
+    return () => {
+      window.clearInterval(refreshTimeout)
     }
   }, [tutorialId])
 
