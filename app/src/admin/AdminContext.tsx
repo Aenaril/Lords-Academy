@@ -16,7 +16,7 @@ import {
 } from './types'
 import { adminApi, isRemoteConfigured } from './api/client'
 import { getDraftStore } from './persistence'
-import { assetPath } from '../utils/assetPath'
+import { createEmptyBlockSeed } from '../blocks/registry'
 
 /**
  * ──────────────────────────────────────────────────────────────────────────
@@ -110,23 +110,10 @@ function hydrate(): EditableTutorial {
 
 /* ─── Fabrique de blocs vierges par type ─── */
 export function createEmptyBlock(type: ContentBlock['type']): EditableBlock {
-  const base = { _uid: makeUid('b') }
-  switch (type) {
-    case 'text':
-      return { ...base, type: 'text', content: 'Nouveau paragraphe à éditer…' }
-    case 'image':
-      return { ...base, type: 'image', imagePath: assetPath('/images/content/dragon-arena/15.jpeg'), alt: 'Image', caption: '' }
-    case 'hero-image':
-      return { ...base, type: 'hero-image', imagePath: assetPath('/images/content/dragon-arena/17.jpeg'), alt: 'Image', heading: 'Titre', content: 'Texte superposé', align: 'left', caption: '' }
-    case 'quiz':
-      return { ...base, type: 'quiz', question: 'Nouvelle question ?', options: ['Réponse A', 'Réponse B'], correctAnswerIndex: 0, explanation: 'Explication de la bonne réponse.' }
-    case 'comparison':
-      return { ...base, type: 'comparison', title: 'Comparaison', items: [{ name: 'Élément', description: 'Description', pros: ['Avantage'], cons: ['Inconvénient'] }] }
-    case 'memo':
-      return { ...base, type: 'memo', title: 'Mémo', content: 'Contenu du mémo.', icon: '📌' }
-    default:
-      return { ...base, type: 'text', content: '' }
-  }
+  // La structure JSON de chaque type est définie une seule fois dans le
+  // registre central (`app/src/blocks/registry.ts`). On n'ajoute ici que le
+  // `_uid` runtime (clé React / cible de mutation), jamais persisté.
+  return { ...createEmptyBlockSeed(type), _uid: makeUid('b') } as EditableBlock
 }
 
 interface AdminContextValue {

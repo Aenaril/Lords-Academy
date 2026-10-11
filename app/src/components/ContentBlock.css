@@ -41,3 +41,15 @@
   border-radius: 12px;
   border-left: 4px solid var(--primary-gold);
 }
+
+/* Repli pour un type de bloc inconnu (compatibilité ascendante). Neutre et discret. */
+.content-block__unknown {
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: #999;
+  font-size: 0.85rem;
+  font-style: italic;
+  background: rgba(255, 255, 255, 0.03);
+}

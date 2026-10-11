@@ -1,20 +1,18 @@
 import { useState } from 'react'
 import { useAdmin } from './AdminContext'
-import type { ContentBlock } from '../data/tutorials'
+import { BLOCK_DEFINITIONS } from '../blocks/registry'
 import './AddBlockBar.css'
 
 interface AddBlockBarProps {
   sectionUid: string
 }
 
-const BLOCK_TYPES: { type: ContentBlock['type']; label: string; icon: string }[] = [
-  { type: 'text', label: 'Paragraphe', icon: '📝' },
-  { type: 'image', label: 'Image', icon: '🖼' },
-  { type: 'memo', label: 'Mémo', icon: '📌' },
-  { type: 'quiz', label: 'Quiz', icon: '❓' },
-  { type: 'comparison', label: 'Comparaison', icon: '⚖️' },
-  { type: 'hero-image', label: 'Image immersive', icon: '🌄' }
-]
+/**
+ * Types de blocs proposés à l'ajout. Dérivés du registre central
+ * (`app/src/blocks/registry.ts`), source unique de vérité — l'ordre, les
+ * libellés et les icônes y sont définis une seule fois.
+ */
+const BLOCK_TYPES = BLOCK_DEFINITIONS.map(({ type, label, icon }) => ({ type, label, icon }))
 
 /** Barre d'ajout de bloc en fin de section (mode édition uniquement). */
 export default function AddBlockBar({ sectionUid }: AddBlockBarProps) {

@@ -86,6 +86,17 @@ export default function ContentBlockComponent({ block }: ContentBlockComponentPr
         </div>
       )
     default:
-      return null
+      // Compatibilité ascendante : un type de bloc inconnu (ajouté par une
+      // version plus récente) n'est plus ignoré silencieusement. On affiche un
+      // repli neutre afin de ne jamais « perdre » de contenu à l'affichage.
+      // Les 6 types actuels passent toujours par les cas ci-dessus : aucun
+      // changement de rendu pour les tutoriels existants.
+      return (
+        <div className={blockClass}>
+          <p className="content-block__unknown">
+            Bloc non pris en charge par cette version de l'application.
+          </p>
+        </div>
+      )
   }
 }
