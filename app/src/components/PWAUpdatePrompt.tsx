@@ -5,53 +5,85 @@ import './PWAUpdatePrompt.css'
  * Composant pour afficher les mises à jour PWA disponibles
  * 
  * Stratégie :
- * - Détecte les mises à jour du Service Worker
- * - Affiche une notification quand une mise à jour est prête
- * - L'utilisateur peut mettre à jour ou attendre
+ * - Détecte les mises à jour du Service Worker via l'événement 'updatefound'
+ * - Affiche une notification quand une nouvelle version est prête
+ * - L'utilisateur peut mettre à jour immédiatement ou différer
+ * - Vérifie aussi périodiquement (toutes les 60s) pour plus de fiabilité
  */
 
 export default function PWAUpdatePrompt() {
   const [showUpdatePrompt, setShowUpdatePrompt] = useState(false)
+  const [updateRegistration, setUpdateRegistration] = useState<ServiceWorkerRegistration | null>(null)
 
   useEffect(() => {
     if (!navigator.serviceWorker) return
 
-    // Vérifier les mises à jour du Service Worker
-    const checkForUpdates = async () => {
-      const registration = await navigator.serviceWorker.getRegistrations()
+    let checkTimeout: number
 
-      for (const reg of registration) {
-        // Vérifier les mises à jour
+    const setupUpdateListener = async () => {
+      const registrations = await navigator.serviceWorker.getRegistrations()
+
+      for (const reg of registrations) {
+        // Écouter l'événement 'updatefound' (nouvelle version détectée)
         reg.addEventListener('updatefound', () => {
           const newWorker = reg.installing
           if (!newWorker) return
 
           newWorker.addEventListener('statechange', () => {
+            // Quand le nouveau worker est 'installed' ET qu'il y a un controller actif
+            // = une mise à jour est disponible (swap en attente)
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              // Une nouvelle version est prête
               setShowUpdatePrompt(true)
+              setUpdateRegistration(reg)
             }
           })
         })
 
-        // Vérifier immédiatement
+        // Vérifier immédiatement (au cas où une mise à jour serait déjà prête)
         reg.update().catch(() => {
-          // Silencieusement ignorer les erreurs
+          /* silencieusement ignorer les erreurs */
         })
       }
+
+      // Vérifier toutes les 60 secondes (fallback pour détection tardive)
+      checkTimeout = window.setInterval(async () => {
+        const regs = await navigator.serviceWorker.getRegistrations()
+        for (const reg of regs) {
+          reg.update().catch(() => {
+            /* silencieusement ignorer */
+          })
+        }
+      }, 60000)
     }
 
-    checkForUpdates()
+    setupUpdateListener()
 
-    // Vérifier toutes les 60 secondes
-    const interval = setInterval(checkForUpdates, 60000)
-
-    return () => clearInterval(interval)
+    return () => {
+      if (checkTimeout) clearInterval(checkTimeout)
+    }
   }, [])
 
   const handleUpdate = () => {
-    // Recharger la page pour appliquer la mise à jour
-    window.location.reload()
+    if (!updateRegistration) return
+
+    // Dire au nouveau worker qu'il peut prendre le contrôle maintenant
+    const newWorker = updateRegistration.installing || updateRegistration.waiting
+    if (newWorker) {
+      newWorker.postMessage({ type: 'SKIP_WAITING' })
+    }
+
+    // Écouter le changement de contrôleur et recharger
+    let reloadListener = () => {
+      window.location.reload()
+    }
+
+    navigator.serviceWorker.addEventListener('controllerchange', reloadListener)
+
+    // Fallback : recharger après 1s si rien ne s'est passé
+    setTimeout(() => {
+      navigator.serviceWorker.removeEventListener('controllerchange', reloadListener)
+      window.location.reload()
+    }, 1000)
   }
 
   const handleDismiss = () => {

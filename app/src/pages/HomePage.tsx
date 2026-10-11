@@ -2,6 +2,7 @@ import { tutorials } from '../data/tutorials'
 import TutorialCard from '../components/TutorialCard'
 import HeroSection from '../components/HeroSection'
 import Header from '../components/Header'
+import { openAdminLoginForm } from '../admin/AdminBarWrapper'
 import './HomePage.css'
 
 interface HomePageProps {
@@ -115,11 +116,8 @@ export default function HomePage({ onSelectTutorial }: HomePageProps) {
             <small>
               R4 ? <button 
                 className="footer-admin__btn"
-                onClick={() => {
-                  const btn = document.querySelector('.admin-bar__toggle') as HTMLButtonElement
-                  btn?.click()
-                }}
-                title="Ouvrir le panneau d'administration"
+                onClick={() => openAdminLoginForm()}
+                title="Ouvrir le formulaire de connexion administration"
               >
                 Accès administration
               </button>

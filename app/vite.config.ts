@@ -37,10 +37,12 @@ export default defineConfig({
         globPatterns: [
           '**/*.{js,css,html,ico,png,svg,jpeg,jpg,webp,gif,woff,woff2,ttf,eot}'
         ],
+        // Exclure les routes API de tout type de cache
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
+          // Images publiques : cache long terme (30 jours)
           {
-            urlPattern: /^https:\/\/lords-mobile-academy\.pages\.dev\/images\//,
+            urlPattern: /^https:\/\/lords-academy\.pages\.dev\/images\//,
             handler: 'CacheFirst',
             options: {
               cacheName: 'images-cache',
@@ -50,12 +52,19 @@ export default defineConfig({
               }
             }
           }
-        ]
+          // Les fichiers JS/CSS/HTML : Workbox auto (stale-while-revalidate par défaut)
+          // Les routes /api : jamais cachées (navigateFallbackDenylist)
+        ],
+        // Nettoyer les anciens caches
+        cleanupOutdatedCaches: true,
+        // Compatibilité maximale
+        skipWaiting: false,
+        clientsClaim: false
       },
-      devOptions: {
-        enabled: false
-      },
-      injectRegister: 'auto'
+      // Injecter le Service Worker avec détection de mise à jour explicite
+      injectRegister: 'auto',
+      // Activer registerPlugin pour les mises à jour
+      registerType: 'autoUpdate'
     })
   ],
   server: {
