@@ -214,6 +214,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
   const isSavingRef = useRef<boolean>(false)
   const saveSequence = useRef<number>(0)
   const saveQueueRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isAbandoningRef = useRef<boolean>(false) // Flag pour bloquer les nouvelles saves pendant abandon
 
   // ═══════════════════════════════════════════════════════════════
   // Charger le brouillon du tutorialId courant (local ou remote)
@@ -464,7 +465,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
   }, [tutorialId, store])
 
   useEffect(() => {
-    if (!isDirty) return
+    if (!isDirty || isAbandoningRef.current) return
 
     if (saveQueueRef.current) clearTimeout(saveQueueRef.current)
 
@@ -632,17 +633,17 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
   /* ─── Action 2b : Abandonner brouillon distant (avec confirmation) ─── */
   const discardDraftAsync = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
     // Supprimer le brouillon distant (DO) après confirmation
-    // Retourne { ok: true } si succès, { ok: false, error } si annulation ou échec
+    // Retourne { ok: true } si succès, { ok: false } si annulation silencieuse, { ok: false, error } si erreur
     
     // Étape 1 : Confirmation utilisateur
     const confirmed = window.confirm(
       'Êtes-vous sûr ? Cette action supprimera le brouillon distant et ne peut pas être annulée.'
     )
-    if (!confirmed) return { ok: false, error: 'Annulation par l\'utilisateur' }
+    if (!confirmed) return { ok: false } // Annulation silencieuse (pas de error)
 
     try {
       // Étape 2 : Bloquer toute nouvelle sauvegarde automatique
-      // Annuler le timer de sauvegarde et vider les modifications en attente
+      isAbandoningRef.current = true // Flag pour interdire nouvelles saves
       if (saveQueueRef.current) clearTimeout(saveQueueRef.current)
       pendingModificationRef.current = null
       
@@ -654,6 +655,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       
       // Étape 4 : Si save toujours en cours après timeout, ANNULER l'abandon
       if (isSavingRef.current) {
+        isAbandoningRef.current = false // Restaurer flag
         // Réactiver le timer de sauvegarde (au cas où des modifications attendraient)
         if (isDirty) {
           saveQueueRef.current = setTimeout(() => {
@@ -679,11 +681,13 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       setHasDraft(false) // Le brouillon a été abandonné
       setIsPreview(false)
       draftRevision.current = undefined
+      isAbandoningRef.current = false // Restaurer flag
       
       return { ok: true }
     } catch (err) {
       // Erreur de suppression distant — laisser l'état local accessible
       console.error(`Erreur suppression brouillon ${tutorialId}:`, err)
+      isAbandoningRef.current = false // Restaurer flag
       // Réactiver la sauvegarde automatique si des modifications existaient
       if (isDirty && !saveQueueRef.current) {
         saveQueueRef.current = setTimeout(() => {

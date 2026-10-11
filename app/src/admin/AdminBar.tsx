@@ -42,11 +42,11 @@ export default function AdminBar() {
         // Vérifier result.ok avant d'afficher le message de succès
         if (result.ok) {
           alert('✅ Brouillon abandonné (local et distant).')
-        } else {
-          // Si annulation ou erreur, afficher le message d'erreur
-          const errorMsg = result.error || 'erreur inconnue'
-          alert(`❌ ${errorMsg}`)
+        } else if (result.error) {
+          // Afficher uniquement si erreur réelle (pas annulation volontaire)
+          alert(`❌ ${result.error}`)
         }
+        // Sinon: annulation silencieuse (pas d'alerte)
       } catch (err) {
         // Fallback : catch les erreurs non gérées
         alert(`❌ Erreur lors de l'abandon : ${(err as any)?.message ?? 'erreur inconnue'}`)
