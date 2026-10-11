@@ -638,30 +638,38 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     const confirmed = window.confirm(
       'Êtes-vous sûr ? Cette action supprimera le brouillon distant et ne peut pas être annulée.'
     )
-    if (!confirmed) return
+    if (!confirmed) return // Pas de message sur annulation
 
     try {
-      // Étape 2 : Annuler toute sauvegarde en attente ou en cours
-      // pour éviter une recréation du brouillon après sa suppression
+      // Étape 2 : Attendre la fin d'une sauvegarde en cours (si elle existe)
+      // sans autoriser une nouvelle sauvegarde pendant l'abandon
       if (saveQueueRef.current) clearTimeout(saveQueueRef.current)
       pendingModificationRef.current = null
       
-      // Étape 3 : Effacer l'état local AVANT l'appel DELETE distant
-      // (pour éviter qu'une sauvegarde tardive recrée le brouillon)
+      // Spin jusqu'à ce qu'aucune sauvegarde ne soit en vol
+      // Timeout après 5s pour éviter un blocage infini
+      const spinStart = Date.now()
+      while (isSavingRef.current && Date.now() - spinStart < 5000) {
+        await new Promise(resolve => setTimeout(resolve, 50))
+      }
+      
+      // Étape 3 : Si en mode remote, appeler DELETE /api/draft en premier
+      // SEULEMENT ENSUITE réinitialiser l'état local (en cas d'échec DELETE)
+      if (store.mode === 'remote' && store.deleteDraft) {
+        await store.deleteDraft(tutorialId)
+      }
+      
+      // Étape 4 : DELETE a réussi (ou mode local) — effacer l'état local
       localStore.clear(tutorialId)
       const hydrated = hydrate(tutorialId)
       setTutorial(hydrated ?? ({} as EditableTutorial))
       setUndoStack([])
       setIsDirty(false)
-      setHasDraft(false) // NOUVEAU : Le brouillon a été abandonné
+      setHasDraft(false) // Le brouillon a été abandonné
       setIsPreview(false)
       draftRevision.current = undefined
-
-      // Étape 4 : Si en mode remote, appeler DELETE /api/draft (côté backend DO)
-      if (store.mode === 'remote' && store.deleteDraft) {
-        await store.deleteDraft(tutorialId)
-      }
     } catch (err) {
+      // Erreur de suppression distant — laisser l'état local accessible
       console.error(`Erreur suppression brouillon ${tutorialId}:`, err)
       throw err
     }
