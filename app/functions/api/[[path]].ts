@@ -24,7 +24,7 @@
  *  - STORAGE_BACKEND : "kv" (défaut) ou "do"
  */
 
-import { getStorageBackend } from './storage'
+import { getStorageBackend } from '../storage'
 
 export const onRequest: PagesFunction = async (context) => {
   const { request, env, params } = context
