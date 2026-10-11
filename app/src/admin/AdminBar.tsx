@@ -152,8 +152,8 @@ export default function AdminBar() {
         <AdminLogin
           onSuccess={() => {
             setShowLogin(false)
-            refreshSession()
           }}
+          onRefreshSession={refreshSession}
           onClose={() => setShowLogin(false)}
         />
       )}

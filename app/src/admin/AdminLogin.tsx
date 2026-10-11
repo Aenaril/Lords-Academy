@@ -4,6 +4,7 @@ import './AdminLogin.css'
 
 interface AdminLoginProps {
   onSuccess: () => void
+  onRefreshSession: () => Promise<void>
   onClose: () => void
 }
 
@@ -13,8 +14,12 @@ interface AdminLoginProps {
  * Le mot de passe n'est jamais stocké : il est envoyé une seule fois au Worker,
  * qui pose un cookie de session HttpOnly. Si aucune URL de Worker n'est
  * configurée (`VITE_ADMIN_API_BASE` absent), on l'indique clairement.
+ * 
+ * Après connexion réussie :
+ * - Appelle onRefreshSession() pour actualiser isAuthenticated
+ * - Puis appelle onSuccess() pour fermer la modale
  */
-export default function AdminLogin({ onSuccess, onClose }: AdminLoginProps) {
+export default function AdminLogin({ onSuccess, onRefreshSession, onClose }: AdminLoginProps) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -28,6 +33,8 @@ export default function AdminLogin({ onSuccess, onClose }: AdminLoginProps) {
       const res = await adminApi.login(password)
       if (res.ok) {
         setPassword('')
+        // Actualiser la session PUIS fermer la modale
+        await onRefreshSession()
         onSuccess()
       } else {
         setError(res.error ?? 'Connexion refusée')

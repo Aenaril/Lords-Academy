@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import AdminBar from './AdminBar'
 import AdminLogin from './AdminLogin'
+import { useAdmin } from './AdminContext'
 import { isRemoteConfigured } from './api/client'
 
 /**
@@ -9,36 +10,34 @@ import { isRemoteConfigured } from './api/client'
  * - En développement (local, DEV=true) : AdminBar toujours visible pour éditer.
  * - En production (DEV=false) :
  *   - Si API distante configurée (VITE_ADMIN_API_BASE non-vide) : AdminBar visible
- *     (les visiteurs sans session voient le formulaire de connexion)
  *   - Sinon : AdminBar masqué
  * 
- * Cette modale expose aussi un callback pour que le lien du pied de page
- * ouvre directement le formulaire de connexion.
+ * Le formulaire de connexion est piloté par l'état local showLoginModal
+ * et exposé via un ref que le pied de page peut appeler.
  */
 
-export interface AdminBarHandle {
-  openLoginForm: () => void
-}
-
-let globalAdminHandle: AdminBarHandle | null = null
-
-export function setAdminBarHandle(handle: AdminBarHandle) {
-  globalAdminHandle = handle
+// Ref globale pour permettre au pied de page d'ouvrir la modale
+const adminBarWrapperRef = {
+  openLoginForm: (() => {}) as () => void
 }
 
 export function openAdminLoginForm() {
-  globalAdminHandle?.openLoginForm()
+  adminBarWrapperRef.openLoginForm()
 }
 
 export default function AdminBarWrapper() {
-  const remoteAvailable = useMemo(() => isRemoteConfigured(), [])
+  const remoteAvailable = isRemoteConfigured()
+  const { refreshSession } = useAdmin()
   const [showLoginModal, setShowLoginModal] = useState(false)
+  const openLoginFormRef = useRef(() => setShowLoginModal(true))
 
-  // Expose le callback pour que le lien du footer puisse l'appeler
-  useMemo(() => {
-    setAdminBarHandle({
-      openLoginForm: () => setShowLoginModal(true)
-    })
+  // Mettre à jour la ref avec la dernière fonction (cleanup approprié)
+  useEffect(() => {
+    adminBarWrapperRef.openLoginForm = openLoginFormRef.current
+    return () => {
+      // Cleanup : ne pas laisser de ref orpheline
+      adminBarWrapperRef.openLoginForm = () => {}
+    }
   }, [])
 
   // En développement : toujours afficher
@@ -59,6 +58,7 @@ export default function AdminBarWrapper() {
           onSuccess={() => {
             setShowLoginModal(false)
           }}
+          onRefreshSession={refreshSession}
           onClose={() => setShowLoginModal(false)}
         />
       )}
