@@ -6,6 +6,8 @@ worker/node_modules/
 # ───────────────────────── Build ─────────────────────────
 app/dist/
 app/.vite/
+worker/dist/
+worker/.wrangler-check/
 
 # ───────── Secrets et config locale — NE JAMAIS COMMITER ─────────
 .env
