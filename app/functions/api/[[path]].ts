@@ -177,6 +177,26 @@ async function handleSaveDraft(req: Request, env: any): Promise<Response> {
     return json({ ok: false, error: 'Données invalides' }, 400)
   }
 
+  // CORRECTION : Vérifier si baseRevision (revision du brouillon KV client) match celui du serveur
+  // Cela protège contre l'écrasement silencieux par un autre R4 ou session concurrente
+  if (body.baseRevision) {
+    const existing = await env.DRAFTS.get(`draft:${tutorialId}`)
+    if (existing) {
+      const existingData = JSON.parse(existing)
+      const serverRevision = existingData.revision
+      if (body.baseRevision !== serverRevision) {
+        // Conflit : le brouillon a été modifié par un autre
+        return json({
+          ok: false,
+          conflict: true,
+          serverRevision,
+          message: 'Le brouillon a été modifié par un autre administrateur. Rechargez avant de réessayer.'
+        }, 409)
+      }
+    }
+    // Sinon : baseRevision était fourni mais aucun brouillon n'existe → créer
+  }
+
   const revision = crypto.randomUUID()
   await env.DRAFTS.put(
     `draft:${tutorialId}`,

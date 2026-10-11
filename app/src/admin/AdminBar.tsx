@@ -21,6 +21,7 @@ export default function AdminBar() {
     canUndo,
     undoLastChange,
     discardDraft,
+    discardDraftAsync,
     remoteConfigured,
     isAuthenticated,
     logout,
@@ -30,6 +31,24 @@ export default function AdminBar() {
   const [showMeta, setShowMeta] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const isDev = import.meta.env.DEV
+
+  const handleDiscard = async () => {
+    // CORRECTION : Utiliser discardDraftAsync pour aussi supprimer le KV distant si en mode remote
+    if (remoteConfigured && isAuthenticated) {
+      // Mode sécurisé : appeller async pour DELETE /api/draft
+      try {
+        await discardDraftAsync()
+        alert('✅ Brouillon abandonné (local et distant).')
+      } catch (err) {
+        alert(`❌ Erreur lors de l'abandon : ${(err as any)?.message ?? 'erreur inconnue'}`)
+      }
+    } else {
+      // Mode local : juste discardDraft synchrone
+      if (confirm('Abandonner tout le brouillon et revenir au contenu original ? Cette action efface toutes vos modifications.')) {
+        discardDraft()
+      }
+    }
+  }
 
   const handlePublish = async () => {
     if (!confirm('Publier ce contenu pour tous les visiteurs ?')) return
@@ -102,13 +121,9 @@ export default function AdminBar() {
 
             <button
               className="admin-bar__btn admin-bar__btn--reset"
-              onClick={() => {
-                if (confirm('Abandonner tout le brouillon et revenir au contenu original ? Cette action efface toutes vos modifications locales.')) {
-                  discardDraft()
-                }
-              }}
+              onClick={handleDiscard}
               disabled={!isDirty}
-              title="Abandonner l'intégralité du brouillon local"
+              title="Abandonner l'intégralité du brouillon (local et distant si sécurisé)"
             >
               🗑 Abandonner le brouillon
             </button>

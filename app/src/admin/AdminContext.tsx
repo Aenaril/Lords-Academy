@@ -200,12 +200,15 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
   const [isPublishing, setIsPublishing] = useState(false)
   
   // CORRECTION: Séparer draftRevision (UUID/KV) et publishedRevision (SHA/GitHub)
-  // pour éviter les hybridations qui causent des faux conflits.
   const draftRevision = useRef<string | undefined>(undefined)
   const publishedRevision = useRef<string | undefined>(undefined)
   
-  // CORRECTION: Queue + numéro de séquence pour sérialiser les sauvegardes async
-  // et éviter les chevauchements (deux PUT /api/draft qui se croisent).
+  // CORRECTION: Vraie queue de sauvegarde sérialisée
+  // - pendingModification : captures la dernière modif pendant une save en cours
+  // - isSavingRef : true si une PUT est actuellement en vol
+  // - saveSequence : marque les versions pour rejeter les réponses tardives
+  const pendingModificationRef = useRef<EditableTutorial | null>(null)
+  const isSavingRef = useRef<boolean>(false)
   const saveSequence = useRef<number>(0)
   const saveQueueRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -400,58 +403,74 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
   // ═══════════════════════════════════════════════════════════════
   // Persistance automatique avec queue sérialisée
   //
-  // CORRECTION: Remplacer le simple debounce (500ms) par une queue qui
-  // garantit que :
-  //  1. Les mises à jour sont sérialisées (pas deux PUT /api/draft simultanés)
-  //  2. Si tutorialId change durant une save, les réponses tardives sont
-  //     ignorées (via le numéro de séquence)
-  //  3. Nous attendons la fin d'une save avant de lancer la prochaine
+  // Vraie queue de sauvegardes :
+  //  - pendingModification : capture modif pendant une save
+  //  - isSaving : true si PUT en vol
+  //  - Ne remettre isDirty=false QUE si aucune modif en attente
   // ═══════════════════════════════════════════════════════════════
-  useEffect(() => {
-    if (!isDirty || !tutorial) return
 
-    // Incrémenter le numéro de séquence pour cette modification
+  const performSave = useCallback(async () => {
+    if (!pendingModificationRef.current) {
+      setIsDirty(false)
+      return
+    }
+    if (!tutorialId || !store) return
+
+    isSavingRef.current = true
+    const toSave = pendingModificationRef.current
+    pendingModificationRef.current = null
     saveSequence.current++
     const currentSeq = saveSequence.current
 
-    // Effacer le timeout précédent (on la remplace par la queue)
-    if (saveQueueRef.current) {
-      clearTimeout(saveQueueRef.current)
-    }
-
-    // Fixer un nouveau timeout (500ms debounce avant la sauvegarde)
-    saveQueueRef.current = setTimeout(async () => {
-      try {
-        // Vérifier que ce n'est pas une réponse tardive d'une modification antérieure
-        if (currentSeq !== saveSequence.current) {
-          console.warn(`Ignoring late save response (seq ${currentSeq} vs current ${saveSequence.current})`)
-          return
-        }
-
-        const result = await store.saveDraft(tutorialId, tutorial, draftRevision.current)
-        
-        // Vérifier à nouveau le numéro de séquence après l'attente réseau
-        if (currentSeq !== saveSequence.current) {
-          console.warn(`Ignoring late save response (seq ${currentSeq} vs current ${saveSequence.current})`)
-          return
-        }
-
-        if (result.revision) {
-          draftRevision.current = result.revision
-        }
+    try {
+      const result = await store.saveDraft(tutorialId, toSave, draftRevision.current)
+      
+      if (currentSeq !== saveSequence.current) {
+        console.warn(`Ignoring late save response (seq ${currentSeq})`)
+        return
+      }
+      
+      // CORRECTION : Gérer le conflit multi-R4 retourné par handleSaveDraft
+      if ((result as any).conflict) {
+        console.warn(`Conflit détecté : brouillon modifié par un autre R4. serverRevision:`, (result as any).serverRevision)
+        // Charger la version serveur pour informer l'utilisateur
+        draftRevision.current = (result as any).serverRevision
+        setIsDirty(true)  // Marquer comme dirty pour que l'UI affiche l'alerte
+        alert(`⚠️ Conflit : Le brouillon a été modifié par un autre administrateur.\nRechargez la page pour voir les derniers changements.`)
+        return
+      }
+      
+      if (result.revision) {
+        draftRevision.current = result.revision
+      }
+    } catch (err) {
+      console.error(`Erreur sauvegarde brouillon ${tutorialId}:`, err)
+    } finally {
+      isSavingRef.current = false
+      if (pendingModificationRef.current) {
+        setTimeout(() => performSave(), 50)
+      } else {
         setIsDirty(false)
-      } catch (err) {
-        console.error(`Erreur sauvegarde brouillon ${tutorialId}:`, err)
-        // Laisser isDirty à true pour future tentative
-      }
-    }, 500)
-
-    return () => {
-      if (saveQueueRef.current) {
-        clearTimeout(saveQueueRef.current)
       }
     }
-  }, [isDirty, tutorial, tutorialId, store])
+  }, [tutorialId, store])
+
+  useEffect(() => {
+    if (!isDirty) return
+
+    if (saveQueueRef.current) clearTimeout(saveQueueRef.current)
+
+    if (isSavingRef.current) {
+      // Save déjà en vol → juste capturer la modif
+      pendingModificationRef.current = tutorial
+    } else {
+      // Pas de save en vol → débouncer
+      saveQueueRef.current = setTimeout(() => {
+        pendingModificationRef.current = tutorial
+        performSave()
+      }, 500)
+    }
+  }, [isDirty, tutorial, tutorialId, performSave])
 
   const mutate = useCallback(
     (updater: (prev: EditableTutorial) => EditableTutorial) => {
