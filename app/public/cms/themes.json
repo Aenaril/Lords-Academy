@@ -1,26 +1,26 @@
 {
-  "activeThemeId": "light",
-  "publishedAt": 1791836802889,
+  "activeThemeId": "dark",
+  "publishedAt": 1791836844446,
   "theme": {
-    "id": "light",
-    "name": "Clair",
-    "description": "Thème clair classique",
+    "id": "dark",
+    "name": "Sombre",
+    "description": "Thème sombre par défaut",
     "colors": {
-      "bgMain": "#ffffff",
-      "bgCard": "#f5f5f5",
-      "bgSection": "#eeeeee",
-      "textPrimary": "#1a1a1a",
-      "textSecondary": "#4a4a4a",
-      "textMuted": "#8a8a8a",
+      "bgMain": "#0f0f12",
+      "bgCard": "#1a1a1e",
+      "bgSection": "#242428",
+      "textPrimary": "#f2f2f2",
+      "textSecondary": "#b0b0b0",
+      "textMuted": "#707070",
       "primary": "#d4af37",
-      "secondary": "#3b6fa8",
-      "accent": "#d84d00",
+      "secondary": "#5e92b3",
+      "accent": "#ff6b6b",
       "success": "#4caf50",
-      "error": "#d32f2f",
-      "warning": "#ff9800",
-      "borderColor": "#cccccc",
-      "buttonText": "#ffffff",
-      "linkColor": "#0066cc"
+      "error": "#ff5252",
+      "warning": "#ffb74d",
+      "borderColor": "#333333",
+      "buttonText": "#1a1a1a",
+      "linkColor": "#5eaaff"
     },
     "typography": {
       "fontPrimary": "Segoe UI, Tahoma, Geneva, Verdana, sans-serif",
@@ -42,6 +42,6 @@
     "modifiedAt": 1791836784823,
     "isPredefined": true
   },
-  "_rev": 2,
-  "_publishedAt": 1791836803126
+  "_rev": 3,
+  "_publishedAt": 1791836844686
 }
