@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Theme, ThemeLibrary, ThemeColors } from './types'
+import type { PublicationStatus, PublishUIStatus } from './PublicationTypes'
 import {
   loadThemeLibrary as loadThemeLibraryServer,
   saveThemeLibrary as saveThemeLibraryServer,
@@ -118,7 +119,8 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
   const [newThemeName, setNewThemeName] = useState('')
   const [newThemeBase, setNewThemeBase] = useState<'dark' | 'light'>('dark')
   const [showNewThemeForm, setShowNewThemeForm] = useState(false)
-  const [publishStatus, setPublishStatus] = useState<'idle' | 'publishing' | 'success' | 'error' | 'auth-required'>('idle')
+  const [publishStatus, setPublishStatus] = useState<PublishUIStatus>('idle')
+  const [publishMessage, setPublishMessage] = useState('')
   const [syncStatus, setSyncStatus] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('idle')
   const [previewOn, setPreviewOn] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -304,6 +306,7 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
   // Publier un objet thème spécifique vers l'API GitHub publique avec vérification
   const publishThemeObject = async (theme: Theme): Promise<boolean> => {
     setPublishStatus('publishing')
+    setPublishMessage('')
     // NE PAS calculer la révision côté client
     // Laisser le serveur déterminer la vraie révision en lisant l'état publié
     const thisPublish = { themeId: theme.id }
@@ -332,8 +335,11 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
         return false
       }
 
+      const result = await response.json()
+      const status = result.status as PublicationStatus | undefined
+      const userMessage = result.userMessage || ''
+
       if (response.ok) {
-        const result = await response.json()
         console.info(
           `✅ Thème publié: ${theme.name} (rev ${result.revisionNumber} confirmée par serveur)`
         )
@@ -349,23 +355,78 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
         setLibrary(updated)
         localStorage.setItem('cms:theme:library', JSON.stringify(updated))
         
-        setPublishStatus('success')
-        setTimeout(() => setPublishStatus('idle'), 6000)
+        setPublishStatus('verify-success')
+        setPublishMessage(userMessage || '✅ Thème publié avec succès.')
+        setTimeout(() => {
+          setPublishStatus('idle')
+          setPublishMessage('')
+        }, 6000)
         publishingRef.current = null
         return true
       }
 
-      const error = await response.text()
-      console.error(`❌ Erreur publication thème: ${response.status}`)
-      console.error(`📝 Réponse: ${error}`)
-      setPublishStatus(response.status === 401 ? 'auth-required' : 'error')
-      setTimeout(() => setPublishStatus('idle'), 4000)
+      // Gérer les erreurs avec statuts explicites
+      if (status === 'verify_failed') {
+        setPublishStatus('verify-failed')
+        setPublishMessage(userMessage || '⚠️ Écriture réussie mais vérification échouée.')
+        setTimeout(() => {
+          setPublishStatus('idle')
+          setPublishMessage('')
+        }, 6000)
+        publishingRef.current = null
+        return false
+      }
+
+      if (status === 'expired_verify') {
+        setPublishStatus('verify-expired')
+        setPublishMessage(userMessage || '⚠️ Écriture réussie. Vérification expirée.')
+        setTimeout(() => {
+          setPublishStatus('idle')
+          setPublishMessage('')
+        }, 6000)
+        publishingRef.current = null
+        return false
+      }
+
+      if (status === 'conflict') {
+        setPublishStatus('conflict')
+        setPublishMessage(userMessage || '❌ Conflit lors de la publication. Veuillez réessayer.')
+        setTimeout(() => {
+          setPublishStatus('idle')
+          setPublishMessage('')
+        }, 6000)
+        publishingRef.current = null
+        return false
+      }
+
+      if (response.status === 401) {
+        setPublishStatus('auth-required')
+        setPublishMessage('🔐 Authentification requise')
+        setTimeout(() => {
+          setPublishStatus('idle')
+          setPublishMessage('')
+        }, 4000)
+        publishingRef.current = null
+        return false
+      }
+
+      // Erreur générique
+      setPublishStatus('write-failed')
+      setPublishMessage(userMessage || `❌ ${result.error || 'Erreur de publication'}`)
+      setTimeout(() => {
+        setPublishStatus('idle')
+        setPublishMessage('')
+      }, 6000)
       publishingRef.current = null
       return false
     } catch (e) {
       console.error('❌ Erreur publication thème (réseau):', e)
-      setPublishStatus('error')
-      setTimeout(() => setPublishStatus('idle'), 4000)
+      setPublishStatus('write-failed')
+      setPublishMessage('❌ Erreur réseau lors de la publication.')
+      setTimeout(() => {
+        setPublishStatus('idle')
+        setPublishMessage('')
+      }, 6000)
       publishingRef.current = null
       return false
     }
@@ -592,17 +653,35 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
                 ↩ Restaurer l'original
               </button>
 
-              {publishStatus === 'success' && (
+              {publishStatus === 'verify-success' && (
                 <span className="status-success" style={{ display: 'block', marginTop: 8 }}>
-                  ✅ Thème publié et appliqué. La propagation complète sur le site
-                  public peut prendre quelques minutes (déploiement Cloudflare).
+                  {publishMessage || '✅ Thème publié et appliqué. La propagation complète sur le site public peut prendre quelques minutes (déploiement Cloudflare).'}
                 </span>
               )}
-              {publishStatus === 'error' && (
-                <span className="status-error">❌ Erreur de publication (voir console)</span>
+              {publishStatus === 'verify-failed' && (
+                <span className="status-error" style={{ display: 'block', marginTop: 8 }}>
+                  {publishMessage || '⚠️ Écriture GitHub réussie mais vérification du contenu échouée.'}
+                </span>
+              )}
+              {publishStatus === 'verify-expired' && (
+                <span className="status-warning" style={{ display: 'block', marginTop: 8 }}>
+                  {publishMessage || '⚠️ Écriture GitHub réussie. Vérification expirée.'}
+                </span>
+              )}
+              {publishStatus === 'conflict' && (
+                <span className="status-error" style={{ display: 'block', marginTop: 8 }}>
+                  {publishMessage || '❌ Conflit lors de la publication. Veuillez réessayer.'}
+                </span>
+              )}
+              {publishStatus === 'write-failed' && (
+                <span className="status-error" style={{ display: 'block', marginTop: 8 }}>
+                  {publishMessage || '❌ Erreur de publication (voir console)'}
+                </span>
               )}
               {publishStatus === 'auth-required' && (
-                <span className="status-warning">🔐 Authentification requise</span>
+                <span className="status-warning" style={{ display: 'block', marginTop: 8 }}>
+                  {publishMessage || '🔐 Authentification requise'}
+                </span>
               )}
               {!isAuthenticated && (
                 <p style={{ marginTop: 12, color: '#ff9800', fontSize: '0.9em' }}>

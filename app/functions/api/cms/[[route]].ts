@@ -161,6 +161,8 @@ export const onRequest: PagesFunction = async (context) => {
 /**
  * POST /api/cms/themes — SÉCURISÉ
  * ⚠️ Requiert : Origine autorisée + Authentification R4 + CSRF
+ * 
+ * Retourne PublicationResponse avec status détaillé
  */
 async function handleCmsThemes(req: Request, env: any): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -203,14 +205,52 @@ async function handleCmsThemes(req: Request, env: any): Promise<Response> {
       theme,
     })
 
+    // Mapper le statut serveur vers une réponse structurée
+    // Sans divulguer d'informations sensibles (GitHub tokens, etc.)
     if (!result.ok) {
-      return json({ ok: false, error: result.error }, 502)
+      // Écriture échouée
+      let httpStatus = 502
+      let userMessage = 'Erreur de publication'
+
+      switch (result.status) {
+        case 'write_failed':
+          httpStatus = 502
+          userMessage = 'Impossible d\'écrire sur GitHub. Vérifiez votre authentification.'
+          break
+        case 'conflict':
+          httpStatus = 409
+          userMessage = 'Conflit lors de la publication. Le fichier a changé. Veuillez réessayer.'
+          break
+        case 'verify_failed':
+          httpStatus = 202 // Accepté mais vérification échouée
+          userMessage = 'Écriture GitHub réussie, mais vérification du contenu échouée. État incertain.'
+          break
+        case 'expired_verify':
+          httpStatus = 202 // Accepté mais vérification expirée
+          userMessage = 'Écriture GitHub réussie. Vérification expirée. Vérifiez manuellement.'
+          break
+      }
+
+      return json(
+        {
+          ok: false,
+          status: result.status,
+          revision: result.revision,
+          revisionNumber: result.revisionNumber,
+          error: result.error,
+          userMessage,
+        },
+        httpStatus
+      )
     }
 
-    return json({ 
-      ok: true, 
+    // Écriture + vérification réussies
+    return json({
+      ok: true,
+      status: result.status || 'verify_success',
       revision: result.revision,
-      revisionNumber: result.revisionNumber, // Révision calculée côté serveur
+      revisionNumber: result.revisionNumber,
+      userMessage: 'Thème publié avec succès. Déploiement sur Cloudflare en cours.',
     })
   }
 
