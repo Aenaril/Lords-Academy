@@ -1,7 +1,7 @@
 {
   "config": {
     "title": "Lords Mobile Academy",
-    "subtitle": "Maîtrisez l'art de la guerre",
+    "subtitle": "Tout pour apprendre et comprendre!",
     "introText": "Que vous soyez nouvel arrivant ou joueur vétéran, Lords Mobile Academy vous guide à travers les meilleures stratégies, formations et tactiques de combat.\n\nChaque tutoriel est conçu pour être ludique, interactif et facilement mémorisable. Apprenez à votre rythme, et dominez votre prochaine bataille.",
     "heroImageUrl": "/images/hero-default.jpg",
     "heroBackgroundColor": "#1a1a2e",
@@ -20,5 +20,5 @@
       }
     }
   },
-  "publishedAt": 1728556800000
+  "publishedAt": 1791818234078
 }
