@@ -99,6 +99,48 @@ const localStoragePersistence: TutorialPersistence = {
 
 /* ─── Hydratation : ajoute des _uid stables sans toucher aux données source ─── */
 /**
+ * Valide un tutoriel pour la publication.
+ * 
+ * Vérifications :
+ * - Métadonnées complètes (titre, catégorie, etc.)
+ * - Au moins une section
+ * - Chaque section a au moins un bloc
+ * 
+ * @returns { ok: boolean, error?: string }
+ */
+function validateTutorialForPublish(tutorial: EditableTutorial): { ok: boolean; error?: string } {
+  // Métadonnées obligatoires
+  if (!tutorial.id?.trim()) {
+    return { ok: false, error: 'ID du tutoriel manquant' }
+  }
+  
+  if (!tutorial.title?.trim()) {
+    return { ok: false, error: 'Titre du tutoriel requis' }
+  }
+  
+  if (!tutorial.category?.trim()) {
+    return { ok: false, error: 'Catégorie du tutoriel requise' }
+  }
+  
+  // Au moins une section
+  if (!tutorial.sections || tutorial.sections.length === 0) {
+    return { ok: false, error: 'Au moins une section est requise' }
+  }
+  
+  // Chaque section a au moins un bloc
+  const emptySections = tutorial.sections.filter((s) => !s.blocks || s.blocks.length === 0)
+  if (emptySections.length > 0) {
+    const count = emptySections.length
+    return { 
+      ok: false, 
+      error: `${count} section(s) vide(s) — ajouter des blocs à chacune` 
+    }
+  }
+  
+  return { ok: true }
+}
+
+/**
  * Initialise un tutoriel éditable à partir de sa source
  * @param tutorialId identifiant du tutoriel
  * @returns tutoriel avec UIDs générés pour les sections et blocs, ou null si le tutoriel n'existe pas
@@ -414,6 +456,12 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
   }, [remoteConfigured])
 
   const publish = useCallback(async () => {
+    // Validation côté client avant envoi
+    const validation = validateTutorialForPublish(tutorial)
+    if (!validation.ok) {
+      return { ok: false, error: validation.error }
+    }
+
     // Vérifier s'il y a une erreur de chargement de la version publiée
     if (publishLoadError) {
       return { ok: false, error: `Publication bloquée: ${publishLoadError}` }
