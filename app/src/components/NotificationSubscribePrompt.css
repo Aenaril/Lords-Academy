@@ -1,0 +1,124 @@
+/* NotificationSubscribePrompt */
+
+.notification-prompt {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.1), rgba(212, 175, 55, 0.05));
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: 8px;
+  padding: 15px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(8px);
+  z-index: 900;
+  max-width: 300px;
+  animation: slideInUp 300ms ease;
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.notification-prompt__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notification-prompt__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--primary-gold, #d4af37);
+}
+
+.notification-prompt__text {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-light, #f2f2f2);
+}
+
+.notification-prompt__actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.notification-prompt__btn {
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 150ms ease;
+  white-space: nowrap;
+}
+
+.notification-prompt__btn--yes {
+  background: var(--primary-gold, #d4af37);
+  color: #1a1a1a;
+}
+
+.notification-prompt__btn--yes:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.notification-prompt__btn--no {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-light, #f2f2f2);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.notification-prompt__btn--no:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.notification-prompt__btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.notification-prompt__success {
+  background: rgba(76, 175, 80, 0.1);
+  border-color: rgba(76, 175, 80, 0.3);
+  justify-content: center;
+}
+
+.notification-prompt__message {
+  color: #a5f3a5;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 768px) {
+  .notification-prompt {
+    bottom: 70px;
+    right: 10px;
+    left: 10px;
+    max-width: none;
+    gap: 10px;
+  }
+
+  .notification-prompt__actions {
+    flex-direction: column;
+  }
+
+  .notification-prompt__btn {
+    width: 100%;
+    text-align: center;
+  }
+}
+
