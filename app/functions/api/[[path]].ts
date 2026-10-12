@@ -85,6 +85,12 @@ export const onRequest: PagesFunction = async (context) => {
       case 'POST /api/restore':
         response = await handleRestore(request, env as any)
         break
+      case 'POST /api/tutorialCreate':
+        response = await handleTutorialCreate(request, env as any)
+        break
+      case 'GET /api/tutorialIds':
+        response = await handleTutorialIds(request, env as any)
+        break
       default:
         response = json({ error: 'Not found' }, 404)
     }
@@ -657,7 +663,149 @@ async function handleRestore(req: Request, env: any): Promise<Response> {
   return json({ ok: true, revision: result.content?.sha })
 }
 
-/* ───────────────────────── Helpers sécurité ───────────────────────── */
+/* ───────────────────────── Création de tutoriels (dynamique) ───────────────────────── */
+
+/**
+ * Génère un ID unique à partir d'un titre.
+ * - Slugifié (lowercase, accents supprimés, caractères spéciaux → tirets)
+ * - Collision : ajout timestamp en fallback
+ */
+function generateTutorialId(title: string, existingIds: string[]): string {
+  const base = title
+    .toLowerCase()
+    // Accents
+    .replace(/[éèê]/g, 'e')
+    .replace(/[àâä]/g, 'a')
+    .replace(/[ùû]/g, 'u')
+    .replace(/[ôö]/g, 'o')
+    .replace(/[îï]/g, 'i')
+    .replace(/[ç]/g, 'c')
+    // Caractères spéciaux → tirets
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/--+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 32)
+
+  // Pas de collision
+  if (!existingIds.includes(base)) {
+    return base
+  }
+
+  // Collision : ajouter timestamp (36-base pour compacité)
+  const ts = Date.now().toString(36)
+  return `${base}-${ts}`.slice(0, 48)
+}
+
+/**
+ * Crée un nouveau tutoriel vierge.
+ * 
+ * Workflow :
+ * 1. Valide title (non-vide) et category (libre)
+ * 2. Charge liste IDs existants
+ * 3. Génère ID unique
+ * 4. Crée objet tutoriel vierge (métadonnées + sections: [])
+ * 5. Enregistre premier brouillon (PUT draft:${id} KV)
+ * 6. Ajoute ID à private:adminTutorialIds (atomique)
+ * 7. Retourne tutorialId + contenu initial
+ */
+async function handleTutorialCreate(req: Request, env: any): Promise<Response> {
+  if (!originAllowed(req, env)) return json({ error: 'Origine refusée' }, 403)
+  if (!csrfOk(req)) return json({ error: 'CSRF' }, 403)
+  if (!(await readSession(req, env))) return json({ error: 'Non authentifié' }, 401)
+
+  const body = (await req.json().catch(() => null)) as any
+  const title = (body?.title ?? '').trim()
+  const category = (body?.category ?? '').trim()
+
+  if (!title || !category) {
+    return json({ ok: false, error: 'Titre et catégorie requis' }, 400)
+  }
+
+  if (title.length > 100) {
+    return json({ ok: false, error: 'Titre trop long (max 100 caractères)' }, 400)
+  }
+
+  try {
+    // Charger IDs existants
+    const indexKey = 'private:adminTutorialIds'
+    const indexRaw = await env.DRAFTS.get(indexKey)
+    const indexData = indexRaw ? JSON.parse(indexRaw) : { tutorialIds: [], metadata: {} }
+    const existingIds = indexData.tutorialIds || []
+
+    // Générer ID unique
+    const tutorialId = generateTutorialId(title, existingIds)
+
+    // Créer objet tutoriel vierge
+    const newTutorial = {
+      id: tutorialId,
+      title: title,
+      description: '',
+      category: category,
+      difficulty: 'easy' as const,
+      estimatedDuration: '10',
+      coverIcon: '📚',
+      order: 999,
+      status: 'draft' as const,
+      sections: []
+    }
+
+    // Enregistrer premier brouillon
+    const draftKey = `draft:${tutorialId}`
+    const draftData = {
+      content: newTutorial,
+      revision: crypto.getRandomValues(new Uint8Array(16)).toString(),
+      updatedAt: Date.now(),
+      lastEditedLabel: 'Créé'
+    }
+    await env.DRAFTS.put(draftKey, JSON.stringify(draftData))
+
+    // Ajouter à l'index privé (atomique)
+    if (!indexData.tutorialIds.includes(tutorialId)) {
+      indexData.tutorialIds.push(tutorialId)
+      indexData.metadata = indexData.metadata || {}
+      indexData.metadata[tutorialId] = {
+        createdAt: new Date().toISOString(),
+        title: title,
+        adminEmail: null
+      }
+      await env.DRAFTS.put(indexKey, JSON.stringify(indexData))
+    }
+
+    return json({
+      ok: true,
+      tutorialId: tutorialId,
+      tutorial: newTutorial
+    })
+  } catch (err) {
+    console.error('Error creating tutorial:', err)
+    return json({ ok: false, error: 'Erreur serveur lors de la création' }, 500)
+  }
+}
+
+/**
+ * Énumère tous les IDs administrables (brouillons + publiés).
+ * 
+ * Retourne la liste des tutoriels que l'admin peut éditer/créer.
+ */
+async function handleTutorialIds(req: Request, env: any): Promise<Response> {
+  if (!(await readSession(req, env))) return json({ error: 'Non authentifié' }, 401)
+
+  try {
+    const indexKey = 'private:adminTutorialIds'
+    const indexRaw = await env.DRAFTS.get(indexKey)
+    const indexData = indexRaw ? JSON.parse(indexRaw) : { tutorialIds: ['dragon-arena'], metadata: {} }
+
+    return json({
+      ok: true,
+      tutorialIds: indexData.tutorialIds || ['dragon-arena']
+    })
+  } catch (err) {
+    console.error('Error fetching tutorial IDs:', err)
+    return json({ ok: false, error: 'Erreur serveur' }, 500)
+  }
+}
+
+/* ───────────────────────── Helpers CORS ───────────────────────── */
 
 function corsHeaders(req: Request, env: any): Record<string, string> {
   const origin = req.headers.get('Origin') ?? ''

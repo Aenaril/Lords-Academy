@@ -3,6 +3,8 @@ import { useAdmin } from './AdminContext'
 import { openAdminLoginForm } from './AdminBarWrapper'
 import TutorialMetaPanel from './TutorialMetaPanel'
 import VersionHistory from './VersionHistory'
+import TutorialCreateModal from './TutorialCreateModal'
+import MyTutorialsPanel from './MyTutorialsPanel'
 import './AdminBar.css'
 
 /**
@@ -31,6 +33,8 @@ export default function AdminBar() {
   } = useAdmin()
   const [showMeta, setShowMeta] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showMyTutorials, setShowMyTutorials] = useState(false)
   const isDev = import.meta.env.DEV
 
   const handleDiscard = async () => {
@@ -71,6 +75,11 @@ export default function AdminBar() {
     }
   }
 
+  const handleTutorialCreated = (tutorialId: string) => {
+    // Redirection automatique via AdminProvider
+    window.location.href = `/?tutorialId=${encodeURIComponent(tutorialId)}`
+  }
+
   return (
     <>
       <div className={`admin-bar ${isAdminMode ? 'admin-bar--active' : ''}`}>
@@ -102,6 +111,18 @@ export default function AdminBar() {
             >
               {isPreview ? '👁 Aperçu actif' : '👁 Aperçu'}
             </button>
+
+            {isAuthenticated && (
+              <>
+                <button
+                  className="admin-bar__btn admin-bar__btn--create"
+                  onClick={() => setShowMyTutorials(true)}
+                  title="Gérer vos tutoriels"
+                >
+                  📚 Mes tutoriels
+                </button>
+              </>
+            )}
 
             <button
               className="admin-bar__btn"
@@ -183,6 +204,21 @@ export default function AdminBar() {
 
       {showMeta && <TutorialMetaPanel onClose={() => setShowMeta(false)} />}
       {showHistory && <VersionHistory onClose={() => setShowHistory(false)} />}
+      <TutorialCreateModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onCreated={handleTutorialCreated}
+      />
+      {showMyTutorials && (
+        <MyTutorialsPanel
+          onSelectTutorial={(id) => {
+            setShowMyTutorials(false)
+            window.location.href = `/?tutorialId=${encodeURIComponent(id)}`
+          }}
+          onCreateNew={() => setShowCreateModal(true)}
+          onClose={() => setShowMyTutorials(false)}
+        />
+      )}
     </>
   )
 }
