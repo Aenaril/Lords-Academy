@@ -19,29 +19,29 @@
         {
           "type": "text",
           "content": "Comprendre les rôles clés pour dominer la caravane et tenir les bâtiments stratégiques. Chaque membre compte — des RLs volants aux fillers !",
-          "_uid": "b_mv49tsu4_62"
+          "_uid": "b_mv5ea5rs_62"
         },
         {
           "type": "image",
           "imagePath": "/images/content/dragon-arena/16.jpeg",
           "alt": "Visuel immersif de la Dragon Arena",
           "caption": "Dragon Arena : un affrontement de guilde où chaque rôle est décisif",
-          "_uid": "b_mv49tsu4_63"
+          "_uid": "b_mv5ea5rs_63"
         },
         {
           "type": "image",
           "imagePath": "/images/content/dragon-arena/15.jpeg",
           "alt": "Carte de Dragon Arena avec zones stratégiques",
           "caption": "La carte de la Dragon Arena : sources chaudes, vestiges antiques et autel du dragon",
-          "_uid": "b_mv49tsu4_64"
+          "_uid": "b_mv5ea5rs_64"
         },
         {
           "type": "text",
           "content": "Dans ce guide, vous découvrirez les trois rôles clés de l'événement :\n• Les RLs volants (caravanes)\n• Les RLs fixes (tenue des forts)\n• Les fillers (soutien indispensable)",
-          "_uid": "b_mv49tsu4_65"
+          "_uid": "b_mv5ea5rs_65"
         }
       ],
-      "_uid": "s_mv49tsu4_61"
+      "_uid": "s_mv5ea5rr_61"
     },
     {
       "id": "rls-volants",
@@ -53,35 +53,35 @@
         {
           "type": "text",
           "content": "Les RLs volants sont des joueurs mobiles qui sautent de bâtiment en bâtiment pour déloger l'adversaire et permettre la capture d'une caravane (bonus de points). Leur objectif : prendre le bâtiment juste à temps avant que la caravane n'y passe.",
-          "_uid": "b_mv49tsu4_67"
+          "_uid": "b_mv5ea5rs_67"
         },
         {
           "type": "image",
           "imagePath": "/images/content/dragon-arena/17.jpeg",
           "alt": "Combat épique en Dragon Arena",
           "caption": "Les RLs volants mènent l'assaut : réactivité et improvisation sont leurs maîtres-mots",
-          "_uid": "b_mv49tsu4_68"
+          "_uid": "b_mv5ea5rs_68"
         },
         {
           "type": "memo",
           "title": "Réactivité maximale",
           "content": "Peu de temps pour demander une compo dans le tchat — ils doivent évaluer et décider vite.",
           "icon": "⚡",
-          "_uid": "b_mv49tsu4_69"
+          "_uid": "b_mv5ea5rs_69"
         },
         {
           "type": "memo",
           "title": "Course contre la montre",
           "content": "En permanence sous pression : la caravane avance de fort en fort avec des temps de déplacement variables.",
           "icon": "⏱️",
-          "_uid": "b_mv49tsu4_70"
+          "_uid": "b_mv5ea5rs_70"
         },
         {
           "type": "memo",
           "title": "Adaptation rapide",
           "content": "Ils doivent calculer leur approche et composition d'attaque à chaque bâtiment ciblé.",
           "icon": "🎯",
-          "_uid": "b_mv49tsu4_71"
+          "_uid": "b_mv5ea5rs_71"
         },
         {
           "type": "quiz",
@@ -94,10 +94,10 @@
           ],
           "correctAnswerIndex": 1,
           "explanation": "Le RL volant saute de bâtiment en bâtiment pour déloger l'adversaire et permettre la capture de la caravane, qui apporte un bonus de points. Il doit prendre le bâtiment juste avant que la caravane n'y passe.",
-          "_uid": "b_mv49tsu4_72"
+          "_uid": "b_mv5ea5rs_72"
         }
       ],
-      "_uid": "s_mv49tsu4_66"
+      "_uid": "s_mv5ea5rs_66"
     },
     {
       "id": "contraintes-rls-volants",
@@ -109,21 +109,21 @@
         {
           "type": "text",
           "content": "Du fait de leur mobilité permanente, les RLs volants ne peuvent pas fill/full les RW d'autres joueurs. Ils sont entièrement dédiés à la progression de la caravane et n'ont pas la disponibilité pour soutenir les rallys fixes.",
-          "_uid": "b_mv49tsu4_74"
+          "_uid": "b_mv5ea5rs_74"
         },
         {
           "type": "memo",
           "title": "Pas de fill RW",
           "content": "Mobilité totale = impossible de remplir les rallys des autres.",
           "icon": "🚫",
-          "_uid": "b_mv49tsu4_75"
+          "_uid": "b_mv5ea5rs_75"
         },
         {
           "type": "memo",
           "title": "Temps limité",
           "content": "Chaque décision doit être prise en quelques secondes seulement.",
           "icon": "⏱️",
-          "_uid": "b_mv49tsu4_76"
+          "_uid": "b_mv5ea5rs_76"
         },
         {
           "type": "quiz",
@@ -136,10 +136,10 @@
           ],
           "correctAnswerIndex": 1,
           "explanation": "Sa mobilité totale le rend entièrement dédié à la progression de la caravane. Il n'a donc pas la disponibilité pour soutenir les rallys fixes des autres joueurs.",
-          "_uid": "b_mv49tsu4_77"
+          "_uid": "b_mv5ea5rs_77"
         }
       ],
-      "_uid": "s_mv49tsu4_73"
+      "_uid": "s_mv5ea5rs_73"
     },
     {
       "id": "rls-fixes",
@@ -152,7 +152,7 @@
         {
           "type": "text",
           "content": "Les forts offrent des points lorsqu'ils sont tenus, mais aussi des stats boostant l'attaque de toute l'équipe, des téléportations ou des boosts de vitesse de soin. Ils sont absolument prioritaires et doivent être tenus le plus longtemps possible par des RLs fixes capables de résister à des assauts lourds et répétés.",
-          "_uid": "b_mv49tsu4_79"
+          "_uid": "b_mv5ea5rs_79"
         },
         {
           "type": "comparison",
@@ -212,7 +212,7 @@
               ]
             }
           ],
-          "_uid": "b_mv49tsu4_80"
+          "_uid": "b_mv5ea5rs_80"
         },
         {
           "type": "quiz",
@@ -225,10 +225,10 @@
           ],
           "correctAnswerIndex": 2,
           "explanation": "Les Vestiges antiques délivrent pas mal de points ET offrent un boost de 50% d'attaque d'armée à toute la guilde. Les Sources chaudes, elles, donnent un boost de 50% de vitesse de soin.",
-          "_uid": "b_mv49tsu4_81"
+          "_uid": "b_mv5ea5rs_81"
         }
       ],
-      "_uid": "s_mv49tsu4_78"
+      "_uid": "s_mv5ea5rs_78"
     },
     {
       "id": "fillers",
@@ -241,28 +241,28 @@
         {
           "type": "text",
           "content": "Les membres non attribués à un bâtiment sont indispensables : pas de rally sans RL, et pas de RL sans fillers !",
-          "_uid": "b_mv49tsu4_83"
+          "_uid": "b_mv5ea5rs_83"
         },
         {
           "type": "memo",
           "title": "1 — Remplir les rallys",
           "content": "Remplir les rallys avec sceaux si possible + stuff speed.",
           "icon": "1️⃣",
-          "_uid": "b_mv49tsu4_84"
+          "_uid": "b_mv5ea5rs_84"
         },
         {
           "type": "memo",
           "title": "2 — Refill des forts",
           "content": "Refill et remplissage des forts dans le besoin (sans les FULL !).",
           "icon": "2️⃣",
-          "_uid": "b_mv49tsu4_85"
+          "_uid": "b_mv5ea5rs_85"
         },
         {
           "type": "memo",
           "title": "3 — Speeder les troupes",
           "content": "Speeder vos troupes ou demander de l'aide pour les bottes ! Tout retard peut engendrer la perte d'une caravane !",
           "icon": "3️⃣",
-          "_uid": "b_mv49tsu4_86"
+          "_uid": "b_mv5ea5rs_86"
         },
         {
           "type": "quiz",
@@ -275,10 +275,10 @@
           ],
           "correctAnswerIndex": 1,
           "explanation": "Le filler refill et remplit les forts selon le besoin, mais sans jamais les FULL. Remplir complètement un fort gaspille les troupes nécessaires ailleurs.",
-          "_uid": "b_mv49tsu4_87"
+          "_uid": "b_mv5ea5rs_87"
         }
       ],
-      "_uid": "s_mv49tsu4_82"
+      "_uid": "s_mv5ea5rs_82"
     },
     {
       "id": "recap",
@@ -328,17 +328,17 @@
               ]
             }
           ],
-          "_uid": "b_mv49tsu4_89"
+          "_uid": "b_mv5ea5rs_89"
         },
         {
           "type": "memo",
           "title": "À retenir",
           "content": "Pas de rally sans RL, et pas de RL sans fillers. Mobilité des volants, résistance des fixes, soutien des fillers : chaque rôle est un maillon de la victoire. 🐉",
           "icon": "🏆",
-          "_uid": "b_mv49tsu4_90"
+          "_uid": "b_mv5ea5rs_90"
         }
       ],
-      "_uid": "s_mv49tsu4_88"
+      "_uid": "s_mv5ea5rs_88"
     }
   ]
 }
