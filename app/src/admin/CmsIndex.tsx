@@ -8,6 +8,7 @@
  */
 import { useState } from 'react'
 import MyTutorialsPanel from './MyTutorialsPanel'
+import CmsDashboard from './CmsDashboard'
 import ThemesModule from '../cms/ThemesModule'
 import MediaLibraryModule from '../cms/MediaLibraryModule'
 import HomeCustomizationModule from '../cms/HomeCustomizationModule'
@@ -16,7 +17,7 @@ import NotificationsModule from '../cms/NotificationsModule'
 import SiteSettingsModule from '../cms/SiteSettingsModule'
 import './CmsIndex.css'
 
-type CmsSection = 'tutorials' | 'themes' | 'media' | 'home' | 'announcements' | 'notifications' | 'settings'
+type CmsSection = 'dashboard' | 'tutorials' | 'themes' | 'media' | 'home' | 'announcements' | 'notifications' | 'settings'
 
 interface CmsIndexProps {
   onSelectTutorial: (id: string) => void
@@ -24,7 +25,7 @@ interface CmsIndexProps {
 }
 
 export default function CmsIndex({ onSelectTutorial, onClose }: CmsIndexProps) {
-  const [activeSection, setActiveSection] = useState<CmsSection>('tutorials')
+  const [activeSection, setActiveSection] = useState<CmsSection>('dashboard')  // ✅ Dashboard par défaut
 
   return (
     <div className="cms-container">
@@ -32,28 +33,23 @@ export default function CmsIndex({ onSelectTutorial, onClose }: CmsIndexProps) {
         <h2>Administration CMS</h2>
         <nav className="cms-nav">
           <button
-            className={`cms-nav__item ${activeSection === 'tutorials' ? 'active' : ''}`}
-            onClick={() => setActiveSection('tutorials')}
+            className={`cms-nav__item ${activeSection === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setActiveSection('dashboard')}
           >
-            📚 Mes tutoriels
+            📊 Tableau de bord
+          </button>
+          <div className="cms-nav__divider"></div>
+          <button
+            className={`cms-nav__item ${activeSection === 'home' ? 'active' : ''}`}
+            onClick={() => setActiveSection('home')}
+          >
+            🏠 Accueil
           </button>
           <button
             className={`cms-nav__item ${activeSection === 'themes' ? 'active' : ''}`}
             onClick={() => setActiveSection('themes')}
           >
             🎨 Thèmes
-          </button>
-          <button
-            className={`cms-nav__item ${activeSection === 'media' ? 'active' : ''}`}
-            onClick={() => setActiveSection('media')}
-          >
-            🖼️ Médiathèque
-          </button>
-          <button
-            className={`cms-nav__item ${activeSection === 'home' ? 'active' : ''}`}
-            onClick={() => setActiveSection('home')}
-          >
-            🏠 Accueil
           </button>
           <button
             className={`cms-nav__item ${activeSection === 'announcements' ? 'active' : ''}`}
@@ -68,10 +64,23 @@ export default function CmsIndex({ onSelectTutorial, onClose }: CmsIndexProps) {
             🔔 Notifications
           </button>
           <button
+            className={`cms-nav__item ${activeSection === 'media' ? 'active' : ''}`}
+            onClick={() => setActiveSection('media')}
+          >
+            🖼️ Médiathèque
+          </button>
+          <button
             className={`cms-nav__item ${activeSection === 'settings' ? 'active' : ''}`}
             onClick={() => setActiveSection('settings')}
           >
             ⚙️ Paramètres
+          </button>
+          <div className="cms-nav__divider"></div>
+          <button
+            className={`cms-nav__item ${activeSection === 'tutorials' ? 'active' : ''}`}
+            onClick={() => setActiveSection('tutorials')}
+          >
+            📚 Mes tutoriels
           </button>
         </nav>
         {onClose && (
@@ -80,12 +89,13 @@ export default function CmsIndex({ onSelectTutorial, onClose }: CmsIndexProps) {
             onClick={onClose}
             title="Fermer CMS"
           >
-            ✕
+            ✕ Fermer
           </button>
         )}
       </div>
 
       <div className="cms-main">
+        {activeSection === 'dashboard' && <CmsDashboard />}
         {activeSection === 'tutorials' && (
           <MyTutorialsPanel 
             onSelectTutorial={onSelectTutorial}

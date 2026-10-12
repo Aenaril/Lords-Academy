@@ -246,7 +246,10 @@ export default function AdminBar({ onSelectTutorial }: AdminBarProps) {
 
       {/* CMS complet — accessible si authentifié */}
       {showCms && (
-        <CmsIndex onSelectTutorial={onSelectTutorial ?? (() => {})} />
+        <CmsIndex 
+          onSelectTutorial={onSelectTutorial ?? (() => {})} 
+          onClose={() => setShowCms(false)}  // ✅ Passer onClose
+        />
       )}
     </>
   )

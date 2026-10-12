@@ -1,20 +1,4 @@
 {
-  "announcements": [
-    {
-      "id": "ann-welcome",
-      "title": "Bienvenue à Lords Mobile Academy",
-      "description": "Découvrez comment maîtriser les stratégies avancées de combat dans Lords Mobile.",
-      "imageUrl": "/images/hero-default.jpg",
-      "bgColor": "#6366f1",
-      "textColor": "#ffffff",
-      "buttonText": "Démarrer",
-      "buttonLink": "dragon-arena",
-      "linkType": "tutorial",
-      "order": 1,
-      "enabled": true,
-      "createdAt": 1728556800000,
-      "modifiedAt": 1728556800000
-    }
-  ],
+  "announcements": [],
   "publishedAt": 1728556800000
 }

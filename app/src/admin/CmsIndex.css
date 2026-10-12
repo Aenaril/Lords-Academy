@@ -58,6 +58,12 @@
   font-weight: 600;
 }
 
+.cms-nav__divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 4px 0;
+}
+
 .cms-main {
   overflow-y: auto;
   padding: 30px;
