@@ -20,13 +20,29 @@ export interface CmsEnv {
 /**
  * Publier configuration CMS vers GitHub avec révision monotone
  * 
- * Système de révisions durables :
- * 1. Lire le fichier publié actuel pour obtenir la révision réelle
- * 2. Incrémenter monotoniquement côté serveur
- * 3. Écrire le nouveau contenu avec révision+1
- * 4. Vérifier post-publication que le contenu exact est accessible
- * 5. Rejeter les anciennes révisions même si elles arrivent plus tard
+ * Système de révisions durables et cohérence :
+ * 1. Lire SHA + contenu de l'API GitHub (source atomique)
+ * 2. Calculer révision monotone côté serveur
+ * 3. Calculer hash du contenu nouveau (vérification exacte)
+ * 4. Écrire sur GitHub avec SHA courant
+ * 5. Vérifier post-publication par SHA + hash (pas juste _rev)
+ * 6. Rejeter anciennes révisions même si elles arrivent plus tard
  */
+
+/**
+ * Calculer un hash SHA256 du contenu pour vérification d'identité exacte
+ */
+function hashContent(obj: any): string {
+  const json = JSON.stringify(obj, null, 2)
+  let hash = 0
+  for (let i = 0; i < json.length; i++) {
+    const char = json.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash = hash & hash // Convert to 32bit integer
+  }
+  return Math.abs(hash).toString(16)
+}
+
 export async function publishCmsConfig(
   env: CmsEnv,
   filename: string,
@@ -47,23 +63,35 @@ export async function publishCmsConfig(
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      // ÉTAPE 1 : Lire la révision actuellement publiée (source de vérité)
+      // ÉTAPE 1 : Lire SHA + contenu de manière ATOMIQUE depuis API GitHub
+      // (pas raw.githubusercontent.com qui peut être en cache)
       let currentRevision = 0
+      let currentSha: string | undefined
       let currentPublishedContent: any = null
+
       try {
-        const currentContentRes = await fetch(rawUrl, {
-          headers: { 'Cache-Control': 'no-cache, max-age=0' },
-        })
-        if (currentContentRes.ok) {
-          currentPublishedContent = await currentContentRes.json()
-          currentRevision = currentPublishedContent?._rev || 0
-          console.info(
-            `📖 Révision publiée actuelle: ${currentRevision} (theme: ${currentPublishedContent?.activeThemeId})`
-          )
+        const apiRes = await fetch(`${apiBase}?ref=${env.GITHUB_BRANCH}`, { headers })
+        if (apiRes.ok) {
+          const apiData = (await apiRes.json()) as any
+          currentSha = apiData.sha
+
+          // Décoder le contenu depuis API
+          if (apiData.content) {
+            const decodedContent = atob(apiData.content)
+            currentPublishedContent = JSON.parse(decodedContent)
+            currentRevision = currentPublishedContent?._rev || 0
+
+            console.info(
+              `📖 État GitHub cohérent: rev=${currentRevision}, theme=${currentPublishedContent?.activeThemeId}, sha=${currentSha.slice(0, 7)}`
+            )
+          }
         }
       } catch (e) {
-        console.warn('⚠️ Impossible de lire la révision publiée actuelle (premier déploiement?)')
+        console.warn(
+          `⚠️ Impossible de lire depuis API GitHub (${(e as any).message}), en supposant premier déploiement`
+        )
         currentRevision = 0
+        currentSha = undefined
       }
 
       // ÉTAPE 2 : Calculer la nouvelle révision (monotone, côté serveur)
@@ -76,18 +104,17 @@ export async function publishCmsConfig(
         _publishedAt: Date.now(),
       }
 
-      // ÉTAPE 4 : Récupérer SHA courant (peut avoir changé depuis lecture)
-      const currentRes = await fetch(`${apiBase}?ref=${env.GITHUB_BRANCH}`, { headers })
-      let sha: string | undefined
-      if (currentRes.ok) {
-        sha = ((await currentRes.json()) as any).sha
-      }
+      const newContentHash = hashContent(wrappedContent)
 
+      // ÉTAPE 4 : Encoder et écrire sur GitHub
       const contentB64 = btoa(
         unescape(encodeURIComponent(JSON.stringify(wrappedContent, null, 2)))
       )
 
-      // ÉTAPE 5 : Écrire sur GitHub
+      console.info(
+        `📤 Tentative d'écriture ${attempt + 1}/${maxRetries}: rev=${newRevision}, hash=${newContentHash.slice(0, 7)}, currentSha=${currentSha?.slice(0, 7)}`
+      )
+
       const putRes = await fetch(apiBase, {
         method: 'PUT',
         headers,
@@ -95,19 +122,34 @@ export async function publishCmsConfig(
           message: `Mise à jour ${filename} (CMS) — rev ${newRevision} — ${new Date().toISOString()}`,
           content: contentB64,
           branch: env.GITHUB_BRANCH,
-          sha,
+          sha: currentSha || undefined,
         }),
       })
 
       if (!putRes.ok) {
         const errText = await putRes.text()
         lastError = `GitHub PUT failed: ${putRes.status} ${errText}`
-        // Continue to retry on 409 (conflict), fail immediately on 401 (auth)
+
+        // 409 Conflict = SHA mismatch → relire et retry
+        if (putRes.status === 409) {
+          console.warn(
+            `⚠️ Conflit SHA (409): le fichier a changé entre la lecture et l'écriture. Relecture et retry...`
+          )
+          if (attempt < maxRetries - 1) {
+            await new Promise((r) => setTimeout(r, 200 * (attempt + 1))) // Backoff
+            continue // Relire le SHA et retry
+          }
+          return { ok: false, error: 'SHA conflict after retries' }
+        }
+
+        // 401 Auth = échouer immédiatement
         if (putRes.status === 401) {
           return { ok: false, error: 'GitHub auth failed' }
         }
+
+        // Autres erreurs = retry
         if (attempt < maxRetries - 1) {
-          await new Promise((r) => setTimeout(r, 200 * (attempt + 1))) // Exponential backoff
+          await new Promise((r) => setTimeout(r, 200 * (attempt + 1)))
           continue
         }
         return { ok: false, error: lastError }
@@ -116,41 +158,72 @@ export async function publishCmsConfig(
       const putResult = (await putRes.json()) as any
       const newSha = putResult.content?.sha
 
-      // ÉTAPE 6 : Vérifier post-publication (attendre propagation GitHub)
+      // ÉTAPE 5 : Vérifier post-publication par SHA + hash (pas juste _rev)
+      // Attendre un peu pour que GitHub propage
       console.info(
-        `📤 Publication écrite sur GitHub: theme=${content.activeThemeId} rev=${newRevision} sha=${newSha}`
+        `📝 Écriture GitHub réussie: nouveau SHA=${newSha?.slice(0, 7)}, attente propagation...`
       )
       await new Promise((r) => setTimeout(r, 500))
 
       let verified = false
       let publishedContent: any = null
+      let publishedHash = ''
 
+      // Vérifier 5 fois avec backoff exponentiel
       for (let verifyAttempt = 0; verifyAttempt < 5; verifyAttempt++) {
         try {
-          const verifyRes = await fetch(rawUrl, {
-            headers: { 'Cache-Control': 'no-cache, max-age=0' },
-          })
-          if (verifyRes.ok) {
-            publishedContent = await verifyRes.json()
+          // Lire depuis API GitHub (source cohérente)
+          const verifyRes = await fetch(`${apiBase}?ref=${env.GITHUB_BRANCH}`, { headers })
 
-            // Vérification stricte : révision ET thème ET contenu
-            if (
-              publishedContent._rev === newRevision &&
-              publishedContent.activeThemeId === content.activeThemeId
-            ) {
-              verified = true
-              console.info(
-                `✅ Publication vérifiée: theme=${publishedContent.activeThemeId} rev=${newRevision}`
-              )
-              return { ok: true, revision: newSha, revisionNumber: newRevision }
-            } else {
+          if (verifyRes.ok) {
+            const verifyData = (await verifyRes.json()) as any
+            const verifySha = verifyData.sha
+
+            // Décoder contenu
+            if (verifyData.content) {
+              const decodedContent = atob(verifyData.content)
+              publishedContent = JSON.parse(decodedContent)
+              publishedHash = hashContent(publishedContent)
+
+              // Vérifications STRICTES :
+              // 1. SHA correspond
+              // 2. Révision correspond
+              // 3. Theme ID correspond
+              // 4. Hash du contenu correspond (identité exacte)
+              if (
+                verifySha === newSha &&
+                publishedContent._rev === newRevision &&
+                publishedContent.activeThemeId === content.activeThemeId &&
+                publishedHash === newContentHash
+              ) {
+                verified = true
+                console.info(
+                  `✅ Publication vérifiée: rev=${newRevision}, sha=${newSha?.slice(0, 7)}, hash=${publishedHash.slice(0, 7)}`
+                )
+                return { ok: true, revision: newSha, revisionNumber: newRevision }
+              }
+
               console.warn(
-                `⚠️ Vérif. tentative ${verifyAttempt}: rev=${publishedContent._rev} (attendu ${newRevision}), theme=${publishedContent?.activeThemeId}`
+                `⚠️ Vérif. tentative ${verifyAttempt + 1}/5: mismatch détecté`
               )
+              if (verifySha !== newSha)
+                console.warn(`  SHA: ${verifySha?.slice(0, 7)} vs attendu ${newSha?.slice(0, 7)}`)
+              if (publishedContent._rev !== newRevision)
+                console.warn(`  Rev: ${publishedContent._rev} vs attendu ${newRevision}`)
+              if (publishedContent.activeThemeId !== content.activeThemeId)
+                console.warn(
+                  `  Theme: ${publishedContent.activeThemeId} vs attendu ${content.activeThemeId}`
+                )
+              if (publishedHash !== newContentHash)
+                console.warn(
+                  `  Hash: ${publishedHash.slice(0, 7)} vs attendu ${newContentHash.slice(0, 7)}`
+                )
             }
           }
         } catch (e) {
-          console.warn(`⚠️ Vérif. tentative ${verifyAttempt} échouée: ${(e as any).message}`)
+          console.warn(
+            `⚠️ Vérif. tentative ${verifyAttempt + 1}/5 échouée: ${(e as any).message}`
+          )
         }
 
         if (verifyAttempt < 4) {
@@ -159,9 +232,9 @@ export async function publishCmsConfig(
       }
 
       if (!verified) {
-        lastError = `Publication verification failed: expected rev ${newRevision}, got ${publishedContent?._rev}`
+        lastError = `Publication verification failed: expected rev ${newRevision} sha ${newSha?.slice(0, 7)} hash ${newContentHash.slice(0, 7)}, got rev ${publishedContent?._rev} hash ${publishedHash.slice(0, 7)}`
         console.error(lastError)
-        // Ne pas retry si vérification échoue (le contenu a changé entre deux publications concurrentes)
+        // Ne pas retry si vérification stricte échoue
         return { ok: false, error: lastError }
       }
 
