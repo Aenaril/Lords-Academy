@@ -32,44 +32,68 @@ export default function MyTutorialsPanel({
         setLoading(true)
         setError(null)
 
-        // Étape 1 : Charger la liste des IDs
-        const response = await fetch('/api/tutorialIds', {
+        // Étape 1 : Charger la liste des brouillons depuis l'index privé
+        const draftResponse = await fetch('/api/tutorialIds', {
           headers: { 'X-Requested-With': 'lma-admin' },
           credentials: 'include'
         })
 
-        if (!response.ok) {
-          throw new Error('Impossible de charger la liste')
+        if (!draftResponse.ok) {
+          throw new Error('Impossible de charger la liste des brouillons')
         }
 
-        const data = await response.json()
-        const tutorialIds = data.tutorialIds || []
+        const draftData = await draftResponse.json()
+        const draftIds = draftData.tutorialIds || []
 
-        // Étape 2 : Charger index.json publié pour déterminer statuts
+        // Étape 2 : Charger les tutoriels publiés depuis l'API
         let publishedMap = new Map<string, any>()
         try {
-          const indexRes = await fetch('/content/index.json', { cache: 'no-store' })
-          if (indexRes.ok) {
-            const indexData = await indexRes.json()
-            if (indexData.tutorials && Array.isArray(indexData.tutorials)) {
-              publishedMap = new Map(indexData.tutorials.map((t: any) => [t.id, t]))
+          const pubResponse = await fetch('/api/tutorials/published', { cache: 'no-store' })
+          if (pubResponse.ok) {
+            const pubData = await pubResponse.json()
+            if (pubData.tutorials && Array.isArray(pubData.tutorials)) {
+              publishedMap = new Map(pubData.tutorials.map((t: any) => [t.id, t]))
             }
           }
         } catch {
-          // Fallback : pas d'accès à l'index public, supposer tous les brouillons
+          // Fallback : pas d'accès à l'API publique
         }
 
-        // Étape 3 : Construire la liste avec vrais titres et statuts
-        const items: TutorialItem[] = tutorialIds.map((id: string) => {
+        // Étape 3 : Construire la liste complète (brouillons + publiés + Dragon Arena statique)
+        const allIds = new Set<string>()
+        
+        // Ajouter tous les brouillons
+        draftIds.forEach((id: string) => allIds.add(id))
+        
+        // Ajouter tous les tutoriels publiés
+        publishedMap.forEach((_, id) => allIds.add(id))
+        
+        // S'assurer que Dragon Arena est toujours présent (même s'il n'est ni brouillon ni publié)
+        allIds.add('dragon-arena')
+
+        // Construire les items avec vrais titres et statuts
+        const items: TutorialItem[] = Array.from(allIds).map((id: string) => {
           const published = publishedMap.get(id)
+          const isDraft = draftIds.includes(id)
+          
+          let status: 'draft' | 'published'
+          if (published && !isDraft) {
+            status = 'published'
+          } else {
+            status = 'draft'
+          }
+
           return {
             id,
-            title: published?.title || id, // Utiliser titre publié si disponible, sinon ID
+            title: published?.title || id,
             category: published?.category || '—',
-            status: published ? 'published' : 'draft',
+            status,
             lastModified: published ? new Date(published.publishedAt || Date.now()).toLocaleDateString('fr-FR') : '—'
           }
         })
+
+        // Trier par titre pour cohérence
+        items.sort((a, b) => a.title.localeCompare(b.title))
 
         setTutorials(items)
       } catch (err) {

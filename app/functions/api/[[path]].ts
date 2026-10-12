@@ -868,11 +868,17 @@ async function handleTutorialIds(req: Request, env: any): Promise<Response> {
   try {
     const indexKey = 'private:adminTutorialIds'
     const indexRaw = await env.DRAFTS.get(indexKey)
-    const indexData = indexRaw ? JSON.parse(indexRaw) : { tutorialIds: ['dragon-arena'], metadata: {} }
+    const indexData = indexRaw ? JSON.parse(indexRaw) : { tutorialIds: [], metadata: {} }
+
+    // ✅ S'assurer que Dragon Arena est toujours présent (tutoriel historique de base)
+    const tutorialIds = indexData.tutorialIds || []
+    if (!tutorialIds.includes('dragon-arena')) {
+      tutorialIds.unshift('dragon-arena')
+    }
 
     return json({
       ok: true,
-      tutorialIds: indexData.tutorialIds || ['dragon-arena']
+      tutorialIds
     })
   } catch (err) {
     console.error('Error fetching tutorial IDs:', err)

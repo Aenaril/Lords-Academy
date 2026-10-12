@@ -14,11 +14,11 @@ export default function HomePage({ onSelectTutorial }: HomePageProps) {
   const [tutorials, setTutorials] = useState<Tutorial[]>(staticTutorials)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  // Charger l'index dynamique au montage et à intervalle régulier
+  // Charger les tutoriels publiés depuis l'API au montage et à intervalle régulier
   useEffect(() => {
-    const loadIndex = async () => {
+    const loadPublishedTutorials = async () => {
       try {
-        const response = await fetch('/content/index.json', {
+        const response = await fetch('/api/tutorials/published', {
           cache: 'no-store'
         })
         if (!response.ok) {
@@ -49,16 +49,16 @@ export default function HomePage({ onSelectTutorial }: HomePageProps) {
         }
       } catch (err) {
         // Fallback : conserver la source statique
-        console.warn('Erreur lors du chargement de l\'index:', err)
+        console.warn('Erreur lors du chargement de l\'API tutoriels publiés:', err)
         setLoadError((err as any).message || 'Erreur réseau')
         setTutorials(staticTutorials)
       }
     }
 
-    loadIndex()
+    loadPublishedTutorials()
 
-    // Recharger l'index toutes les 5 minutes
-    const interval = setInterval(loadIndex, 5 * 60 * 1000)
+    // Recharger les tutoriels publiés toutes les 5 minutes
+    const interval = setInterval(loadPublishedTutorials, 5 * 60 * 1000)
     return () => clearInterval(interval)
   }, [])
 
