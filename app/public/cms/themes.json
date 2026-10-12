@@ -1,6 +1,6 @@
 {
   "activeThemeId": "dark",
-  "publishedAt": 1791835412168,
+  "publishedAt": 1791836854595,
   "theme": {
     "id": "dark",
     "name": "Sombre",
@@ -38,8 +38,10 @@
       "xl": 32
     },
     "borderRadius": 8,
-    "createdAt": 1791835390118,
-    "modifiedAt": 1791835390118,
+    "createdAt": 1791836784823,
+    "modifiedAt": 1791836784823,
     "isPredefined": true
-  }
+  },
+  "_rev": 4,
+  "_publishedAt": 1791836854817
 }
