@@ -19,20 +19,41 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
   const { isAdminMode, isPreview, tutorial: editableTutorial, updateSectionTitle, addSection, removeSection, duplicateSection, moveSection } = useAdmin()
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0)
   const [publishedTutorial, setPublishedTutorial] = useState<Tutorial | null>(null)
+  const [isLoadingPublished, setIsLoadingPublished] = useState(true)
+  const [currentTutorialId, setCurrentTutorialId] = useState<string>(tutorialId)
   const sectionHeaderRef = useRef<HTMLDivElement>(null)
+
+  // Réinitialiser l'index de section quand le tutoriel change
+  useEffect(() => {
+    if (tutorialId !== currentTutorialId) {
+      setCurrentTutorialId(tutorialId)
+      setCurrentSectionIndex(0)
+      setPublishedTutorial(null)
+      setIsLoadingPublished(true)
+    }
+  }, [tutorialId, currentTutorialId])
 
   // Charger le tutoriel publié depuis GitHub (si disponible)
   useEffect(() => {
     let refreshTimeout: number
+    let isMounted = true
 
     const loadPublished = async () => {
+      if (!isMounted) return
       try {
+        setIsLoadingPublished(true)
         const res = await adminApi.getPublished(tutorialId)
-        if (res.content) {
-          setPublishedTutorial(res.content as Tutorial)
+        if (isMounted) {
+          if (res.content) {
+            setPublishedTutorial(res.content as Tutorial)
+          }
+          setIsLoadingPublished(false)
         }
       } catch {
         // Ignorer silencieusement les erreurs (fallback au contenu statique)
+        if (isMounted) {
+          setIsLoadingPublished(false)
+        }
       }
     }
 
@@ -50,12 +71,14 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
 
       navigator.serviceWorker.addEventListener('controllerchange', handleSWUpdate)
       return () => {
+        isMounted = false
         window.clearInterval(refreshTimeout)
         navigator.serviceWorker.removeEventListener('controllerchange', handleSWUpdate)
       }
     }
 
     return () => {
+      isMounted = false
       window.clearInterval(refreshTimeout)
     }
   }, [tutorialId])
@@ -81,7 +104,22 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
 
   const resolved = tutorial ?? fallback
 
-  // Cas 1 : Tutoriel inexistant (ni brouillon, ni publié, ni statique)
+  // Cas 1 : En cours de chargement d'un tutoriel dynamique (pas de fallback statique)
+  if (isLoadingPublished && !sourceTutorial && !editableTutorial && !resolved) {
+    return (
+      <div className="tutorial-page tutorial-page--empty">
+        <div className="container">
+          <button className="btn btn-primary" onClick={onReturnHome}>
+            ← Retour à l'accueil
+          </button>
+          <h2>Chargement du tutoriel…</h2>
+          <p>Veuillez patienter.</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Cas 2 : Tutoriel inexistant (ni brouillon, ni publié, ni statique)
   if (!resolved) {
     return (
       <div className="tutorial-page tutorial-page--empty">
@@ -96,7 +134,7 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
     )
   }
 
-  // Cas 2 : Brouillon vide en édition (admin connecté)
+  // Cas 3 : Brouillon vide en édition (admin connecté)
   if (isAdminMode && editableTutorial && (!resolved.sections || resolved.sections.length === 0)) {
     return (
       <div className="tutorial-page tutorial-page--empty">
@@ -120,7 +158,7 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
     )
   }
 
-  // Cas 3 : Tutoriel vide mais pas en édition (visiteur non-admin)
+  // Cas 4 : Tutoriel vide mais pas en édition (visiteur non-admin)
   if (!resolved.sections || resolved.sections.length === 0) {
     return (
       <div className="tutorial-page tutorial-page--empty">

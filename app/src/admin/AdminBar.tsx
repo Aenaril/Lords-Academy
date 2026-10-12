@@ -12,7 +12,11 @@ import './AdminBar.css'
  * - Mode démo local (localStorage) : toujours disponible.
  * - Admin sécurisée (si Worker configuré) : connexion + publication.
  */
-export default function AdminBar() {
+interface AdminBarProps {
+  onSelectTutorial?: (tutorialId: string) => void
+}
+
+export default function AdminBar({ onSelectTutorial }: AdminBarProps) {
   const {
     isAdminMode,
     toggleAdminMode,
@@ -76,8 +80,13 @@ export default function AdminBar() {
   }
 
   const handleTutorialCreated = (tutorialId: string) => {
-    // Redirection automatique via AdminProvider
-    window.location.href = `/?tutorialId=${encodeURIComponent(tutorialId)}`
+    // Navigation interne via callback au lieu de window.location.href
+    if (onSelectTutorial) {
+      onSelectTutorial(tutorialId)
+    } else {
+      // Fallback si callback non fourni (pour compatibilité)
+      window.location.href = `/?tutorialId=${encodeURIComponent(tutorialId)}`
+    }
   }
 
   return (
@@ -213,7 +222,12 @@ export default function AdminBar() {
         <MyTutorialsPanel
           onSelectTutorial={(id) => {
             setShowMyTutorials(false)
-            window.location.href = `/?tutorialId=${encodeURIComponent(id)}`
+            // Navigation interne au lieu de window.location.href
+            if (onSelectTutorial) {
+              onSelectTutorial(id)
+            } else {
+              window.location.href = `/?tutorialId=${encodeURIComponent(id)}`
+            }
           }}
           onCreateNew={() => setShowCreateModal(true)}
           onClose={() => setShowMyTutorials(false)}

@@ -40,7 +40,7 @@ export function openAdminLoginForm() {
   adminBarWrapperRef.openAdminForm()
 }
 
-export default function AdminBarWrapper() {
+export default function AdminBarWrapper({ onSelectTutorial }: { onSelectTutorial?: (id: string) => void }) {
   const remoteAvailable = isRemoteConfigured()
   const {
     isAuthenticated,
@@ -85,7 +85,7 @@ export default function AdminBarWrapper() {
 
   // En développement : toujours afficher AdminBar
   if (isDev) {
-    return <AdminBar />
+    return <AdminBar onSelectTutorial={onSelectTutorial} />
   }
 
   // En production : afficher uniquement si API distante configurée
@@ -105,7 +105,7 @@ export default function AdminBarWrapper() {
 
   return (
     <>
-      <AdminBar />
+      <AdminBar onSelectTutorial={onSelectTutorial} />
 
       {/* DÉVELOPPEMENT UNIQUEMENT : modale d'accueil avec choix */}
       {isDev && showAdminModeModal && (

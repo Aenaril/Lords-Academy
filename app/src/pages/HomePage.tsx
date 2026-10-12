@@ -66,12 +66,21 @@ export default function HomePage({ onSelectTutorial }: HomePageProps) {
   const comingSoonTutorials = tutorials.filter(t => t.status === 'coming-soon')
   const categories = [...new Set(tutorials.map(t => t.category))]
 
+  // Compteurs dynamiques pour HeroSection
+  const totalCount = tutorials.length
+  const availableCount = publishedTutorials.length
+  const comingSoonCount = comingSoonTutorials.length
+
   return (
     <div className="home-page">
       <Header />
       
       {/* Hero Section with background image */}
-      <HeroSection />
+      <HeroSection 
+        totalCount={totalCount}
+        availableCount={availableCount}
+        comingSoonCount={comingSoonCount}
+      />
 
       {/* Description Section */}
       <section className="intro-section">

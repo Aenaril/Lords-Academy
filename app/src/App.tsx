@@ -56,7 +56,7 @@ function App() {
             onReturnHome={handleReturnHome}
           />
         )}
-        <AdminBarWrapper />
+        <AdminBarWrapper onSelectTutorial={handleSelectTutorial} />
         <PWAInstallPrompt />
         <PWAUpdatePrompt />
       </div>
