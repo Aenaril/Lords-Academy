@@ -122,6 +122,7 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
   const [syncStatus, setSyncStatus] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('idle')
   const [previewOn, setPreviewOn] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const publishingRef = useRef<{ themeId: string; revision: number } | null>(null)
 
   // Charger thèmes : cache local immédiat, puis serveur (source de vérité)
   useEffect(() => {
@@ -196,16 +197,18 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
   const selectedTheme = library.themes.find((t) => t.id === selectedThemeId)
 
   // Prévisualisation live : applique le thème sélectionné au DOM quand activée.
-  // Désactivée → restaure le thème publié courant.
+  // Désactivée → restaure le thème publié courant (from state, not localStorage).
   useEffect(() => {
     if (previewOn && selectedTheme) {
       applyTheme(selectedTheme)
     } else if (!previewOn) {
+      // Restaurer le thème publié DEPUIS L'ÉTAT (pas localStorage)
+      // Cela garantit que c'est la dernière publication confirmée par le serveur
       const published = library.themes.find((t) => t.id === library.publishedThemeId)
       if (published) applyTheme(published)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewOn, selectedThemeId, selectedTheme])
+  }, [previewOn, selectedThemeId, selectedTheme, library.publishedThemeId])
 
   // Renommer un thème personnalisé
   const renameTheme = (themeId: string, newName: string) => {
@@ -254,14 +257,22 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
   const restoreOriginalTheme = async () => {
     const original = PREDEFINED_THEMES.find((t) => t.id === 'dark')
     if (!original) return
+    
     setSelectedThemeId('dark')
-    applyTheme(original)
-    setPreviewOn(false)
-    // Publier le thème original comme thème actif du site
-    if (isAuthenticated) {
-      await publishThemeObject(original)
+    // Ne pas appliquer immédiatement — attendre la confirmation serveur
+    
+    if (!isAuthenticated) {
+      setPublishStatus('auth-required')
+      setTimeout(() => setPublishStatus('idle'), 4000)
+      return
     }
-    saveLibrary({ ...library, publishedThemeId: 'dark', activeThemeId: 'dark' })
+
+    // Publier le thème original et attendre la confirmation
+    const ok = await publishThemeObject(original)
+    if (ok) {
+      applyTheme(original)
+      setPreviewOn(false)
+    }
   }
 
   // Créer thème à partir d'une base
@@ -290,9 +301,13 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
     saveLibrary({ ...library, themes: updatedThemes })
   }
 
-  // Publier un objet thème spécifique vers l'API GitHub publique
+  // Publier un objet thème spécifique vers l'API GitHub publique avec vérification
   const publishThemeObject = async (theme: Theme): Promise<boolean> => {
     setPublishStatus('publishing')
+    const revision = (library.publishedRevision || 0) + 1
+    const thisPublish = { themeId: theme.id, revision }
+    publishingRef.current = thisPublish
+
     try {
       const response = await fetch('/api/cms/themes', {
         method: 'POST',
@@ -301,15 +316,39 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
           'X-Requested-With': 'lma-admin',
         },
         credentials: 'include',
-        body: JSON.stringify({ action: 'publish', theme }),
+        body: JSON.stringify({ 
+          action: 'publish', 
+          theme,
+          revision, // Envoyer le numéro de révision au serveur
+        }),
       })
 
       console.info(`🎨 Thème publish: Status ${response.status}`)
 
+      // Vérifier que c'est encore la publication actuelle (pas été remplacée)
+      if (publishingRef.current !== thisPublish) {
+        console.warn(`⚠️ Publication ${theme.id} rev ${revision} remplacée par une plus récente`)
+        return false
+      }
+
       if (response.ok) {
-        console.info(`✅ Thème publié: ${theme.name}`)
+        const result = await response.json()
+        console.info(`✅ Thème publié: ${theme.name} (rev ${result.revisionNumber})`)
+        
+        // Mettre à jour la révision publiée confirmée
+        const updated = {
+          ...library,
+          publishedThemeId: theme.id,
+          activeThemeId: theme.id,
+          publishedRevision: result.revisionNumber || revision,
+          publishedAt: Date.now(),
+        }
+        setLibrary(updated)
+        localStorage.setItem('cms:theme:library', JSON.stringify(updated))
+        
         setPublishStatus('success')
         setTimeout(() => setPublishStatus('idle'), 6000)
+        publishingRef.current = null
         return true
       }
 
@@ -318,11 +357,13 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
       console.error(`📝 Réponse: ${error}`)
       setPublishStatus(response.status === 401 ? 'auth-required' : 'error')
       setTimeout(() => setPublishStatus('idle'), 4000)
+      publishingRef.current = null
       return false
     } catch (e) {
       console.error('❌ Erreur publication thème (réseau):', e)
       setPublishStatus('error')
       setTimeout(() => setPublishStatus('idle'), 4000)
+      publishingRef.current = null
       return false
     }
   }
@@ -330,6 +371,7 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
   // Publier le thème sélectionné (prédéfini OU personnalisé)
   const publishTheme = async () => {
     if (!selectedTheme) return
+    if (publishStatus === 'publishing') return // Éviter les clics multiples
 
     if (!isAuthenticated) {
       setPublishStatus('auth-required')
@@ -339,12 +381,6 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
 
     const ok = await publishThemeObject(selectedTheme)
     if (ok) {
-      const updated = {
-        ...library,
-        publishedThemeId: selectedTheme.id,
-        activeThemeId: selectedTheme.id,
-      }
-      saveLibrary(updated)
       applyTheme(selectedTheme) // appliquer immédiatement au site
       setPreviewOn(false)
     }
@@ -539,7 +575,7 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
                 className="cms-btn"
                 onClick={publishTheme}
                 disabled={publishStatus === 'publishing' || !isAuthenticated}
-                title={!isAuthenticated ? 'Authentification requise' : 'Publier ce thème sur le site public'}
+                title={!isAuthenticated ? 'Authentification requise' : publishStatus === 'publishing' ? 'Publication en cours…' : 'Publier ce thème sur le site public'}
               >
                 {publishStatus === 'publishing' ? '⏳ Publication…' : '📤 Publier'}
               </button>

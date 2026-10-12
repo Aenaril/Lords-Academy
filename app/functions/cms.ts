@@ -19,14 +19,21 @@ export interface CmsEnv {
 
 /**
  * Publier configuration CMS vers GitHub
+ * 
+ * Inclut :
+ * - Numéro de révision monotone (_rev) pour éviter les retours arrière
+ * - Vérification post-publication que le fichier est accessible
+ * - Retry sur erreur SHA (cas de race conditions)
  */
 export async function publishCmsConfig(
   env: CmsEnv,
   filename: string,
-  content: any
-): Promise<{ ok: boolean; revision?: string; error?: string }> {
+  content: any,
+  maxRetries = 3
+): Promise<{ ok: boolean; revision?: string; revisionNumber?: number; error?: string }> {
   const path = `app/public/cms/${filename}`
   const apiBase = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}`
+  const rawUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${path}`
 
   const headers = {
     Authorization: `Bearer ${env.GITHUB_TOKEN}`,
@@ -34,35 +41,100 @@ export async function publishCmsConfig(
     Accept: 'application/vnd.github+json',
   }
 
-  // Récupérer SHA courant
-  const current = await fetch(`${apiBase}?ref=${env.GITHUB_BRANCH}`, { headers }).catch(
-    () => null
-  )
-  let sha: string | undefined
-  if (current?.ok) {
-    sha = ((await current.json()) as any).sha
+  // Ajouter numéro de révision monotone au contenu
+  const wrappedContent = {
+    ...content,
+    _rev: (content._rev || 0) + 1,
+    _publishedAt: Date.now(),
   }
 
-  const contentB64 = btoa(
-    unescape(encodeURIComponent(JSON.stringify(content, null, 2)))
-  )
-  const res = await fetch(apiBase, {
-    method: 'PUT',
-    headers,
-    body: JSON.stringify({
-      message: `Mise à jour ${filename} (CMS) — ${new Date().toISOString()}`,
-      content: contentB64,
-      branch: env.GITHUB_BRANCH,
-      sha,
-    }),
-  }).catch(() => null)
+  let lastError = ''
 
-  if (!res?.ok) {
-    return { ok: false, error: `Erreur publication ${filename}` }
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // Récupérer SHA courant (peut avoir changé depuis la dernière tentative)
+      const currentRes = await fetch(`${apiBase}?ref=${env.GITHUB_BRANCH}`, { headers })
+      let sha: string | undefined
+      if (currentRes.ok) {
+        sha = ((await currentRes.json()) as any).sha
+      }
+
+      const contentB64 = btoa(
+        unescape(encodeURIComponent(JSON.stringify(wrappedContent, null, 2)))
+      )
+
+      const putRes = await fetch(apiBase, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          message: `Mise à jour ${filename} (CMS) — ${new Date().toISOString()}`,
+          content: contentB64,
+          branch: env.GITHUB_BRANCH,
+          sha,
+        }),
+      })
+
+      if (!putRes.ok) {
+        const errText = await putRes.text()
+        lastError = `GitHub PUT failed: ${putRes.status} ${errText}`
+        // Continue to retry on 409 (conflict), fail immediately on 401 (auth)
+        if (putRes.status === 401) {
+          return { ok: false, error: 'GitHub auth failed' }
+        }
+        if (attempt < maxRetries - 1) {
+          await new Promise((r) => setTimeout(r, 200 * (attempt + 1))) // Exponential backoff
+          continue
+        }
+        return { ok: false, error: lastError }
+      }
+
+      const putResult = (await putRes.json()) as any
+      const newSha = putResult.content?.sha
+      const revisionNumber = wrappedContent._rev
+
+      // ✅ VÉRIFICATION POST-PUBLICATION : S'assurer que le fichier est lisible
+      // Attendre un peu pour que GitHub propage le changement
+      await new Promise((r) => setTimeout(r, 500))
+
+      let verified = false
+      for (let verifyAttempt = 0; verifyAttempt < 5; verifyAttempt++) {
+        try {
+          const verifyRes = await fetch(rawUrl, { 
+            headers: { 'Cache-Control': 'no-cache, max-age=0' }
+          })
+          if (verifyRes.ok) {
+            const published = await verifyRes.json()
+            // Vérifier que c'est bien notre contenu (même révision)
+            if (published._rev === revisionNumber) {
+              verified = true
+              console.info(`✅ Thème publié vérifiée: rev ${revisionNumber}, SHA ${newSha}`)
+              return { ok: true, revision: newSha, revisionNumber }
+            }
+          }
+        } catch (e) {
+          // Continuer à essayer
+        }
+        if (verifyAttempt < 4) {
+          await new Promise((r) => setTimeout(r, 300 * (verifyAttempt + 1)))
+        }
+      }
+
+      if (!verified) {
+        lastError = `Publication verification failed after ${maxRetries} attempts`
+        return { ok: false, error: lastError }
+      }
+
+      return { ok: true, revision: newSha, revisionNumber }
+    } catch (err) {
+      lastError = `Exception: ${(err as any).message}`
+      if (attempt === maxRetries - 1) {
+        return { ok: false, error: lastError }
+      }
+      await new Promise((r) => setTimeout(r, 200 * (attempt + 1)))
+    }
   }
 
-  const result = (await res.json()) as any
-  return { ok: true, revision: result.content?.sha }
+  return { ok: false, error: lastError }
 }
 
 /**

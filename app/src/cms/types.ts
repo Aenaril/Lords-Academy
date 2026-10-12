@@ -67,6 +67,10 @@ export interface ThemeLibrary {
   themes: Theme[]
   activeThemeId: string
   publishedThemeId: string
+  /** Numéro de révision monotone du dernier thème publié (évite les retours arrière) */
+  publishedRevision?: number
+  /** Timestamp de la dernière publication confirmée */
+  publishedAt?: number
 }
 
 export interface TutorialThemeOverrides {
