@@ -160,10 +160,16 @@ export const onRequest: PagesFunction = async (context) => {
 
 /**
  * POST /api/cms/themes — SÉCURISÉ
- * ⚠️ Requiert authentification R4 + CSRF
+ * ⚠️ Requiert : Origine autorisée + Authentification R4 + CSRF
  */
 async function handleCmsThemes(req: Request, env: any): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+  // ✅ VÉRIFICATION ORIGINE — OBLIGATOIRE
+  if (!originAllowed(req, env)) {
+    console.warn('❌ CMS themes: Origine refusée')
+    return json({ error: 'Origine refusée' }, 403)
+  }
 
   // ✅ VÉRIFICATION AUTHENTIFICATION — OBLIGATOIRE
   const session = await readSession(req, env)
@@ -207,10 +213,16 @@ async function handleCmsThemes(req: Request, env: any): Promise<Response> {
 
 /**
  * POST /api/cms/announcements — SÉCURISÉ
- * ⚠️ Requiert authentification R4 + CSRF
+ * ⚠️ Requiert : Origine autorisée + Authentification R4 + CSRF
  */
 async function handleCmsAnnouncements(req: Request, env: any): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+  // ✅ VÉRIFICATION ORIGINE — OBLIGATOIRE
+  if (!originAllowed(req, env)) {
+    console.warn('❌ CMS announcements: Origine refusée')
+    return json({ error: 'Origine refusée' }, 403)
+  }
 
   // ✅ VÉRIFICATION AUTHENTIFICATION
   const session = await readSession(req, env)
@@ -260,10 +272,16 @@ async function handleCmsAnnouncements(req: Request, env: any): Promise<Response>
 
 /**
  * POST /api/cms/events — SÉCURISÉ
- * ⚠️ Requiert authentification R4 + CSRF
+ * ⚠️ Requiert : Origine autorisée + Authentification R4 + CSRF
  */
 async function handleCmsEvents(req: Request, env: any): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+  // ✅ VÉRIFICATION ORIGINE — OBLIGATOIRE
+  if (!originAllowed(req, env)) {
+    console.warn('❌ CMS events: Origine refusée')
+    return json({ error: 'Origine refusée' }, 403)
+  }
 
   // ✅ VÉRIFICATION AUTHENTIFICATION
   const session = await readSession(req, env)
@@ -313,10 +331,16 @@ async function handleCmsEvents(req: Request, env: any): Promise<Response> {
 
 /**
  * POST /api/cms/home — SÉCURISÉ
- * ⚠️ Requiert authentification R4 + CSRF
+ * ⚠️ Requiert : Origine autorisée + Authentification R4 + CSRF
  */
 async function handleCmsHome(req: Request, env: any): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+  // ✅ VÉRIFICATION ORIGINE — OBLIGATOIRE
+  if (!originAllowed(req, env)) {
+    console.warn('❌ CMS home: Origine refusée')
+    return json({ error: 'Origine refusée' }, 403)
+  }
 
   // ✅ VÉRIFICATION AUTHENTIFICATION
   const session = await readSession(req, env)
@@ -359,10 +383,16 @@ async function handleCmsHome(req: Request, env: any): Promise<Response> {
 
 /**
  * POST /api/cms/settings — SÉCURISÉ
- * ⚠️ Requiert authentification R4 + CSRF
+ * ⚠️ Requiert : Origine autorisée + Authentification R4 + CSRF
  */
 async function handleCmsSettings(req: Request, env: any): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+  // ✅ VÉRIFICATION ORIGINE — OBLIGATOIRE
+  if (!originAllowed(req, env)) {
+    console.warn('❌ CMS settings: Origine refusée')
+    return json({ error: 'Origine refusée' }, 403)
+  }
 
   // ✅ VÉRIFICATION AUTHENTIFICATION
   const session = await readSession(req, env)
@@ -422,6 +452,12 @@ async function handleCmsNotifications(req: Request, env: any): Promise<Response>
 
   if (action === 'test') {
     // Tests de notifications — Authentification requise
+    // ✅ VÉRIFICATION ORIGINE — OBLIGATOIRE
+    if (!originAllowed(req, env)) {
+      console.warn('❌ CMS notifications test: Origine refusée')
+      return json({ error: 'Origine refusée' }, 403)
+    }
+
     const session = await readSession(req, env)
     if (!session) {
       console.warn('❌ CMS notifications test: Tentative sans authentification')
@@ -468,6 +504,12 @@ async function handleCmsNotifications(req: Request, env: any): Promise<Response>
 
   if (action === 'schedules') {
     // Sauvegarde programmations — Authentification requise
+    // ✅ VÉRIFICATION ORIGINE — OBLIGATOIRE
+    if (!originAllowed(req, env)) {
+      console.warn('❌ CMS schedules: Origine refusée')
+      return json({ error: 'Origine refusée' }, 403)
+    }
+
     const session = await readSession(req, env)
     if (!session) {
       console.warn('❌ CMS schedules: Tentative sans authentification')
@@ -502,24 +544,47 @@ function json(data: any, status = 200, headers: Record<string, string> = {}): Re
 }
 
 /**
- * CORS restrictif — Seulement l'origine autorisée
- * ⚠️ Pas de * pour les opérations administratives
+ * CORS restrictif — Réutilise le pattern R4
+ * 
+ * Vérification stricte :
+ * - Pas d'origine (localhost/dev) → OK
+ * - Origine = ALLOWED_ORIGIN (production) → OK
+ * - Autre origine → REFUSÉE explicitement (403)
+ * 
+ * Pas de wildcard .pages.dev — Listage explicite seulement
  */
-function corsHeadersRestricted(_req: Request, env: any): Record<string, string> {
-  const origin = _req.headers.get('origin') ?? ''
-  const allowedOrigins = ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175']
+function corsHeadersRestricted(req: Request, env: any): Record<string, string> {
+  const origin = req.headers.get('Origin') ?? ''
   
-  // En production, ajouter le domaine principal
-  // allowedOrigins.push('https://academy.lords-mobile.com')
+  // Pattern R4 : pas d'origine OU origine autorisée
+  const isAllowed = !origin || origin === env.ALLOWED_ORIGIN
   
-  const isAllowed = allowedOrigins.includes(origin) || origin.endsWith('.pages.dev')
+  if (!isAllowed) {
+    console.warn(`❌ CORS: Origine refusée: ${origin}`)
+    // Refuser explicitement (ne pas envoyer Access-Control-Allow-Origin)
+    return {
+      'Access-Control-Allow-Origin': '',
+      'Access-Control-Allow-Credentials': 'false',
+    }
+  }
   
+  // Origine autorisée
   return {
-    'Access-Control-Allow-Origin': isAllowed ? origin : '',
+    'Access-Control-Allow-Origin': origin || env.ALLOWED_ORIGIN,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, X-Requested-With',
     'Access-Control-Allow-Credentials': 'true',
+    'Vary': 'Origin'
   }
+}
+
+/**
+ * ✅ Vérification origine stricte — Refuse si non autorisée
+ */
+function originAllowed(req: Request, env: any): boolean {
+  const origin = req.headers.get('Origin')
+  // Pas d'origine (localhost) OU Origine = ALLOWED_ORIGIN (production)
+  return !origin || origin === env.ALLOWED_ORIGIN
 }
 
 function withCors(response: Response, cors: Record<string, string>): Response {
