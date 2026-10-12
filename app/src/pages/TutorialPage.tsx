@@ -81,7 +81,47 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
 
   const resolved = tutorial ?? fallback
 
-  if (!resolved || !resolved.sections || resolved.sections.length === 0) {
+  // Cas 1 : Tutoriel inexistant (ni brouillon, ni publié, ni statique)
+  if (!resolved) {
+    return (
+      <div className="tutorial-page tutorial-page--empty">
+        <div className="container">
+          <button className="btn btn-primary" onClick={onReturnHome}>
+            ← Retour à l'accueil
+          </button>
+          <h2>Tutoriel non disponible</h2>
+          <p>Ce tutoriel n'existe pas.</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Cas 2 : Brouillon vide en édition (admin connecté)
+  if (isAdminMode && editableTutorial && (!resolved.sections || resolved.sections.length === 0)) {
+    return (
+      <div className="tutorial-page tutorial-page--empty">
+        <div className="container">
+          <button className="btn btn-secondary" onClick={onReturnHome}>
+            ← Retour à l'accueil
+          </button>
+          <h2>Brouillon vide</h2>
+          <p>Ce tutoriel est nouveau. Commencez par ajouter une première section.</p>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              addSection()
+              // La section sera ajoutée et le composant se re-rendra
+            }}
+          >
+            + Ajouter la première section
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Cas 3 : Tutoriel vide mais pas en édition (visiteur non-admin)
+  if (!resolved.sections || resolved.sections.length === 0) {
     return (
       <div className="tutorial-page tutorial-page--empty">
         <div className="container">
