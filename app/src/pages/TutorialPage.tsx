@@ -96,8 +96,12 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
   // 2. Version publiée sur GitHub (publishedTutorial)
   // 3. Fallback statique depuis le registre
   const sourceTutorial = getTutorialById(tutorialId)
+  
+  // Vérifier si editableTutorial a du contenu réel (pas juste un objet vide)
+  const hasEditableContent = editableTutorial && (editableTutorial.id || (editableTutorial.sections && editableTutorial.sections.length > 0))
+  
   const tutorial: Tutorial | undefined =
-    isAdminMode && editableTutorial
+    isAdminMode && hasEditableContent
       ? editableTutorial
       : publishedTutorial ?? sourceTutorial ?? undefined
   const fallback = sourceTutorial ?? undefined
@@ -105,7 +109,12 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
   const resolved = tutorial ?? fallback
 
   // Cas 1 : En cours de chargement d'un tutoriel dynamique (pas de fallback statique)
-  if (isLoadingPublished && !sourceTutorial && !editableTutorial && !resolved) {
+  // Montrer le loader uniquement si :
+  // - On est en train de charger la version publiée (!isLoadingPublished = false)
+  // - Pas de tutoriel statique (sourceTutorial)
+  // - Pas de brouillon éditable avec contenu (hasEditableContent)
+  // - Rien de résolu (resolved)
+  if (isLoadingPublished && !sourceTutorial && !hasEditableContent && !resolved) {
     return (
       <div className="tutorial-page tutorial-page--empty">
         <div className="container">
@@ -135,7 +144,7 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
   }
 
   // Cas 3 : Brouillon vide en édition (admin connecté)
-  if (isAdminMode && editableTutorial && (!resolved.sections || resolved.sections.length === 0)) {
+  if (isAdminMode && hasEditableContent && (!resolved.sections || resolved.sections.length === 0)) {
     return (
       <div className="tutorial-page tutorial-page--empty">
         <div className="container">
