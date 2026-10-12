@@ -12,10 +12,14 @@ import { useState, useEffect } from 'react'
 import { Announcement } from './types'
 import './AnnouncementsModule.css'
 
-export default function AnnouncementsModule() {
+interface AnnouncementsModuleProps {
+  isAuthenticated?: boolean
+}
+
+export default function AnnouncementsModule({ isAuthenticated = false }: AnnouncementsModuleProps) {
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [publishStatus, setPublishStatus] = useState<'idle' | 'publishing' | 'success' | 'error'>(
+  const [publishStatus, setPublishStatus] = useState<'idle' | 'publishing' | 'success' | 'error' | 'auth-required'>(
     'idle'
   )
 
@@ -78,6 +82,13 @@ export default function AnnouncementsModule() {
 
   // Publier annonces
   const publishAnnouncements = async () => {
+    // Vérification préalable authentification
+    if (!isAuthenticated) {
+      setPublishStatus('auth-required')
+      setTimeout(() => setPublishStatus('idle'), 4000)
+      return
+    }
+
     setPublishStatus('publishing')
     try {
       const response = await fetch('/api/cms/announcements', {
@@ -90,19 +101,30 @@ export default function AnnouncementsModule() {
         body: JSON.stringify({ action: 'publish', announcements }),
       })
 
+      // Log détaillé pour diagnostiquer
+      console.info(`📢 Annonces publish: Status ${response.status}`)
+
       if (response.ok) {
+        console.info(`✅ Annonces publiées: ${announcements.length} items`)
         setPublishStatus('success')
         setTimeout(() => setPublishStatus('idle'), 3000)
       } else {
-        const error = await response.text()
-        console.error('Erreur publication annonces:', response.status, error)
-        setPublishStatus('error')
-        setTimeout(() => setPublishStatus('idle'), 3000)
+        const errorText = await response.text()
+        console.error(`❌ Erreur publication: ${response.status} ${response.statusText}`)
+        console.error(`📝 Réponse: ${errorText}`)
+        
+        // Afficher erreur HTTP spécifique
+        if (response.status === 401) {
+          setPublishStatus('auth-required')
+        } else {
+          setPublishStatus('error')
+        }
+        setTimeout(() => setPublishStatus('idle'), 4000)
       }
     } catch (e) {
-      console.error('Erreur publication annonces:', e)
+      console.error('❌ Erreur publication annonces (réseau):', e)
       setPublishStatus('error')
-      setTimeout(() => setPublishStatus('idle'), 3000)
+      setTimeout(() => setPublishStatus('idle'), 4000)
     }
   }
 
@@ -151,15 +173,26 @@ export default function AnnouncementsModule() {
           <button
             className="cms-btn"
             onClick={publishAnnouncements}
-            disabled={publishStatus === 'publishing' || announcements.length === 0}
+            disabled={publishStatus === 'publishing' || announcements.length === 0 || !isAuthenticated}
             style={{ marginTop: 10 }}
+            title={!isAuthenticated ? 'Authentification requise' : ''}
           >
             {publishStatus === 'publishing' ? '⏳ Pub...' : '📤 Publier'}
           </button>
           {publishStatus === 'success' && (
-            <span className="status-success">✓ Publié!</span>
+            <span className="status-success">✅ Publié avec succès!</span>
           )}
-          {publishStatus === 'error' && <span className="status-error">✗ Erreur</span>}
+          {publishStatus === 'error' && (
+            <span className="status-error">❌ Erreur de publication (voir console pour détails)</span>
+          )}
+          {publishStatus === 'auth-required' && (
+            <span className="status-warning">🔐 Authentification requise pour publier</span>
+          )}
+          {!isAuthenticated && (
+            <p className="cms-notice" style={{ marginTop: 12, color: '#ff9800', fontSize: '0.9em' }}>
+              ℹ️ Connectez-vous pour pouvoir publier des annonces
+            </p>
+          )}
         </div>
 
         {selected && (

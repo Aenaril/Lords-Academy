@@ -97,7 +97,11 @@ const PREDEFINED_THEMES: Theme[] = [
   },
 ]
 
-export default function ThemesModule() {
+interface ThemesModuleProps {
+  isAuthenticated?: boolean
+}
+
+export default function ThemesModule({ isAuthenticated = false }: ThemesModuleProps) {
   const [library, setLibrary] = useState<ThemeLibrary>({
     themes: PREDEFINED_THEMES,
     activeThemeId: 'dark',
@@ -107,7 +111,7 @@ export default function ThemesModule() {
   const [selectedThemeId, setSelectedThemeId] = useState<string>('dark')
   const [newThemeName, setNewThemeName] = useState('')
   const [showNewThemeForm, setShowNewThemeForm] = useState(false)
-  const [publishStatus, setPublishStatus] = useState<'idle' | 'publishing' | 'success' | 'error'>('idle')
+  const [publishStatus, setPublishStatus] = useState<'idle' | 'publishing' | 'success' | 'error' | 'auth-required'>('idle')
 
   // Charger thèmes depuis le localStorage
   useEffect(() => {
@@ -168,11 +172,18 @@ export default function ThemesModule() {
 
   // Publier thème
   const publishTheme = async () => {
-    if (!selectedTheme || selectedTheme.isPredefined) return
+    if (!selectedTheme) return
+    
+    // Vérification authentification
+    if (!isAuthenticated) {
+      setPublishStatus('auth-required')
+      setTimeout(() => setPublishStatus('idle'), 4000)
+      return
+    }
 
+    // CORRECTION : Permettre publication thèmes prédéfinis
     setPublishStatus('publishing')
     try {
-      // Publier thème vers l'API
       const response = await fetch('/api/cms/themes', {
         method: 'POST',
         headers: { 
@@ -183,21 +194,30 @@ export default function ThemesModule() {
         body: JSON.stringify({ action: 'publish', theme: selectedTheme }),
       })
 
+      console.info(`🎨 Thème publish: Status ${response.status}`)
+
       if (response.ok) {
         const updated = { ...library, publishedThemeId: selectedTheme.id }
         saveLibrary(updated)
+        console.info(`✅ Thème publié: ${selectedTheme.name}`)
         setPublishStatus('success')
         setTimeout(() => setPublishStatus('idle'), 3000)
       } else {
         const error = await response.text()
-        console.error('Erreur publication thème:', response.status, error)
-        setPublishStatus('error')
-        setTimeout(() => setPublishStatus('idle'), 3000)
+        console.error(`❌ Erreur publication thème: ${response.status}`)
+        console.error(`📝 Réponse: ${error}`)
+        
+        if (response.status === 401) {
+          setPublishStatus('auth-required')
+        } else {
+          setPublishStatus('error')
+        }
+        setTimeout(() => setPublishStatus('idle'), 4000)
       }
     } catch (e) {
-      console.error('Erreur publication thème:', e)
+      console.error('❌ Erreur publication thème (réseau):', e)
       setPublishStatus('error')
-      setTimeout(() => setPublishStatus('idle'), 3000)
+      setTimeout(() => setPublishStatus('idle'), 4000)
     }
   }
 
@@ -354,18 +374,27 @@ export default function ThemesModule() {
             </div>
 
             <div className="theme-actions">
-              {!selectedTheme.isPredefined && (
-                <>
-                  <button
-                    className="cms-btn"
-                    onClick={publishTheme}
-                    disabled={publishStatus === 'publishing'}
-                  >
-                    {publishStatus === 'publishing' ? '⏳ Pub...' : '📤 Publier'}
-                  </button>
-                  {publishStatus === 'success' && <span className="status-success">✓ Publié!</span>}
-                  {publishStatus === 'error' && <span className="status-error">✗ Erreur</span>}
-                </>
+              <button
+                className="cms-btn"
+                onClick={publishTheme}
+                disabled={publishStatus === 'publishing' || !isAuthenticated}
+                title={!isAuthenticated ? 'Authentification requise' : ''}
+              >
+                {publishStatus === 'publishing' ? '⏳ Pub...' : '📤 Publier'}
+              </button>
+              {publishStatus === 'success' && (
+                <span className="status-success">✅ Publié avec succès!</span>
+              )}
+              {publishStatus === 'error' && (
+                <span className="status-error">❌ Erreur de publication (voir console)</span>
+              )}
+              {publishStatus === 'auth-required' && (
+                <span className="status-warning">🔐 Authentification requise</span>
+              )}
+              {!isAuthenticated && (
+                <p style={{ marginTop: 12, color: '#ff9800', fontSize: '0.9em' }}>
+                  ℹ️ Connectez-vous pour pouvoir publier des thèmes
+                </p>
               )}
             </div>
           </div>

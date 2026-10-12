@@ -12,7 +12,11 @@ import { useState, useEffect } from 'react'
 import { EventNotificationSchedule, NotificationSubscription, Event } from './types'
 import './NotificationsModule.css'
 
-export default function NotificationsModule() {
+interface NotificationsModuleProps {
+  isAuthenticated?: boolean
+}
+
+export default function NotificationsModule({ isAuthenticated: _auth = false }: NotificationsModuleProps) {
   const [schedules, setSchedules] = useState<EventNotificationSchedule[]>([])
   const [subscriptions, setSubscriptions] = useState<NotificationSubscription[]>([])
   const [events, setEvents] = useState<Event[]>([])

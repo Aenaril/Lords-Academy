@@ -7,6 +7,7 @@
  * Pas d'AdminBar redondant ni de bouton toggle ici
  */
 import { useState } from 'react'
+import { useAdmin } from './AdminContext'
 import MyTutorialsPanel from './MyTutorialsPanel'
 import CmsDashboard from './CmsDashboard'
 import ThemesModule from '../cms/ThemesModule'
@@ -25,6 +26,7 @@ interface CmsIndexProps {
 }
 
 export default function CmsIndex({ onSelectTutorial, onClose }: CmsIndexProps) {
+  const { isAuthenticated } = useAdmin()
   const [activeSection, setActiveSection] = useState<CmsSection>('dashboard')  // ✅ Dashboard par défaut
 
   return (
@@ -103,11 +105,11 @@ export default function CmsIndex({ onSelectTutorial, onClose }: CmsIndexProps) {
             onClose={onClose ?? (() => {})}
           />
         )}
-        {activeSection === 'themes' && <ThemesModule />}
+        {activeSection === 'themes' && <ThemesModule isAuthenticated={isAuthenticated} />}
         {activeSection === 'media' && <MediaLibraryModule />}
         {activeSection === 'home' && <HomeCustomizationModule />}
-        {activeSection === 'announcements' && <AnnouncementsModule />}
-        {activeSection === 'notifications' && <NotificationsModule />}
+        {activeSection === 'announcements' && <AnnouncementsModule isAuthenticated={isAuthenticated} />}
+        {activeSection === 'notifications' && <NotificationsModule isAuthenticated={isAuthenticated} />}
         {activeSection === 'settings' && <SiteSettingsModule />}
       </div>
     </div>
