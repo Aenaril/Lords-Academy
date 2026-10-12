@@ -10,6 +10,17 @@
       "coverIcon": "🐉",
       "status": "published",
       "order": 3
+    },
+    {
+      "id": "test",
+      "title": "Test",
+      "description": "",
+      "category": "Autre",
+      "difficulty": "easy",
+      "estimatedDuration": "10",
+      "coverIcon": "📚",
+      "status": "published",
+      "order": 999
     }
   ]
 }

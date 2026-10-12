@@ -1,0 +1,34 @@
+{
+  "id": "test",
+  "title": "Test",
+  "description": "",
+  "category": "Autre",
+  "difficulty": "easy",
+  "estimatedDuration": "10",
+  "coverIcon": "📚",
+  "order": 999,
+  "status": "draft",
+  "sections": [
+    {
+      "id": "b5644677-0e94-412d-a780-552a300a72e9",
+      "_uid": "s_mv51qhyw_61",
+      "title": "Test1",
+      "sourceSlide": 0,
+      "sourceTitle": "Source",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Etre ou ne pas être, telle est la question de con que nous pose Shakespeare. Franchement, comme si on avait le choix?",
+          "_uid": "b_mv51r0b1_62"
+        },
+        {
+          "type": "memo",
+          "title": "Mémo",
+          "content": "Arrêtez les conneries et go join ton rally sur LM.",
+          "icon": "📌",
+          "_uid": "b_mv51rn2n_63"
+        }
+      ]
+    }
+  ]
+}
