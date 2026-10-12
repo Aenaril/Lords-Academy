@@ -10,7 +10,6 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { Theme } from '../cms/types'
 
 /**
  * Simulateur de publication avec décodage UTF-8 et gestion d'états
@@ -321,7 +320,6 @@ describe('CMS — UTF-8 Publication et Gestion d\'États', () => {
     const yellow = { activeThemeId: 'yellow', _rev: 2, themeName: 'Jaune' }
     writeResult = publisher.write(sha, publisher.encodeJSON(yellow))
     expect(writeResult.ok).toBe(true)
-    const yellowSha = writeResult.sha!
 
     // Essayer d'écrire ancien contenu (Light) avec ancien SHA → échouera
     const oldSha = sha // SHA avant yellow
