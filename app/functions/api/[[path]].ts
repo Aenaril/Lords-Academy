@@ -91,6 +91,9 @@ export const onRequest: PagesFunction = async (context) => {
       case 'GET /api/tutorialIds':
         response = await handleTutorialIds(request, env as any)
         break
+      case 'GET /api/tutorials/published':
+        response = await handlePublishedTutorials(request, env as any)
+        break
       default:
         response = json({ error: 'Not found' }, 404)
     }
@@ -802,6 +805,44 @@ async function handleTutorialIds(req: Request, env: any): Promise<Response> {
   } catch (err) {
     console.error('Error fetching tutorial IDs:', err)
     return json({ ok: false, error: 'Erreur serveur' }, 500)
+  }
+}
+
+/**
+ * Énumère tous les tutoriels publiés (endpoint public).
+ * 
+ * Construit la liste en consulant index.json (mis à jour après chaque publication).
+ * Cache : 5 min CDN + revalidation sur chaque accès.
+ */
+async function handlePublishedTutorials(req: Request, env: any): Promise<Response> {
+  // Route publique : pas d'authentification requise
+  
+  const cacheHeaders = {
+    'Cache-Control': 'public, max-age=300, must-revalidate',
+    'Pragma': 'public'
+  }
+
+  try {
+    // Récupérer l'index publié depuis GitHub
+    const indexPath = 'app/public/content/index.json'
+    const indexUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${indexPath}`
+    
+    const indexRes = await fetch(indexUrl, { cache: 'no-store' })
+    
+    if (!indexRes.ok) {
+      // Index non disponible : retourner liste vide ou fallback
+      console.warn(`Index publié indisponible: ${indexRes.status}`)
+      return json({ tutorials: [] }, 200, cacheHeaders)
+    }
+
+    const indexData = await indexRes.json()
+    const tutorials = indexData.tutorials || []
+
+    return json({ tutorials }, 200, cacheHeaders)
+  } catch (err) {
+    console.error('Error fetching published tutorials:', err)
+    // En cas d'erreur, retourner liste vide (pas d'erreur 500)
+    return json({ tutorials: [] }, 200, cacheHeaders)
   }
 }
 
