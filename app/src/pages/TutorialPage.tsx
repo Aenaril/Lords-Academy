@@ -211,7 +211,8 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
   }
 
   // Cas 5 : Tutoriel vide mais pas en édition (visiteur non-admin)
-  if (!tutorial?.sections || tutorial.sections.length === 0) {
+  // Guard : ne pas afficher « non disponible » pendant le chargement initial
+  if (loadState !== 'idle' && loadState !== 'loading' && (!tutorial?.sections || tutorial.sections.length === 0)) {
     return (
       <div className="tutorial-page tutorial-page--empty">
         <div className="container">
@@ -230,15 +231,16 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
   // ═══════════════════════════════════════════════════════════════
 
   if (!tutorial || !tutorial.sections || tutorial.sections.length === 0) {
-    // Ne devrait pas arriver ici grâce aux gardes ci-dessus
+    // Filet de sécurité : en cas d'état inattendu (idle sans contenu)
+    // Afficher le loader plutôt que « non disponible »
     return (
       <div className="tutorial-page tutorial-page--empty">
         <div className="container">
           <button className="btn btn-primary" onClick={onReturnHome}>
             ← Retour à l'accueil
           </button>
-          <h2>Tutoriel non disponible</h2>
-          <p>Ce tutoriel n'a pas de contenu.</p>
+          <h2>Chargement du tutoriel…</h2>
+          <p>Veuillez patienter.</p>
         </div>
       </div>
     )
