@@ -1,12 +1,12 @@
 {
-  "activeThemeId": "theme-1791833505272",
-  "publishedAt": 1791833558097,
+  "activeThemeId": "dark",
+  "publishedAt": 1791833595499,
   "theme": {
-    "id": "theme-1791833505272",
-    "name": "Sombre (copie)",
-    "description": "Copie de Sombre",
+    "id": "dark",
+    "name": "Sombre",
+    "description": "Thème sombre par défaut",
     "colors": {
-      "bgMain": "#3b3b81",
+      "bgMain": "#0f0f12",
       "bgCard": "#1a1a1e",
       "bgSection": "#242428",
       "textPrimary": "#f2f2f2",
@@ -38,8 +38,8 @@
       "xl": 32
     },
     "borderRadius": 8,
-    "createdAt": 1791833505272,
-    "modifiedAt": 1791833548090,
-    "isPredefined": false
+    "createdAt": 1791833572148,
+    "modifiedAt": 1791833572148,
+    "isPredefined": true
   }
 }
