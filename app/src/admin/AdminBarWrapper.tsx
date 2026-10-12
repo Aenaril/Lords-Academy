@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import AdminBar from './AdminBar'
+import FloatingAdminButton from './FloatingAdminButton'
 import AdminLogin from './AdminLogin'
 import AdminModeChoice from './AdminModeChoice'
 import { useAdmin } from './AdminContext'
@@ -105,6 +106,7 @@ export default function AdminBarWrapper({ onSelectTutorial }: { onSelectTutorial
 
   return (
     <>
+      <FloatingAdminButton />
       <AdminBar onSelectTutorial={onSelectTutorial} />
 
       {/* DÉVELOPPEMENT UNIQUEMENT : modale d'accueil avec choix */}

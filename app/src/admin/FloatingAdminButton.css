@@ -1,0 +1,55 @@
+.floating-admin-btn {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 999;  /* Sous AdminBar qui est 1000 */
+  
+  /* Style */
+  background: rgba(94, 146, 179, 0.9);
+  color: #f2f2f2;
+  border: 1px solid rgba(94, 146, 179, 1);
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  
+  /* Animation */
+  transition: all 200ms ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  
+  /* Réduction du saut lors du clic */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.floating-admin-btn:hover {
+  background: rgba(94, 146, 179, 1);
+  box-shadow: 0 6px 16px rgba(94, 146, 179, 0.5);
+  transform: translateY(-2px);
+}
+
+.floating-admin-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+@media (max-width: 768px) {
+  .floating-admin-btn {
+    bottom: 70px;  /* Au-dessus de la barre admin sur mobile */
+    right: 10px;
+    padding: 10px 14px;
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .floating-admin-btn {
+    bottom: 60px;
+    right: 5px;
+    padding: 8px 12px;
+    font-size: 0.8rem;
+  }
+}

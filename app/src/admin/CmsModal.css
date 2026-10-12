@@ -1,0 +1,106 @@
+.cms-modal__backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2000;  /* Au-dessus de tout */
+  
+  /* Appearance */
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  
+  /* Animation */
+  animation: fadeIn 150ms ease;
+  
+  /* Scrollable si besoin */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 20px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.cms-modal__container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  
+  /* Appearance */
+  background: var(--bg-dark, #0f0f12);
+  border-radius: 0;  /* Plein écran */
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+  
+  /* Animation */
+  animation: slideUp 200ms ease;
+  
+  /* Overflow */
+  overflow: hidden;
+  display: flex;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* CmsContainer à l'intérieur du modal */
+.cms-modal__container .cms-container {
+  height: 100%;
+  width: 100%;
+  max-height: 100%;
+  max-width: 100%;
+  grid-template-columns: 250px 1fr;
+}
+
+.cms-modal__container .cms-main {
+  overflow-y: auto;
+  max-height: 100%;
+}
+
+/* Responsive : sur petits écrans, plein écran sans padding */
+@media (max-width: 768px) {
+  .cms-modal__backdrop {
+    padding: 0;
+    align-items: flex-start;
+    justify-content: stretch;
+  }
+
+  .cms-modal__container {
+    width: 100%;
+    height: 100vh;
+    max-width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+    animation: slideUp 200ms ease;
+  }
+
+  .cms-modal__container .cms-container {
+    grid-template-columns: 1fr;  /* Menu en haut ou côté sur mobile */
+    height: 100vh;
+  }
+}
+
+@media (max-width: 480px) {
+  .cms-modal__container {
+    height: 100vh;
+  }
+}

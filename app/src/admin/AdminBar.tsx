@@ -5,7 +5,7 @@ import TutorialMetaPanel from './TutorialMetaPanel'
 import VersionHistory from './VersionHistory'
 import TutorialCreateModal from './TutorialCreateModal'
 import MyTutorialsPanel from './MyTutorialsPanel'
-import CmsIndex from './CmsIndex'
+import CmsModal from './CmsModal'
 import './AdminBar.css'
 
 /**
@@ -244,13 +244,12 @@ export default function AdminBar({ onSelectTutorial }: AdminBarProps) {
         />
       )}
 
-      {/* CMS complet — accessible si authentifié */}
-      {showCms && (
-        <CmsIndex 
-          onSelectTutorial={onSelectTutorial ?? (() => {})} 
-          onClose={() => setShowCms(false)}  // ✅ Passer onClose
-        />
-      )}
+      {/* CMS complet — fenêtre modale */}
+      <CmsModal
+        isOpen={showCms}
+        onClose={() => setShowCms(false)}
+        onSelectTutorial={onSelectTutorial ?? (() => {})}
+      />
     </>
   )
 }
