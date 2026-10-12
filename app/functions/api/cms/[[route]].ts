@@ -189,12 +189,13 @@ async function handleCmsThemes(req: Request, env: any): Promise<Response> {
 
   if (action === 'publish') {
     const theme = body?.theme
-    const revision = body?.revision || 0
     if (!validateTheme(theme)) {
       return json({ ok: false, error: 'Invalid theme' }, 400)
     }
 
-    console.info(`✅ CMS publish theme: ${theme.id} rev ${revision} (user authenticated)`)
+    console.info(
+      `✅ CMS publish theme: ${theme.id} (user authenticated, server will compute revision)`
+    )
 
     const result = await publishCmsConfig(env, 'themes.json', {
       activeThemeId: theme.id,
@@ -209,7 +210,7 @@ async function handleCmsThemes(req: Request, env: any): Promise<Response> {
     return json({ 
       ok: true, 
       revision: result.revision,
-      revisionNumber: result.revisionNumber,
+      revisionNumber: result.revisionNumber, // Révision calculée côté serveur
     })
   }
 

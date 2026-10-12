@@ -304,9 +304,10 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
   // Publier un objet thème spécifique vers l'API GitHub publique avec vérification
   const publishThemeObject = async (theme: Theme): Promise<boolean> => {
     setPublishStatus('publishing')
-    const revision = (library.publishedRevision || 0) + 1
-    const thisPublish = { themeId: theme.id, revision }
-    publishingRef.current = thisPublish
+    // NE PAS calculer la révision côté client
+    // Laisser le serveur déterminer la vraie révision en lisant l'état publié
+    const thisPublish = { themeId: theme.id }
+    publishingRef.current = thisPublish as any
 
     try {
       const response = await fetch('/api/cms/themes', {
@@ -319,7 +320,7 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
         body: JSON.stringify({ 
           action: 'publish', 
           theme,
-          revision, // Envoyer le numéro de révision au serveur
+          // NE PAS envoyer de numéro de révision du client
         }),
       })
 
@@ -327,20 +328,22 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
 
       // Vérifier que c'est encore la publication actuelle (pas été remplacée)
       if (publishingRef.current !== thisPublish) {
-        console.warn(`⚠️ Publication ${theme.id} rev ${revision} remplacée par une plus récente`)
+        console.warn(`⚠️ Publication ${theme.id} remplacée par une plus récente`)
         return false
       }
 
       if (response.ok) {
         const result = await response.json()
-        console.info(`✅ Thème publié: ${theme.name} (rev ${result.revisionNumber})`)
+        console.info(
+          `✅ Thème publié: ${theme.name} (rev ${result.revisionNumber} confirmée par serveur)`
+        )
         
-        // Mettre à jour la révision publiée confirmée
+        // Mettre à jour la révision publiée confirmée (depuis le serveur)
         const updated = {
           ...library,
           publishedThemeId: theme.id,
           activeThemeId: theme.id,
-          publishedRevision: result.revisionNumber || revision,
+          publishedRevision: result.revisionNumber, // Du serveur, pas du calcul client
           publishedAt: Date.now(),
         }
         setLibrary(updated)

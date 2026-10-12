@@ -18,12 +18,14 @@ export interface CmsEnv {
 }
 
 /**
- * Publier configuration CMS vers GitHub
+ * Publier configuration CMS vers GitHub avec révision monotone
  * 
- * Inclut :
- * - Numéro de révision monotone (_rev) pour éviter les retours arrière
- * - Vérification post-publication que le fichier est accessible
- * - Retry sur erreur SHA (cas de race conditions)
+ * Système de révisions durables :
+ * 1. Lire le fichier publié actuel pour obtenir la révision réelle
+ * 2. Incrémenter monotoniquement côté serveur
+ * 3. Écrire le nouveau contenu avec révision+1
+ * 4. Vérifier post-publication que le contenu exact est accessible
+ * 5. Rejeter les anciennes révisions même si elles arrivent plus tard
  */
 export async function publishCmsConfig(
   env: CmsEnv,
@@ -41,18 +43,40 @@ export async function publishCmsConfig(
     Accept: 'application/vnd.github+json',
   }
 
-  // Ajouter numéro de révision monotone au contenu
-  const wrappedContent = {
-    ...content,
-    _rev: (content._rev || 0) + 1,
-    _publishedAt: Date.now(),
-  }
-
   let lastError = ''
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      // Récupérer SHA courant (peut avoir changé depuis la dernière tentative)
+      // ÉTAPE 1 : Lire la révision actuellement publiée (source de vérité)
+      let currentRevision = 0
+      let currentPublishedContent: any = null
+      try {
+        const currentContentRes = await fetch(rawUrl, {
+          headers: { 'Cache-Control': 'no-cache, max-age=0' },
+        })
+        if (currentContentRes.ok) {
+          currentPublishedContent = await currentContentRes.json()
+          currentRevision = currentPublishedContent?._rev || 0
+          console.info(
+            `📖 Révision publiée actuelle: ${currentRevision} (theme: ${currentPublishedContent?.activeThemeId})`
+          )
+        }
+      } catch (e) {
+        console.warn('⚠️ Impossible de lire la révision publiée actuelle (premier déploiement?)')
+        currentRevision = 0
+      }
+
+      // ÉTAPE 2 : Calculer la nouvelle révision (monotone, côté serveur)
+      const newRevision = currentRevision + 1
+
+      // ÉTAPE 3 : Préparer le contenu avec révision
+      const wrappedContent = {
+        ...content,
+        _rev: newRevision,
+        _publishedAt: Date.now(),
+      }
+
+      // ÉTAPE 4 : Récupérer SHA courant (peut avoir changé depuis lecture)
       const currentRes = await fetch(`${apiBase}?ref=${env.GITHUB_BRANCH}`, { headers })
       let sha: string | undefined
       if (currentRes.ok) {
@@ -63,11 +87,12 @@ export async function publishCmsConfig(
         unescape(encodeURIComponent(JSON.stringify(wrappedContent, null, 2)))
       )
 
+      // ÉTAPE 5 : Écrire sur GitHub
       const putRes = await fetch(apiBase, {
         method: 'PUT',
         headers,
         body: JSON.stringify({
-          message: `Mise à jour ${filename} (CMS) — ${new Date().toISOString()}`,
+          message: `Mise à jour ${filename} (CMS) — rev ${newRevision} — ${new Date().toISOString()}`,
           content: contentB64,
           branch: env.GITHUB_BRANCH,
           sha,
@@ -90,41 +115,57 @@ export async function publishCmsConfig(
 
       const putResult = (await putRes.json()) as any
       const newSha = putResult.content?.sha
-      const revisionNumber = wrappedContent._rev
 
-      // ✅ VÉRIFICATION POST-PUBLICATION : S'assurer que le fichier est lisible
-      // Attendre un peu pour que GitHub propage le changement
+      // ÉTAPE 6 : Vérifier post-publication (attendre propagation GitHub)
+      console.info(
+        `📤 Publication écrite sur GitHub: theme=${content.activeThemeId} rev=${newRevision} sha=${newSha}`
+      )
       await new Promise((r) => setTimeout(r, 500))
 
       let verified = false
+      let publishedContent: any = null
+
       for (let verifyAttempt = 0; verifyAttempt < 5; verifyAttempt++) {
         try {
-          const verifyRes = await fetch(rawUrl, { 
-            headers: { 'Cache-Control': 'no-cache, max-age=0' }
+          const verifyRes = await fetch(rawUrl, {
+            headers: { 'Cache-Control': 'no-cache, max-age=0' },
           })
           if (verifyRes.ok) {
-            const published = await verifyRes.json()
-            // Vérifier que c'est bien notre contenu (même révision)
-            if (published._rev === revisionNumber) {
+            publishedContent = await verifyRes.json()
+
+            // Vérification stricte : révision ET thème ET contenu
+            if (
+              publishedContent._rev === newRevision &&
+              publishedContent.activeThemeId === content.activeThemeId
+            ) {
               verified = true
-              console.info(`✅ Thème publié vérifiée: rev ${revisionNumber}, SHA ${newSha}`)
-              return { ok: true, revision: newSha, revisionNumber }
+              console.info(
+                `✅ Publication vérifiée: theme=${publishedContent.activeThemeId} rev=${newRevision}`
+              )
+              return { ok: true, revision: newSha, revisionNumber: newRevision }
+            } else {
+              console.warn(
+                `⚠️ Vérif. tentative ${verifyAttempt}: rev=${publishedContent._rev} (attendu ${newRevision}), theme=${publishedContent?.activeThemeId}`
+              )
             }
           }
         } catch (e) {
-          // Continuer à essayer
+          console.warn(`⚠️ Vérif. tentative ${verifyAttempt} échouée: ${(e as any).message}`)
         }
+
         if (verifyAttempt < 4) {
           await new Promise((r) => setTimeout(r, 300 * (verifyAttempt + 1)))
         }
       }
 
       if (!verified) {
-        lastError = `Publication verification failed after ${maxRetries} attempts`
+        lastError = `Publication verification failed: expected rev ${newRevision}, got ${publishedContent?._rev}`
+        console.error(lastError)
+        // Ne pas retry si vérification échoue (le contenu a changé entre deux publications concurrentes)
         return { ok: false, error: lastError }
       }
 
-      return { ok: true, revision: newSha, revisionNumber }
+      return { ok: true, revision: newSha, revisionNumber: newRevision }
     } catch (err) {
       lastError = `Exception: ${(err as any).message}`
       if (attempt === maxRetries - 1) {
