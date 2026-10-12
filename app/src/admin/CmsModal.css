@@ -1,25 +1,31 @@
+/**
+ * CMS Modal — Fenêtre flottante robuste
+ * 
+ * Problème résolu :
+ * - Backdrop fixe plein écran
+ * - Container occupe tout l'écran disponible
+ * - Pas de conflit de dimensions
+ * - Fermeture par Échap ou bouton
+ * - Scroll bloqué correctement
+ */
+
 .cms-modal__backdrop {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 2000;  /* Au-dessus de tout */
+  z-index: 2000;
   
-  /* Appearance */
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   
-  /* Animation */
   animation: fadeIn 150ms ease;
   
-  /* Scrollable si besoin */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: auto;
-  padding: 20px;
+  /* IMPORTANT : ne pas utiliser display: flex avec height: 100% sur enfant */
+  display: block;
+  overflow: hidden;
 }
 
 @keyframes fadeIn {
@@ -32,23 +38,17 @@
 }
 
 .cms-modal__container {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  max-width: 100%;
-  max-height: 100%;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   
-  /* Appearance */
   background: var(--bg-dark, #0f0f12);
-  border-radius: 0;  /* Plein écran */
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
-  
-  /* Animation */
+  overflow: hidden;
   animation: slideUp 200ms ease;
   
-  /* Overflow */
-  overflow: hidden;
-  display: flex;
+  z-index: 2001;  /* Être au-dessus du backdrop */
 }
 
 @keyframes slideUp {
@@ -62,45 +62,37 @@
   }
 }
 
-/* CmsContainer à l'intérieur du modal */
+/* CMS à l'intérieur du modal */
 .cms-modal__container .cms-container {
-  height: 100%;
-  width: 100%;
-  max-height: 100%;
-  max-width: 100%;
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
   grid-template-columns: 250px 1fr;
 }
 
-.cms-modal__container .cms-main {
+.cms-modal__container .cms-sidebar {
+  height: 100%;
   overflow-y: auto;
-  max-height: 100%;
 }
 
-/* Responsive : sur petits écrans, plein écran sans padding */
+.cms-modal__container .cms-main {
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* Responsive : sur petits écrans */
 @media (max-width: 768px) {
-  .cms-modal__backdrop {
-    padding: 0;
-    align-items: flex-start;
-    justify-content: stretch;
-  }
-
-  .cms-modal__container {
-    width: 100%;
-    height: 100vh;
-    max-width: 100%;
-    max-height: 100vh;
-    border-radius: 0;
-    animation: slideUp 200ms ease;
-  }
-
   .cms-modal__container .cms-container {
-    grid-template-columns: 1fr;  /* Menu en haut ou côté sur mobile */
+    grid-template-columns: 1fr;
+    width: 100vw;
     height: 100vh;
   }
 }
 
 @media (max-width: 480px) {
-  .cms-modal__container {
+  .cms-modal__container .cms-container {
+    width: 100vw;
     height: 100vh;
   }
 }
