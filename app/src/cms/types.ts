@@ -118,6 +118,7 @@ export interface EventNotificationSchedule {
   title: string
   message: string
   imageUrl?: string
+  tutorialId?: string // Destination (tutoriel publié). Défaut : tutoriel de l'événement
   // Timing relatif : '-24h', '-3h', '-30m' OU timestamp absolu
   timing: 'relative' | 'absolute'
   relativeDelay?: string // ex: '-24h'
