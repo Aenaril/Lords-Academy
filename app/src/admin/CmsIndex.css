@@ -1,0 +1,323 @@
+/* CMS Index — Répartiteur principal */
+
+.cms-container {
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  height: 100vh;
+  background: var(--bg-dark, #0f0f12);
+  color: var(--text-light, #f2f2f2);
+}
+
+.cms-sidebar {
+  background: rgba(20, 20, 25, 0.9);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 20px 10px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  position: relative;
+}
+
+.cms-sidebar h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--primary-gold, #d4af37);
+  margin: 0;
+  padding: 0 10px;
+}
+
+.cms-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.cms-nav__item {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-light, #f2f2f2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 150ms ease;
+  text-align: left;
+}
+
+.cms-nav__item:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.cms-nav__item.active {
+  background: rgba(212, 175, 55, 0.2);
+  border-color: var(--primary-gold, #d4af37);
+  color: var(--primary-gold, #d4af37);
+  font-weight: 600;
+}
+
+.cms-main {
+  overflow-y: auto;
+  padding: 30px;
+  background: var(--bg-dark, #0f0f12);
+}
+
+.cms-close-btn {
+  background: rgba(211, 47, 47, 0.2);
+  border: 1px solid rgba(211, 47, 47, 0.4);
+  color: #ff6b6b;
+  border-radius: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 700;
+  transition: all 150ms ease;
+  margin-top: auto;
+}
+
+.cms-close-btn:hover {
+  background: rgba(211, 47, 47, 0.3);
+  border-color: rgba(211, 47, 47, 0.6);
+}
+
+.cms-toggle-btn {
+  position: fixed;
+  bottom: 70px;
+  right: 20px;
+  z-index: 999;
+  background: var(--primary-gold, #d4af37);
+  color: #1a1a1a;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 18px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.95rem;
+  transition: filter 150ms ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.cms-toggle-btn:hover {
+  filter: brightness(1.15);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .cms-container {
+    grid-template-columns: 1fr;
+  }
+  
+  .cms-sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100vh;
+    z-index: 2000;
+    width: 250px;
+    border-right: none;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.5);
+  }
+
+  .cms-main {
+    margin-left: 250px;
+  }
+
+  .cms-close-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+  }
+}
+
+/* Module base styles */
+.cms-module {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.cms-module__header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 15px;
+}
+
+.cms-module__header h1 {
+  font-size: 1.6rem;
+  color: var(--primary-gold, #d4af37);
+  margin: 0 0 5px 0;
+}
+
+.cms-module__header p {
+  color: var(--text-secondary, #b0b0b0);
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.cms-module__content {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.cms-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cms-form__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cms-form__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-light, #f2f2f2);
+}
+
+.cms-form__input,
+.cms-form__textarea,
+.cms-form__select {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-light, #f2f2f2);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  transition: all 150ms ease;
+  font-family: inherit;
+}
+
+.cms-form__input:focus,
+.cms-form__textarea:focus,
+.cms-form__select:focus {
+  outline: none;
+  border-color: var(--primary-gold, #d4af37);
+  background: rgba(212, 175, 55, 0.05);
+}
+
+.cms-form__textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.cms-btn {
+  background: var(--primary-gold, #d4af37);
+  color: #1a1a1a;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 16px;
+  cursor: pointer;
+  font-weight: 700;
+  transition: filter 150ms ease;
+}
+
+.cms-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.cms-btn--secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-light, #f2f2f2);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.cms-btn--secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.cms-btn--danger {
+  background: rgba(211, 47, 47, 0.3);
+  color: #ff6b6b;
+  border: 1px solid rgba(211, 47, 47, 0.5);
+}
+
+.cms-btn--danger:hover:not(:disabled) {
+  background: rgba(211, 47, 47, 0.4);
+}
+
+.cms-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cms-item-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cms-item-list__item {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: all 150ms ease;
+}
+
+.cms-item-list__item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.cms-item-list__content {
+  flex: 1;
+}
+
+.cms-item-list__title {
+  font-weight: 600;
+  color: var(--text-light, #f2f2f2);
+  margin: 0;
+}
+
+.cms-item-list__meta {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #b0b0b0);
+  margin: 4px 0 0 0;
+}
+
+.cms-item-list__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.cms-item-list__btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-light, #f2f2f2);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 150ms ease;
+}
+
+.cms-item-list__btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.cms-item-list__btn--danger {
+  background: rgba(211, 47, 47, 0.2);
+  color: #ff6b6b;
+  border-color: rgba(211, 47, 47, 0.4);
+}
+
+.cms-item-list__btn--danger:hover {
+  background: rgba(211, 47, 47, 0.3);
+  border-color: rgba(211, 47, 47, 0.5);
+}
+
+</content>
+</invoke>
