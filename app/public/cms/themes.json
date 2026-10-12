@@ -1,30 +1,30 @@
 {
-  "activeThemeId": "lords-academy-original",
-  "publishedAt": 1728556800000,
+  "activeThemeId": "theme-1791833505272",
+  "publishedAt": 1791833558097,
   "theme": {
-    "id": "lords-academy-original",
-    "name": "Lords Academy — Original",
-    "description": "Thème sombre original — Apparence historique du site",
+    "id": "theme-1791833505272",
+    "name": "Sombre (copie)",
+    "description": "Copie de Sombre",
     "colors": {
-      "bgMain": "#1A1A1A",
-      "bgCard": "#2B2B2B",
-      "bgSection": "#242424",
-      "textPrimary": "#F5F5F0",
-      "textSecondary": "#B0B0B0",
-      "textMuted": "#CCCCCC",
-      "primary": "#D4AF37",
-      "secondary": "#8B7355",
-      "accent": "#F0A000",
-      "success": "#4CAF50",
-      "error": "#F44336",
-      "warning": "#FF9800",
-      "borderColor": "#3D3D3D",
-      "buttonText": "#1A1A1A",
-      "linkColor": "#D4AF37"
+      "bgMain": "#3b3b81",
+      "bgCard": "#1a1a1e",
+      "bgSection": "#242428",
+      "textPrimary": "#f2f2f2",
+      "textSecondary": "#b0b0b0",
+      "textMuted": "#707070",
+      "primary": "#d4af37",
+      "secondary": "#5e92b3",
+      "accent": "#ff6b6b",
+      "success": "#4caf50",
+      "error": "#ff5252",
+      "warning": "#ffb74d",
+      "borderColor": "#333333",
+      "buttonText": "#1a1a1a",
+      "linkColor": "#5eaaff"
     },
     "typography": {
-      "fontPrimary": "system-ui, -apple-system, sans-serif",
-      "fontHeadings": "Georgia, serif",
+      "fontPrimary": "Segoe UI, Tahoma, Geneva, Verdana, sans-serif",
+      "fontHeadings": "Segoe UI, Tahoma, Geneva, Verdana, sans-serif",
       "sizeBase": 16,
       "sizeSmall": 14,
       "sizeLarge": 18,
@@ -38,8 +38,8 @@
       "xl": 32
     },
     "borderRadius": 8,
-    "createdAt": 1728556800000,
-    "modifiedAt": 1728556800000,
-    "isPredefined": true
+    "createdAt": 1791833505272,
+    "modifiedAt": 1791833548090,
+    "isPredefined": false
   }
 }
