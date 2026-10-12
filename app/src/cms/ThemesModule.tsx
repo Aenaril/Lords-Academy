@@ -116,6 +116,7 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
 
   const [selectedThemeId, setSelectedThemeId] = useState<string>('dark')
   const [newThemeName, setNewThemeName] = useState('')
+  const [newThemeBase, setNewThemeBase] = useState<'dark' | 'light'>('dark')
   const [showNewThemeForm, setShowNewThemeForm] = useState(false)
   const [publishStatus, setPublishStatus] = useState<'idle' | 'publishing' | 'success' | 'error' | 'auth-required'>('idle')
   const [syncStatus, setSyncStatus] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('idle')
@@ -206,12 +207,25 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewOn, selectedThemeId, selectedTheme])
 
-  // Éditer couleur
+  // Renommer un thème personnalisé
+  const renameTheme = (themeId: string, newName: string) => {
+    if (!newName.trim()) return
+    const theme = library.themes.find((t) => t.id === themeId)
+    if (!theme || theme.isPredefined) return
+
+    const updated = { ...theme, name: newName.trim(), modifiedAt: Date.now() }
+    const updatedThemes = library.themes.map((t) => (t.id === themeId ? updated : t))
+    saveLibrary({ ...library, themes: updatedThemes })
+  }
+
+  // Éditer couleur (copie profonde pour éviter mutations)
   const updateThemeColor = (colorKey: keyof ThemeColors, value: string) => {
     if (!selectedTheme) return
-    const updated = { ...selectedTheme }
-    updated.colors[colorKey] = value
-    updated.modifiedAt = Date.now()
+    const updated = {
+      ...selectedTheme,
+      colors: { ...selectedTheme.colors, [colorKey]: value },
+      modifiedAt: Date.now(),
+    }
 
     const updatedThemes = library.themes.map((t) => (t.id === updated.id ? updated : t))
     saveLibrary({ ...library, themes: updatedThemes })
@@ -251,14 +265,14 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
   }
 
   // Créer thème à partir d'une base
-  const createThemeFromBase = (baseName: string) => {
-    const base = library.themes.find((t) => t.name === baseName)
+  const createThemeFromBase = () => {
+    const base = library.themes.find((t) => t.id === newThemeBase)
     if (!base || !newThemeName.trim()) return
 
     const newTheme: Theme = {
       id: `theme-${Date.now()}`,
       name: newThemeName,
-      description: `Basé sur ${baseName}`,
+      description: `Basé sur ${base.name}`,
       colors: { ...base.colors },
       typography: { ...base.typography },
       spacing: { ...base.spacing },
@@ -270,6 +284,7 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
 
     const updatedThemes = [...library.themes, newTheme]
     setNewThemeName('')
+    setNewThemeBase('dark')
     setShowNewThemeForm(false)
     setSelectedThemeId(newTheme.id)
     saveLibrary({ ...library, themes: updatedThemes })
@@ -405,15 +420,16 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
                 onChange={(e) => setNewThemeName(e.target.value)}
                 className="cms-form__input"
               />
-              <select className="cms-form__select">
-                <option>Basé sur Sombre</option>
-                <option>Basé sur Clair</option>
+              <select
+                value={newThemeBase}
+                onChange={(e) => setNewThemeBase(e.target.value as 'dark' | 'light')}
+                className="cms-form__select"
+              >
+                <option value="dark">Basé sur Sombre</option>
+                <option value="light">Basé sur Clair</option>
               </select>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  className="cms-btn"
-                  onClick={() => createThemeFromBase('Sombre')}
-                >
+                <button className="cms-btn" onClick={createThemeFromBase}>
                   Créer
                 </button>
                 <button
@@ -421,6 +437,7 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
                   onClick={() => {
                     setShowNewThemeForm(false)
                     setNewThemeName('')
+                    setNewThemeBase('dark')
                   }}
                 >
                   Annuler
@@ -432,7 +449,21 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
 
         {selectedTheme && (
           <div className="theme-editor">
-            <h3>Édition — {selectedTheme.name}</h3>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h3>Édition — {selectedTheme.name}</h3>
+              {!selectedTheme.isPredefined && (
+                <div className="cms-form__group" style={{ marginTop: '1rem' }}>
+                  <label className="cms-form__label">Renommer ce thème</label>
+                  <input
+                    type="text"
+                    value={selectedTheme.name}
+                    onChange={(e) => renameTheme(selectedTheme.id, e.target.value)}
+                    className="cms-form__input"
+                    placeholder="Entrer un nouveau nom"
+                  />
+                </div>
+              )}
+            </div>
 
             <div className="color-grid">
               {(Object.entries(selectedTheme.colors) as Array<[keyof ThemeColors, string]>).map(

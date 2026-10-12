@@ -18,7 +18,7 @@ export function generateThemeCss(theme: Theme | null): string {
 
   return `
     :root {
-      /* Couleurs */
+      /* Couleurs — Variables CMS standard */
       --bg-main: ${colors.bgMain};
       --bg-card: ${colors.bgCard};
       --bg-section: ${colors.bgSection};
@@ -34,6 +34,12 @@ export function generateThemeCss(theme: Theme | null): string {
       --border-color: ${colors.borderColor};
       --button-text: ${colors.buttonText};
       --link-color: ${colors.linkColor};
+
+      /* Couleurs — Mapping vers variables CSS historiques du site */
+      --bg-dark: ${colors.bgMain};
+      --text-light: ${colors.textPrimary};
+      --primary-gold: ${colors.primary};
+      --border-subtle: ${colors.borderColor};
 
       /* Typographie */
       --font-primary: ${typo.fontPrimary};
