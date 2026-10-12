@@ -8,8 +8,14 @@
  * - Publication vers GitHub (cms/themes.json)
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Theme, ThemeLibrary, ThemeColors } from './types'
+import {
+  loadThemeLibrary as loadThemeLibraryServer,
+  saveThemeLibrary as saveThemeLibraryServer,
+  CmsStorageError,
+} from './cmsStorageClient'
+import { applyTheme } from './ThemeManager'
 import './ThemesModule.css'
 
 const PREDEFINED_THEMES: Theme[] = [
@@ -112,27 +118,93 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
   const [newThemeName, setNewThemeName] = useState('')
   const [showNewThemeForm, setShowNewThemeForm] = useState(false)
   const [publishStatus, setPublishStatus] = useState<'idle' | 'publishing' | 'success' | 'error' | 'auth-required'>('idle')
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('idle')
+  const [previewOn, setPreviewOn] = useState(false)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Charger thèmes depuis le localStorage
+  // Charger thèmes : cache local immédiat, puis serveur (source de vérité)
   useEffect(() => {
     const saved = localStorage.getItem('cms:theme:library')
     if (saved) {
       try {
-        const parsedLib = JSON.parse(saved)
-        setLibrary(parsedLib)
+        setLibrary(JSON.parse(saved))
       } catch (e) {
-        console.error('Erreur parsing thèmes:', e)
+        console.error('Erreur parsing thèmes (cache local):', e)
       }
     }
-  }, [])
 
-  // Sauvegarder thèmes dans le localStorage
+    if (isAuthenticated) {
+      setSyncStatus('loading')
+      loadThemeLibraryServer()
+        .then((serverLib) => {
+          if (serverLib && Array.isArray(serverLib.themes)) {
+            // Fusionner : toujours garder les prédéfinis + thèmes serveur
+            const merged = mergeWithPredefined(serverLib)
+            setLibrary(merged)
+            localStorage.setItem('cms:theme:library', JSON.stringify(merged))
+          }
+          setSyncStatus('idle')
+        })
+        .catch((err) => {
+          if (err instanceof CmsStorageError && err.status === 401) {
+            setSyncStatus('idle')
+          } else {
+            console.error('Erreur chargement thèmes serveur:', err)
+            setSyncStatus('error')
+          }
+        })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated])
+
+  // Garantir que les prédéfinis sont toujours présents dans la bibliothèque
+  const mergeWithPredefined = (lib: ThemeLibrary): ThemeLibrary => {
+    const byId = new Map<string, Theme>()
+    for (const t of PREDEFINED_THEMES) byId.set(t.id, t)
+    for (const t of lib.themes) byId.set(t.id, t) // thèmes serveur écrasent si même id
+    return { ...lib, themes: [...byId.values()] }
+  }
+
+  // Sauvegarder : cache local immédiat + persistance serveur différée (debounce)
   const saveLibrary = (updatedLib: ThemeLibrary) => {
     setLibrary(updatedLib)
     localStorage.setItem('cms:theme:library', JSON.stringify(updatedLib))
+
+    if (!isAuthenticated) return
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      setSyncStatus('saving')
+      // Ne persister côté serveur que les thèmes PERSONNALISÉS (les prédéfinis
+      // sont fournis par le code), + les ids actif/publié
+      const customOnly: ThemeLibrary = {
+        ...updatedLib,
+        themes: updatedLib.themes.filter((t) => !t.isPredefined),
+      }
+      saveThemeLibraryServer(customOnly)
+        .then(() => {
+          setSyncStatus('saved')
+          setTimeout(() => setSyncStatus('idle'), 2000)
+        })
+        .catch((err) => {
+          console.error('Erreur sauvegarde thèmes serveur:', err)
+          setSyncStatus('error')
+        })
+    }, 1500)
   }
 
   const selectedTheme = library.themes.find((t) => t.id === selectedThemeId)
+
+  // Prévisualisation live : applique le thème sélectionné au DOM quand activée.
+  // Désactivée → restaure le thème publié courant.
+  useEffect(() => {
+    if (previewOn && selectedTheme) {
+      applyTheme(selectedTheme)
+    } else if (!previewOn) {
+      const published = library.themes.find((t) => t.id === library.publishedThemeId)
+      if (published) applyTheme(published)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewOn, selectedThemeId, selectedTheme])
 
   // Éditer couleur
   const updateThemeColor = (colorKey: keyof ThemeColors, value: string) => {
@@ -143,6 +215,39 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
 
     const updatedThemes = library.themes.map((t) => (t.id === updated.id ? updated : t))
     saveLibrary({ ...library, themes: updatedThemes })
+  }
+
+  // Dupliquer un thème (prédéfini ou personnalisé) en une copie modifiable
+  const duplicateTheme = (source: Theme) => {
+    const copy: Theme = {
+      ...source,
+      id: `theme-${Date.now()}`,
+      name: `${source.name} (copie)`,
+      description: `Copie de ${source.name}`,
+      colors: { ...source.colors },
+      typography: { ...source.typography },
+      spacing: { ...source.spacing },
+      isPredefined: false,
+      createdAt: Date.now(),
+      modifiedAt: Date.now(),
+    }
+    const updatedThemes = [...library.themes, copy]
+    saveLibrary({ ...library, themes: updatedThemes })
+    setSelectedThemeId(copy.id)
+  }
+
+  // Restaurer le thème sombre original (publier 'dark')
+  const restoreOriginalTheme = async () => {
+    const original = PREDEFINED_THEMES.find((t) => t.id === 'dark')
+    if (!original) return
+    setSelectedThemeId('dark')
+    applyTheme(original)
+    setPreviewOn(false)
+    // Publier le thème original comme thème actif du site
+    if (isAuthenticated) {
+      await publishThemeObject(original)
+    }
+    saveLibrary({ ...library, publishedThemeId: 'dark', activeThemeId: 'dark' })
   }
 
   // Créer thème à partir d'une base
@@ -170,54 +275,63 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
     saveLibrary({ ...library, themes: updatedThemes })
   }
 
-  // Publier thème
+  // Publier un objet thème spécifique vers l'API GitHub publique
+  const publishThemeObject = async (theme: Theme): Promise<boolean> => {
+    setPublishStatus('publishing')
+    try {
+      const response = await fetch('/api/cms/themes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'lma-admin',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'publish', theme }),
+      })
+
+      console.info(`🎨 Thème publish: Status ${response.status}`)
+
+      if (response.ok) {
+        console.info(`✅ Thème publié: ${theme.name}`)
+        setPublishStatus('success')
+        setTimeout(() => setPublishStatus('idle'), 6000)
+        return true
+      }
+
+      const error = await response.text()
+      console.error(`❌ Erreur publication thème: ${response.status}`)
+      console.error(`📝 Réponse: ${error}`)
+      setPublishStatus(response.status === 401 ? 'auth-required' : 'error')
+      setTimeout(() => setPublishStatus('idle'), 4000)
+      return false
+    } catch (e) {
+      console.error('❌ Erreur publication thème (réseau):', e)
+      setPublishStatus('error')
+      setTimeout(() => setPublishStatus('idle'), 4000)
+      return false
+    }
+  }
+
+  // Publier le thème sélectionné (prédéfini OU personnalisé)
   const publishTheme = async () => {
     if (!selectedTheme) return
-    
-    // Vérification authentification
+
     if (!isAuthenticated) {
       setPublishStatus('auth-required')
       setTimeout(() => setPublishStatus('idle'), 4000)
       return
     }
 
-    // CORRECTION : Permettre publication thèmes prédéfinis
-    setPublishStatus('publishing')
-    try {
-      const response = await fetch('/api/cms/themes', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'lma-admin'  // ✅ CSRF token correct
-        },
-        credentials: 'include',  // ✅ Envoyer cookies (session)
-        body: JSON.stringify({ action: 'publish', theme: selectedTheme }),
-      })
-
-      console.info(`🎨 Thème publish: Status ${response.status}`)
-
-      if (response.ok) {
-        const updated = { ...library, publishedThemeId: selectedTheme.id }
-        saveLibrary(updated)
-        console.info(`✅ Thème publié: ${selectedTheme.name}`)
-        setPublishStatus('success')
-        setTimeout(() => setPublishStatus('idle'), 3000)
-      } else {
-        const error = await response.text()
-        console.error(`❌ Erreur publication thème: ${response.status}`)
-        console.error(`📝 Réponse: ${error}`)
-        
-        if (response.status === 401) {
-          setPublishStatus('auth-required')
-        } else {
-          setPublishStatus('error')
-        }
-        setTimeout(() => setPublishStatus('idle'), 4000)
+    const ok = await publishThemeObject(selectedTheme)
+    if (ok) {
+      const updated = {
+        ...library,
+        publishedThemeId: selectedTheme.id,
+        activeThemeId: selectedTheme.id,
       }
-    } catch (e) {
-      console.error('❌ Erreur publication thème (réseau):', e)
-      setPublishStatus('error')
-      setTimeout(() => setPublishStatus('idle'), 4000)
+      saveLibrary(updated)
+      applyTheme(selectedTheme) // appliquer immédiatement au site
+      setPreviewOn(false)
     }
   }
 
@@ -375,15 +489,44 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
 
             <div className="theme-actions">
               <button
+                className={`cms-btn ${previewOn ? 'cms-btn--on' : 'cms-btn--secondary'}`}
+                onClick={() => setPreviewOn((v) => !v)}
+                title="Appliquer temporairement ce thème au site pour prévisualiser"
+              >
+                {previewOn ? '👁 Aperçu actif' : '👁 Prévisualiser'}
+              </button>
+
+              <button
+                className="cms-btn cms-btn--secondary"
+                onClick={() => duplicateTheme(selectedTheme)}
+                title="Créer une copie modifiable de ce thème"
+              >
+                ⧉ Dupliquer
+              </button>
+
+              <button
                 className="cms-btn"
                 onClick={publishTheme}
                 disabled={publishStatus === 'publishing' || !isAuthenticated}
-                title={!isAuthenticated ? 'Authentification requise' : ''}
+                title={!isAuthenticated ? 'Authentification requise' : 'Publier ce thème sur le site public'}
               >
-                {publishStatus === 'publishing' ? '⏳ Pub...' : '📤 Publier'}
+                {publishStatus === 'publishing' ? '⏳ Publication…' : '📤 Publier'}
               </button>
+
+              <button
+                className="cms-btn cms-btn--secondary"
+                onClick={restoreOriginalTheme}
+                disabled={!isAuthenticated}
+                title="Restaurer le thème sombre original Lords Academy"
+              >
+                ↩ Restaurer l'original
+              </button>
+
               {publishStatus === 'success' && (
-                <span className="status-success">✅ Publié avec succès!</span>
+                <span className="status-success" style={{ display: 'block', marginTop: 8 }}>
+                  ✅ Thème publié et appliqué. La propagation complète sur le site
+                  public peut prendre quelques minutes (déploiement Cloudflare).
+                </span>
               )}
               {publishStatus === 'error' && (
                 <span className="status-error">❌ Erreur de publication (voir console)</span>
@@ -394,6 +537,15 @@ export default function ThemesModule({ isAuthenticated = false }: ThemesModulePr
               {!isAuthenticated && (
                 <p style={{ marginTop: 12, color: '#ff9800', fontSize: '0.9em' }}>
                   ℹ️ Connectez-vous pour pouvoir publier des thèmes
+                </p>
+              )}
+              {isAuthenticated && (
+                <p className="cms-sync-status" style={{ marginTop: 8, fontSize: '0.8em', opacity: 0.75 }}>
+                  {syncStatus === 'loading' && '⏳ Chargement bibliothèque serveur…'}
+                  {syncStatus === 'saving' && '💾 Enregistrement serveur…'}
+                  {syncStatus === 'saved' && '✓ Bibliothèque enregistrée sur le serveur'}
+                  {syncStatus === 'error' && '⚠️ Erreur de synchronisation serveur'}
+                  {syncStatus === 'idle' && '☁️ Bibliothèque synchronisée'}
                 </p>
               )}
             </div>
