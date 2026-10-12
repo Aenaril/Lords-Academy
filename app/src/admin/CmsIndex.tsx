@@ -1,11 +1,12 @@
 /**
- * Répartiteur CMS principal — remplace AdminBar pour l'Étape 3
+ * Répartiteur CMS principal — intégré dans AdminBar pour l'Étape 3
  * 
  * Navigation entre modules : Tutoriels, Thèmes, Médiathèque, Accueil, Annonces, Notifications, Paramètres
+ * 
+ * ⚠️ Appelé directement depuis AdminBar quand authentifié
+ * Pas d'AdminBar redondant ni de bouton toggle ici
  */
 import { useState } from 'react'
-import { useAdmin } from './AdminContext'
-import AdminBar from './AdminBar'
 import MyTutorialsPanel from './MyTutorialsPanel'
 import ThemesModule from '../cms/ThemesModule'
 import MediaLibraryModule from '../cms/MediaLibraryModule'
@@ -17,32 +18,18 @@ import './CmsIndex.css'
 
 type CmsSection = 'tutorials' | 'themes' | 'media' | 'home' | 'announcements' | 'notifications' | 'settings'
 
-export default function CmsIndex({ onSelectTutorial }: { onSelectTutorial: (id: string) => void }) {
-  const { isAdminMode } = useAdmin()
-  const [activeSection, setActiveSection] = useState<CmsSection>('tutorials')
-  const [showCms, setShowCms] = useState(false)
+interface CmsIndexProps {
+  onSelectTutorial: (id: string) => void
+  onClose?: () => void
+}
 
-  if (!isAdminMode || !showCms) {
-    return (
-      <>
-        <AdminBar onSelectTutorial={onSelectTutorial} />
-        {isAdminMode && (
-          <button 
-            className="cms-toggle-btn"
-            onClick={() => setShowCms(true)}
-            title="Ouvrir CMS complet"
-          >
-            📊 CMS
-          </button>
-        )}
-      </>
-    )
-  }
+export default function CmsIndex({ onSelectTutorial, onClose }: CmsIndexProps) {
+  const [activeSection, setActiveSection] = useState<CmsSection>('tutorials')
 
   return (
     <div className="cms-container">
       <div className="cms-sidebar">
-        <h2>Administration</h2>
+        <h2>Administration CMS</h2>
         <nav className="cms-nav">
           <button
             className={`cms-nav__item ${activeSection === 'tutorials' ? 'active' : ''}`}
@@ -87,21 +74,23 @@ export default function CmsIndex({ onSelectTutorial }: { onSelectTutorial: (id: 
             ⚙️ Paramètres
           </button>
         </nav>
-        <button 
-          className="cms-close-btn"
-          onClick={() => setShowCms(false)}
-          title="Fermer CMS"
-        >
-          ✕
-        </button>
+        {onClose && (
+          <button 
+            className="cms-close-btn"
+            onClick={onClose}
+            title="Fermer CMS"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       <div className="cms-main">
         {activeSection === 'tutorials' && (
           <MyTutorialsPanel 
             onSelectTutorial={onSelectTutorial}
-            onCreateNew={() => {}}
-            onClose={() => setShowCms(false)}
+            onCreateNew={() => setActiveSection('tutorials')}
+            onClose={onClose ?? (() => {})}
           />
         )}
         {activeSection === 'themes' && <ThemesModule />}

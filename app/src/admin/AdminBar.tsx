@@ -5,6 +5,7 @@ import TutorialMetaPanel from './TutorialMetaPanel'
 import VersionHistory from './VersionHistory'
 import TutorialCreateModal from './TutorialCreateModal'
 import MyTutorialsPanel from './MyTutorialsPanel'
+import CmsIndex from './CmsIndex'
 import './AdminBar.css'
 
 /**
@@ -39,6 +40,7 @@ export default function AdminBar({ onSelectTutorial }: AdminBarProps) {
   const [showHistory, setShowHistory] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showMyTutorials, setShowMyTutorials] = useState(false)
+  const [showCms, setShowCms] = useState(false)
   const isDev = import.meta.env.DEV
 
   const handleDiscard = async () => {
@@ -129,6 +131,14 @@ export default function AdminBar({ onSelectTutorial }: AdminBarProps) {
                   title="Gérer vos tutoriels"
                 >
                   📚 Mes tutoriels
+                </button>
+
+                <button
+                  className="admin-bar__btn"
+                  onClick={() => setShowCms(true)}
+                  title="Accéder au CMS complet (thèmes, annonces, notifications, etc.)"
+                >
+                  📊 CMS
                 </button>
               </>
             )}
@@ -232,6 +242,11 @@ export default function AdminBar({ onSelectTutorial }: AdminBarProps) {
           onCreateNew={() => setShowCreateModal(true)}
           onClose={() => setShowMyTutorials(false)}
         />
+      )}
+
+      {/* CMS complet — accessible si authentifié */}
+      {showCms && (
+        <CmsIndex onSelectTutorial={onSelectTutorial ?? (() => {})} />
       )}
     </>
   )
