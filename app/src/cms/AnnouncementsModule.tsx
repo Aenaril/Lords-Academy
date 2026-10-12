@@ -8,13 +8,22 @@
  * - Association tutoriels/liens externes
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Announcement } from './types'
+import {
+  loadAnnouncements as loadAnnouncementsServer,
+  saveAnnouncements as saveAnnouncementsServer,
+  CmsStorageError,
+} from './cmsStorageClient'
+import { utcToDatetimeLocalValue, datetimeLocalValueToUtc } from './timezone'
+import { usePublishedTutorials } from './usePublishedTutorials'
 import './AnnouncementsModule.css'
 
 interface AnnouncementsModuleProps {
   isAuthenticated?: boolean
 }
+
+const LS_KEY = 'cms:announcements:draft'
 
 export default function AnnouncementsModule({ isAuthenticated = false }: AnnouncementsModuleProps) {
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
@@ -22,23 +31,66 @@ export default function AnnouncementsModule({ isAuthenticated = false }: Announc
   const [publishStatus, setPublishStatus] = useState<'idle' | 'publishing' | 'success' | 'error' | 'auth-required'>(
     'idle'
   )
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>(
+    'idle'
+  )
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const publishedTutorials = usePublishedTutorials()
 
-  // Charger annonces
+  // Charger annonces : d'abord cache local (instantané), puis serveur (source de vérité)
   useEffect(() => {
-    const saved = localStorage.getItem('cms:announcements:draft')
+    // 1) Cache local pour affichage immédiat
+    const saved = localStorage.getItem(LS_KEY)
     if (saved) {
       try {
         setAnnouncements(JSON.parse(saved))
       } catch (e) {
-        console.error('Erreur parsing announcements:', e)
+        console.error('Erreur parsing announcements (cache local):', e)
       }
     }
-  }, [])
 
-  // Sauvegarder annonces
+    // 2) Serveur (si authentifié) — écrase le cache local
+    if (isAuthenticated) {
+      setSyncStatus('loading')
+      loadAnnouncementsServer()
+        .then((serverItems) => {
+          setAnnouncements(serverItems)
+          localStorage.setItem(LS_KEY, JSON.stringify(serverItems))
+          setSyncStatus('idle')
+        })
+        .catch((err) => {
+          if (err instanceof CmsStorageError && err.status === 401) {
+            // Session expirée : garder le cache local
+            setSyncStatus('idle')
+          } else {
+            console.error('Erreur chargement annonces serveur:', err)
+            setSyncStatus('error')
+          }
+        })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated])
+
+  // Sauvegarder annonces : cache local immédiat + persistance serveur différée (debounce)
   const saveAnnouncements = (items: Announcement[]) => {
     setAnnouncements(items)
-    localStorage.setItem('cms:announcements:draft', JSON.stringify(items))
+    localStorage.setItem(LS_KEY, JSON.stringify(items))
+
+    // Persistance serveur (debounce 1,5s) si authentifié
+    if (!isAuthenticated) return
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      setSyncStatus('saving')
+      saveAnnouncementsServer(items)
+        .then(() => {
+          setSyncStatus('saved')
+          setTimeout(() => setSyncStatus('idle'), 2000)
+        })
+        .catch((err) => {
+          console.error('Erreur sauvegarde annonces serveur:', err)
+          setSyncStatus('error')
+        })
+    }, 1500)
   }
 
   // Nouvelle annonce
@@ -106,8 +158,17 @@ export default function AnnouncementsModule({ isAuthenticated = false }: Announc
 
       if (response.ok) {
         console.info(`✅ Annonces publiées: ${announcements.length} items`)
+        // Recharger les configs CMS pour refléter la publication dans l'app
+        // (le fichier public peut toutefois mettre quelques minutes à se
+        // propager via le déploiement Cloudflare — voir message ci-dessous)
+        try {
+          const { reloadCmsConfigs } = await import('./CmsConfigLoader')
+          await reloadCmsConfigs()
+        } catch {
+          /* non bloquant */
+        }
         setPublishStatus('success')
-        setTimeout(() => setPublishStatus('idle'), 3000)
+        setTimeout(() => setPublishStatus('idle'), 6000)
       } else {
         const errorText = await response.text()
         console.error(`❌ Erreur publication: ${response.status} ${response.statusText}`)
@@ -180,7 +241,10 @@ export default function AnnouncementsModule({ isAuthenticated = false }: Announc
             {publishStatus === 'publishing' ? '⏳ Pub...' : '📤 Publier'}
           </button>
           {publishStatus === 'success' && (
-            <span className="status-success">✅ Publié avec succès!</span>
+            <span className="status-success" style={{ display: 'block', marginTop: 8 }}>
+              ✅ Publication envoyée. L'annonce peut mettre quelques minutes à
+              apparaître sur le site (déploiement Cloudflare).
+            </span>
           )}
           {publishStatus === 'error' && (
             <span className="status-error">❌ Erreur de publication (voir console pour détails)</span>
@@ -191,6 +255,15 @@ export default function AnnouncementsModule({ isAuthenticated = false }: Announc
           {!isAuthenticated && (
             <p className="cms-notice" style={{ marginTop: 12, color: '#ff9800', fontSize: '0.9em' }}>
               ℹ️ Connectez-vous pour pouvoir publier des annonces
+            </p>
+          )}
+          {isAuthenticated && (
+            <p className="cms-sync-status" style={{ marginTop: 8, fontSize: '0.8em', opacity: 0.75 }}>
+              {syncStatus === 'loading' && '⏳ Chargement depuis le serveur…'}
+              {syncStatus === 'saving' && '💾 Enregistrement serveur…'}
+              {syncStatus === 'saved' && '✓ Brouillon enregistré sur le serveur'}
+              {syncStatus === 'error' && '⚠️ Erreur de synchronisation serveur'}
+              {syncStatus === 'idle' && '☁️ Brouillons synchronisés'}
             </p>
           )}
         </div>
@@ -309,31 +382,44 @@ export default function AnnouncementsModule({ isAuthenticated = false }: Announc
 
               <div className="cms-form__group">
                 <label className="cms-form__label">
-                  {selected.linkType === 'tutorial' ? 'ID tutoriel' : 'Lien'}
+                  {selected.linkType === 'tutorial' ? 'Tutoriel de destination' : 'Lien'}
                 </label>
-                <input
-                  type="text"
-                  value={selected.buttonLink}
-                  onChange={(e) =>
-                    updateAnnouncement(selected.id, { buttonLink: e.target.value })
-                  }
-                  className="cms-form__input"
-                  placeholder={selected.linkType === 'tutorial' ? 'dragon-arena' : 'https://...'}
-                />
+                {selected.linkType === 'tutorial' ? (
+                  <select
+                    value={selected.buttonLink}
+                    onChange={(e) =>
+                      updateAnnouncement(selected.id, { buttonLink: e.target.value })
+                    }
+                    className="cms-form__select"
+                  >
+                    <option value="">— Choisir un tutoriel publié —</option>
+                    {publishedTutorials.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.title}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={selected.buttonLink}
+                    onChange={(e) =>
+                      updateAnnouncement(selected.id, { buttonLink: e.target.value })
+                    }
+                    className="cms-form__input"
+                    placeholder="https://..."
+                  />
+                )}
               </div>
 
               <div className="cms-form__group">
-                <label className="cms-form__label">Début affichage</label>
+                <label className="cms-form__label">Début affichage (heure belge)</label>
                 <input
                   type="datetime-local"
-                  value={
-                    selected.visibilityStartAt
-                      ? new Date(selected.visibilityStartAt).toISOString().slice(0, 16)
-                      : ''
-                  }
+                  value={utcToDatetimeLocalValue(selected.visibilityStartAt)}
                   onChange={(e) =>
                     updateAnnouncement(selected.id, {
-                      visibilityStartAt: e.target.value ? new Date(e.target.value).getTime() : 0,
+                      visibilityStartAt: datetimeLocalValueToUtc(e.target.value),
                     })
                   }
                   className="cms-form__input"
@@ -341,17 +427,13 @@ export default function AnnouncementsModule({ isAuthenticated = false }: Announc
               </div>
 
               <div className="cms-form__group">
-                <label className="cms-form__label">Fin affichage</label>
+                <label className="cms-form__label">Fin affichage (heure belge)</label>
                 <input
                   type="datetime-local"
-                  value={
-                    selected.visibilityEndAt
-                      ? new Date(selected.visibilityEndAt).toISOString().slice(0, 16)
-                      : ''
-                  }
+                  value={utcToDatetimeLocalValue(selected.visibilityEndAt)}
                   onChange={(e) =>
                     updateAnnouncement(selected.id, {
-                      visibilityEndAt: e.target.value ? new Date(e.target.value).getTime() : 0,
+                      visibilityEndAt: datetimeLocalValueToUtc(e.target.value),
                     })
                   }
                   className="cms-form__input"
