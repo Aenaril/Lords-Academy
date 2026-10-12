@@ -96,6 +96,93 @@ export const onRequest: PagesFunction = async (context) => {
   }
 }
 
+/* ───────────────────────── Index publié (dynamique) ───────────────────────── */
+
+/**
+ * Reconstruit l'index publié en énumérant tous les fichiers tutoriels publiés
+ * et en créant index.json. Appelé après chaque publication réussie.
+ * 
+ * L'index contient une liste de tous les tutoriels publiés avec métadonnées essentielles
+ * (id, title, description, category, difficulty, estimatedDuration, coverIcon, status, order).
+ */
+async function rebuildPublishedIndex(env: any): Promise<void> {
+  const headers = {
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    'User-Agent': 'lma-pages-function',
+    Accept: 'application/vnd.github+json'
+  }
+
+  // Récupérer la liste des fichiers dans app/public/content/
+  const treeUrl = `https://api.github.com/repos/${env.GITHUB_REPO}/git/trees/${env.GITHUB_BRANCH}?recursive=1`
+  const treeRes = await fetch(treeUrl, { headers })
+  if (!treeRes.ok) {
+    console.warn(`Cannot fetch tree: ${treeRes.status}`)
+    return
+  }
+
+  const treeData = (await treeRes.json()) as any
+  const contentFiles = (treeData.tree ?? []).filter(
+    (item: any) => item.path.startsWith('app/public/content/') && item.path.endsWith('.json') && item.path !== 'app/public/content/index.json'
+  )
+
+  // Charger et extraire les métadonnées de chaque tutoriel
+  const tutorials: any[] = []
+  for (const file of contentFiles) {
+    try {
+      const fileUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${file.path}`
+      const fileRes = await fetch(fileUrl)
+      if (!fileRes.ok) continue
+
+      const content = await fileRes.json()
+      if (content && typeof content.id === 'string') {
+        tutorials.push({
+          id: content.id,
+          title: content.title || 'Sans titre',
+          description: content.description || '',
+          category: content.category || 'Autre',
+          difficulty: content.difficulty || 'medium',
+          estimatedDuration: content.estimatedDuration || '10',
+          coverIcon: content.coverIcon || '📚',
+          status: 'published',
+          order: content.order ?? 999
+        })
+      }
+    } catch (err) {
+      console.warn(`Erreur lors du traitement du fichier ${file.path}:`, err)
+    }
+  }
+
+  // Trier par ordre
+  tutorials.sort((a, b) => a.order - b.order)
+
+  // Écrire l'index
+  const indexPath = 'app/public/content/index.json'
+  const indexUrl = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${indexPath}`
+
+  // Récupérer le SHA courant (s'il existe)
+  const currentRes = await fetch(`${indexUrl}?ref=${env.GITHUB_BRANCH}`, { headers })
+  let currentSha: string | undefined
+  if (currentRes.ok) {
+    currentSha = ((await currentRes.json()) as any).sha
+  }
+
+  const indexContent = btoa(unescape(encodeURIComponent(JSON.stringify({ tutorials }, null, 2))))
+  const publishRes = await fetch(indexUrl, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({
+      message: `Mise à jour index.json (auto) — ${new Date().toISOString()}`,
+      content: indexContent,
+      branch: env.GITHUB_BRANCH,
+      sha: currentSha
+    })
+  })
+
+  if (!publishRes.ok) {
+    console.error(`Erreur lors de la mise à jour de l'index: ${publishRes.status}`)
+  }
+}
+
 /* ───────────────────────── Auth & sessions ───────────────────────── */
 
 async function handleLogin(req: Request, env: any): Promise<Response> {
@@ -257,6 +344,15 @@ async function handlePublish(req: Request, env: any): Promise<Response> {
 
   if (!commit.ok) return json({ ok: false, error: 'Échec publication' }, 502)
   const result = (await commit.json()) as any
+  
+  // Après succès : reconstruire l'index publié
+  try {
+    await rebuildPublishedIndex(env)
+  } catch (err) {
+    console.error('Erreur lors de la reconstruction de l\'index:', err)
+    // Ne pas bloquer la publication si l'index échoue
+  }
+  
   return json({ ok: true, revision: result.content?.sha })
 }
 

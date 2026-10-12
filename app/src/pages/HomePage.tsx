@@ -1,4 +1,5 @@
-import { tutorials } from '../data/tutorials'
+import { useState, useEffect } from 'react'
+import { tutorials as staticTutorials, Tutorial } from '../data/tutorials'
 import TutorialCard from '../components/TutorialCard'
 import HeroSection from '../components/HeroSection'
 import Header from '../components/Header'
@@ -10,6 +11,42 @@ interface HomePageProps {
 }
 
 export default function HomePage({ onSelectTutorial }: HomePageProps) {
+  const [tutorials, setTutorials] = useState<Tutorial[]>(staticTutorials)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  // Charger l'index dynamique au montage et à intervalle régulier
+  useEffect(() => {
+    const loadIndex = async () => {
+      try {
+        const response = await fetch('/content/index.json', {
+          cache: 'no-store'
+        })
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+        const data = await response.json()
+        if (data.tutorials && Array.isArray(data.tutorials)) {
+          // Fusionner avec la source statique : tutoriels publiés de l'index + tutoriels statiques non publiés
+          const published = new Map(data.tutorials.map((t: any) => [t.id, t]))
+          const merged = staticTutorials.map(t => published.get(t.id) || t) as Tutorial[]
+          setTutorials(merged)
+          setLoadError(null)
+        }
+      } catch (err) {
+        // Fallback : conserver la source statique
+        console.warn('Erreur lors du chargement de l\'index:', err)
+        setLoadError((err as any).message || 'Erreur réseau')
+        setTutorials(staticTutorials)
+      }
+    }
+
+    loadIndex()
+
+    // Recharger l'index toutes les 5 minutes
+    const interval = setInterval(loadIndex, 5 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [])
+
   const publishedTutorials = tutorials.filter(t => t.status === 'published')
   const comingSoonTutorials = tutorials.filter(t => t.status === 'coming-soon')
   const categories = [...new Set(tutorials.map(t => t.category))]
@@ -39,6 +76,15 @@ export default function HomePage({ onSelectTutorial }: HomePageProps) {
           </div>
         </div>
       </section>
+
+      {/* Avertissement si l'index n'a pas pu être chargé */}
+      {loadError && (
+        <section className="error-section" style={{ backgroundColor: '#fff3cd', padding: '1rem', textAlign: 'center' }}>
+          <p style={{ color: '#856404', margin: 0 }}>
+            ⚠️ Impossible de charger le catalogue dynamique. Affichage du catalogue local.
+          </p>
+        </section>
+      )}
 
       {/* Tutoriels publiés */}
       {publishedTutorials.length > 0 && (

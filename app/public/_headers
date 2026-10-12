@@ -5,6 +5,10 @@
 # qui ajoute les headers Cache-Control directement à la réponse.
 # Ce fichier s'applique aux assets statiques uniquement.
 
+# Index du catalogue (mise à jour dynamique) : cache court terme
+/content/index.json
+  Cache-Control: public, max-age=300, must-revalidate
+
 # Les fichiers pédagogiques statiques : cache limité
 /content/*
   Cache-Control: public, max-age=3600

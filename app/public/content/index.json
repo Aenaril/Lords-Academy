@@ -1,0 +1,15 @@
+{
+  "tutorials": [
+    {
+      "id": "dragon-arena",
+      "title": "Dragon Arena: Comment Jouer",
+      "description": "Dominez la Dragon Arena en comprenant les rôles clés et les stratégies gagnantes.",
+      "category": "Événements",
+      "difficulty": "hard",
+      "estimatedDuration": "12-15",
+      "coverIcon": "🐉",
+      "status": "published",
+      "order": 3
+    }
+  ]
+}
