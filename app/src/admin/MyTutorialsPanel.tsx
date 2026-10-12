@@ -10,10 +10,10 @@ interface MyTutorialsPanelProps {
 
 interface TutorialItem {
   id: string
-  title?: string
-  category?: string
-  status?: 'draft' | 'published'
-  lastModified?: string
+  title: string
+  category: string
+  status: 'draft' | 'published'
+  lastModified: string
 }
 
 export default function MyTutorialsPanel({ 
@@ -32,7 +32,7 @@ export default function MyTutorialsPanel({
         setLoading(true)
         setError(null)
 
-        // Charger la liste des IDs
+        // Étape 1 : Charger la liste des IDs
         const response = await fetch('/api/tutorialIds', {
           headers: { 'X-Requested-With': 'lma-admin' },
           credentials: 'include'
@@ -45,17 +45,31 @@ export default function MyTutorialsPanel({
         const data = await response.json()
         const tutorialIds = data.tutorialIds || []
 
-        // Pour chaque ID, récupérer les métadonnées
-        // Actuellement : utiliser AdminContext pour charger chaque tutoriel
-        // (ce serait mieux d'avoir un endpoint batch, mais réutiliser existant)
-        
-        const items: TutorialItem[] = tutorialIds.map((id: string) => ({
-          id,
-          title: id, // Fallback : utiliser l'ID si titre indisponible
-          category: '?',
-          status: 'draft' as const,
-          lastModified: '—'
-        }))
+        // Étape 2 : Charger index.json publié pour déterminer statuts
+        let publishedMap = new Map<string, any>()
+        try {
+          const indexRes = await fetch('/content/index.json', { cache: 'no-store' })
+          if (indexRes.ok) {
+            const indexData = await indexRes.json()
+            if (indexData.tutorials && Array.isArray(indexData.tutorials)) {
+              publishedMap = new Map(indexData.tutorials.map((t: any) => [t.id, t]))
+            }
+          }
+        } catch {
+          // Fallback : pas d'accès à l'index public, supposer tous les brouillons
+        }
+
+        // Étape 3 : Construire la liste avec vrais titres et statuts
+        const items: TutorialItem[] = tutorialIds.map((id: string) => {
+          const published = publishedMap.get(id)
+          return {
+            id,
+            title: published?.title || id, // Utiliser titre publié si disponible, sinon ID
+            category: published?.category || '—',
+            status: published ? 'published' : 'draft',
+            lastModified: published ? new Date(published.publishedAt || Date.now()).toLocaleDateString('fr-FR') : '—'
+          }
+        })
 
         setTutorials(items)
       } catch (err) {
@@ -74,8 +88,13 @@ export default function MyTutorialsPanel({
     onClose()
   }
 
-  const handleDeleteDraft = async (tutorialId: string) => {
-    if (!confirm(`Supprimer le brouillon "${tutorialId}" ?`)) {
+  const handleDeleteDraft = async (tutorialId: string, status: 'draft' | 'published') => {
+    // Avertissement si le tutoriel est publié
+    const message = status === 'published'
+      ? `Supprimer le brouillon de "${tutorialId}" ? Le tutoriel publié restera accessible.`
+      : `Supprimer le brouillon de "${tutorialId}" ?`
+    
+    if (!confirm(message)) {
       return
     }
 
@@ -164,7 +183,7 @@ export default function MyTutorialsPanel({
             <tbody>
               {tutorials.map((tutorial) => (
                 <tr key={tutorial.id} className={tutorial.id === currentTutorial?.id ? 'active' : ''}>
-                  <td className="tutorials-table__title">{tutorial.title || tutorial.id}</td>
+                  <td className="tutorials-table__title">{tutorial.title}</td>
                   <td>{tutorial.category}</td>
                   <td>
                     <span className={`badge badge--${tutorial.status}`}>
@@ -186,17 +205,19 @@ export default function MyTutorialsPanel({
                       </button>
                       <div className="dropdown-menu__items">
                         <button
-                          onClick={() => handleDeleteDraft(tutorial.id)}
+                          onClick={() => handleDeleteDraft(tutorial.id, tutorial.status)}
                           className="dropdown-menu__item"
                         >
                           Supprimer brouillon
                         </button>
-                        <button
-                          onClick={() => handleViewPublished(tutorial.id)}
-                          className="dropdown-menu__item"
-                        >
-                          Voir publié
-                        </button>
+                        {tutorial.status === 'published' && (
+                          <button
+                            onClick={() => handleViewPublished(tutorial.id)}
+                            className="dropdown-menu__item"
+                          >
+                            Voir publié
+                          </button>
+                        )}
                       </div>
                     </div>
                   </td>

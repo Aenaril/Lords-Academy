@@ -318,8 +318,61 @@ async function handlePublish(req: Request, env: any): Promise<Response> {
 
   const body = (await req.json().catch(() => null)) as any
   const tutorialId = sanitizeId(body?.tutorialId)
-  if (!tutorialId || !validateTutorial(body?.content)) {
-    return json({ ok: false, error: 'Données invalides' }, 400)
+  if (!tutorialId) {
+    return json({ ok: false, error: 'tutorialId invalide' }, 400)
+  }
+
+  // ✅ VALIDATION RENFORCÉE côté serveur
+  const content = body?.content
+  if (!content || typeof content !== 'object') {
+    return json({ ok: false, error: 'Contenu manquant ou invalide' }, 400)
+  }
+
+  // Cohérence ID
+  if (content.id !== tutorialId) {
+    return json({ ok: false, error: 'L\'ID du tutoriel ne correspond pas' }, 422)
+  }
+
+  // Métadonnées obligatoires
+  if (!content.title?.trim()) {
+    return json({ ok: false, error: 'Titre du tutoriel manquant' }, 422)
+  }
+  if (!content.category?.trim()) {
+    return json({ ok: false, error: 'Catégorie du tutoriel manquante' }, 422)
+  }
+
+  // Structure sections (validation étendue, pas juste la structure basique)
+  if (!Array.isArray(content.sections) || content.sections.length === 0) {
+    return json({ ok: false, error: 'Au moins une section est requise' }, 422)
+  }
+
+  // Chaque section doit avoir des blocs valides
+  for (let i = 0; i < content.sections.length; i++) {
+    const section = content.sections[i]
+    if (!section || typeof section !== 'object') {
+      return json({ ok: false, error: `Section ${i} invalide` }, 422)
+    }
+    if (typeof section.title !== 'string' || !section.title.trim()) {
+      return json({ ok: false, error: `Section ${i} : titre manquant` }, 422)
+    }
+    if (typeof section.sourceSlide !== 'number') {
+      return json({ ok: false, error: `Section ${i} : sourceSlide invalide` }, 422)
+    }
+    if (!Array.isArray(section.blocks) || section.blocks.length === 0) {
+      return json({ ok: false, error: `Section ${i} : au moins un bloc requis` }, 422)
+    }
+    // Chaque bloc doit avoir un type reconnu
+    for (let j = 0; j < section.blocks.length; j++) {
+      const block = section.blocks[j]
+      if (!block || !block.type || typeof block.type !== 'string') {
+        return json({ ok: false, error: `Section ${i}, bloc ${j} : type manquant` }, 422)
+      }
+    }
+  }
+
+  // ✅ Validation standard (structure basique)
+  if (!validateTutorial(content)) {
+    return json({ ok: false, error: 'Structure tutoriel invalide' }, 400)
   }
 
   const path = `app/public/content/${tutorialId}.json`
@@ -339,7 +392,7 @@ async function handlePublish(req: Request, env: any): Promise<Response> {
     return json({ ok: false, conflict: { serverRevision: sha } }, 409)
   }
 
-  const contentB64 = btoa(unescape(encodeURIComponent(JSON.stringify(body.content, null, 2))))
+  const contentB64 = btoa(unescape(encodeURIComponent(JSON.stringify(content, null, 2))))
   const commit = await fetch(apiBase, {
     method: 'PUT',
     headers,
@@ -359,7 +412,12 @@ async function handlePublish(req: Request, env: any): Promise<Response> {
     await rebuildPublishedIndex(env)
   } catch (err) {
     console.error('Erreur lors de la reconstruction de l\'index:', err)
-    // Ne pas bloquer la publication si l'index échoue
+    // Non-bloquant : publication OK, mais index peut être stale
+    return json({ 
+      ok: true, 
+      revision: result.content?.sha,
+      warning: 'Tutoriel publié, mais la mise à jour du catalogue peut être retardée.'
+    })
   }
   
   return json({ ok: true, revision: result.content?.sha })
@@ -704,11 +762,11 @@ function generateTutorialId(title: string, existingIds: string[]): string {
  * 
  * Workflow :
  * 1. Valide title (non-vide) et category (libre)
- * 2. Charge liste IDs existants
+ * 2. Charge liste IDs existants (index privé)
  * 3. Génère ID unique
  * 4. Crée objet tutoriel vierge (métadonnées + sections: [])
- * 5. Enregistre premier brouillon (PUT draft:${id} KV)
- * 6. Ajoute ID à private:adminTutorialIds (atomique)
+ * 5. Enregistre premier brouillon via getStorageBackend() (KV ou DO selon config)
+ * 6. Ajoute ID à index privé
  * 7. Retourne tutorialId + contenu initial
  */
 async function handleTutorialCreate(req: Request, env: any): Promise<Response> {
@@ -729,10 +787,20 @@ async function handleTutorialCreate(req: Request, env: any): Promise<Response> {
   }
 
   try {
-    // Charger IDs existants
+    // Accès à l'index privé (toujours en KV, config directe)
     const indexKey = 'private:adminTutorialIds'
-    const indexRaw = await env.DRAFTS.get(indexKey)
-    const indexData = indexRaw ? JSON.parse(indexRaw) : { tutorialIds: [], metadata: {} }
+    let indexData = { tutorialIds: [], metadata: {} }
+    
+    // Charger index privé : utilise KV direct (config système, pas des brouillons)
+    if (env.DRAFTS) {
+      try {
+        const indexRaw = await env.DRAFTS.get(indexKey)
+        if (indexRaw) indexData = JSON.parse(indexRaw)
+      } catch {
+        // KV peut ne pas être disponible en DO pur ; initialise vide
+      }
+    }
+    
     const existingIds = indexData.tutorialIds || []
 
     // Générer ID unique
@@ -752,18 +820,17 @@ async function handleTutorialCreate(req: Request, env: any): Promise<Response> {
       sections: []
     }
 
-    // Enregistrer premier brouillon
-    const draftKey = `draft:${tutorialId}`
-    const draftData = {
-      content: newTutorial,
-      revision: crypto.getRandomValues(new Uint8Array(16)).toString(),
-      updatedAt: Date.now(),
-      lastEditedLabel: 'Créé'
+    // ✅ Enregistrer premier brouillon via getStorageBackend() (respecte DO ou KV config)
+    const storage = getStorageBackend(env, tutorialId)
+    const saveResult = await storage.save(tutorialId, newTutorial)
+    
+    if (!saveResult.ok) {
+      console.error('Failed to save draft:', saveResult)
+      return json({ ok: false, error: 'Impossible d\'enregistrer le brouillon' }, 500)
     }
-    await env.DRAFTS.put(draftKey, JSON.stringify(draftData))
 
-    // Ajouter à l'index privé (atomique)
-    if (!indexData.tutorialIds.includes(tutorialId)) {
+    // ✅ Ajouter à l'index privé (KV direct, uniquement si disponible)
+    if (env.DRAFTS && !indexData.tutorialIds.includes(tutorialId)) {
       indexData.tutorialIds.push(tutorialId)
       indexData.metadata = indexData.metadata || {}
       indexData.metadata[tutorialId] = {
@@ -771,7 +838,12 @@ async function handleTutorialCreate(req: Request, env: any): Promise<Response> {
         title: title,
         adminEmail: null
       }
-      await env.DRAFTS.put(indexKey, JSON.stringify(indexData))
+      try {
+        await env.DRAFTS.put(indexKey, JSON.stringify(indexData))
+      } catch (err) {
+        console.error('Failed to update tutorial index:', err)
+        // Non-bloquant : le brouillon est créé, juste l'index n'est pas à jour
+      }
     }
 
     return json({

@@ -26,9 +26,24 @@ export default function HomePage({ onSelectTutorial }: HomePageProps) {
         }
         const data = await response.json()
         if (data.tutorials && Array.isArray(data.tutorials)) {
-          // Fusionner avec la source statique : tutoriels publiés de l'index + tutoriels statiques non publiés
-          const published = new Map(data.tutorials.map((t: any) => [t.id, t]))
-          const merged = staticTutorials.map(t => published.get(t.id) || t) as Tutorial[]
+          // ✅ FUSION ROBUSTE : inclure tutoriels publiés + statiques, sans doublon
+          const publishedMap = new Map(data.tutorials.map((t: any) => [t.id, t]))
+          
+          // Commencer avec les tutoriels statiques, remplacer par versions publiées si elles existent
+          const merged: Tutorial[] = staticTutorials.map((staticTut: Tutorial) => 
+            (publishedMap.get(staticTut.id) as Tutorial) || staticTut
+          )
+          
+          // ✅ Ajouter tutoriels publiés qui n'existent pas dans la liste statique (dynamiques)
+          for (const [id, publishedTut] of publishedMap) {
+            if (!merged.some(t => t.id === id)) {
+              merged.push(publishedTut as Tutorial)
+            }
+          }
+          
+          // Trier par ordre (tutoriels statiques + dynamiques)
+          merged.sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
+          
           setTutorials(merged)
           setLoadError(null)
         }
