@@ -14,11 +14,12 @@ import ThemesModule from '../cms/ThemesModule'
 import MediaLibraryModule from '../cms/MediaLibraryModule'
 import HomeCustomizationModule from '../cms/HomeCustomizationModule'
 import AnnouncementsModule from '../cms/AnnouncementsModule'
+import EventsModule from '../cms/EventsModule'
 import NotificationsModule from '../cms/NotificationsModule'
 import SiteSettingsModule from '../cms/SiteSettingsModule'
 import './CmsIndex.css'
 
-type CmsSection = 'dashboard' | 'tutorials' | 'themes' | 'media' | 'home' | 'announcements' | 'notifications' | 'settings'
+type CmsSection = 'dashboard' | 'tutorials' | 'themes' | 'media' | 'home' | 'announcements' | 'events' | 'notifications' | 'settings'
 
 interface CmsIndexProps {
   onSelectTutorial: (id: string) => void
@@ -58,6 +59,12 @@ export default function CmsIndex({ onSelectTutorial, onClose }: CmsIndexProps) {
             onClick={() => setActiveSection('announcements')}
           >
             📢 Annonces
+          </button>
+          <button
+            className={`cms-nav__item ${activeSection === 'events' ? 'active' : ''}`}
+            onClick={() => setActiveSection('events')}
+          >
+            📅 Événements
           </button>
           <button
             className={`cms-nav__item ${activeSection === 'notifications' ? 'active' : ''}`}
@@ -109,6 +116,7 @@ export default function CmsIndex({ onSelectTutorial, onClose }: CmsIndexProps) {
         {activeSection === 'media' && <MediaLibraryModule />}
         {activeSection === 'home' && <HomeCustomizationModule />}
         {activeSection === 'announcements' && <AnnouncementsModule isAuthenticated={isAuthenticated} />}
+        {activeSection === 'events' && <EventsModule isAuthenticated={isAuthenticated} />}
         {activeSection === 'notifications' && <NotificationsModule isAuthenticated={isAuthenticated} />}
         {activeSection === 'settings' && <SiteSettingsModule />}
       </div>
