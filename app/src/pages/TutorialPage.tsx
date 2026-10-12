@@ -18,42 +18,53 @@ interface TutorialPageProps {
 export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageProps) {
   const { isAdminMode, isPreview, tutorial: editableTutorial, updateSectionTitle, addSection, removeSection, duplicateSection, moveSection } = useAdmin()
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0)
-  const [publishedTutorial, setPublishedTutorial] = useState<Tutorial | null>(null)
-  const [isLoadingPublished, setIsLoadingPublished] = useState(true)
-  const [currentTutorialId, setCurrentTutorialId] = useState<string>(tutorialId)
   const sectionHeaderRef = useRef<HTMLDivElement>(null)
 
-  // Réinitialiser l'index de section quand le tutoriel change
-  useEffect(() => {
-    if (tutorialId !== currentTutorialId) {
-      setCurrentTutorialId(tutorialId)
-      setCurrentSectionIndex(0)
-      setPublishedTutorial(null)
-      setIsLoadingPublished(true)
-    }
-  }, [tutorialId, currentTutorialId])
+  // État de chargement explicite : 'idle' | 'loading' | 'success' | 'not-found' | 'error'
+  // Chaque tutorialId a son propre état de chargement
+  const [loadState, setLoadState] = useState<'idle' | 'loading' | 'success' | 'not-found' | 'error'>('idle')
+  const [publishedTutorial, setPublishedTutorial] = useState<Tutorial | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
-  // Charger le tutoriel publié depuis GitHub (si disponible)
+  // Réinitialiser l'index de section et l'état de chargement quand le tutoriel change
+  useEffect(() => {
+    setCurrentSectionIndex(0)
+    setPublishedTutorial(null)
+    setLoadState('loading')
+    setLoadError(null)
+  }, [tutorialId])
+
+  // Charger le tutoriel publié depuis l'API (avec gestion d'état complète)
   useEffect(() => {
     let refreshTimeout: number
     let isMounted = true
+    let requestTutorialId = tutorialId // Capturer l'ID de la requête pour éviter les conditions de course
 
     const loadPublished = async () => {
-      if (!isMounted) return
+      if (!isMounted || requestTutorialId !== tutorialId) return
+      
       try {
-        setIsLoadingPublished(true)
         const res = await adminApi.getPublished(tutorialId)
-        if (isMounted) {
-          if (res.content) {
-            setPublishedTutorial(res.content as Tutorial)
-          }
-          setIsLoadingPublished(false)
+        
+        if (!isMounted || requestTutorialId !== tutorialId) return
+
+        if (res.content) {
+          setPublishedTutorial(res.content as Tutorial)
+          setLoadState('success')
+          setLoadError(null)
+        } else {
+          // Pas de contenu publié trouvé
+          setPublishedTutorial(null)
+          setLoadState('not-found')
+          setLoadError(null)
         }
-      } catch {
-        // Ignorer silencieusement les erreurs (fallback au contenu statique)
-        if (isMounted) {
-          setIsLoadingPublished(false)
-        }
+      } catch (err) {
+        if (!isMounted || requestTutorialId !== tutorialId) return
+        
+        // Erreur réseau
+        setPublishedTutorial(null)
+        setLoadState('error')
+        setLoadError((err as any)?.message ?? 'Erreur réseau')
       }
     }
 
@@ -61,12 +72,18 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
     loadPublished()
 
     // Vérifier toutes les 5 minutes si une nouvelle version est disponible
-    refreshTimeout = window.setInterval(loadPublished, 5 * 60 * 1000)
+    refreshTimeout = window.setInterval(() => {
+      if (isMounted && requestTutorialId === tutorialId) {
+        loadPublished()
+      }
+    }, 5 * 60 * 1000)
 
     // Recharger aussi quand le Service Worker se met à jour
     if (navigator.serviceWorker) {
       const handleSWUpdate = () => {
-        loadPublished()
+        if (isMounted && requestTutorialId === tutorialId) {
+          loadPublished()
+        }
       }
 
       navigator.serviceWorker.addEventListener('controllerchange', handleSWUpdate)
@@ -100,21 +117,29 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
   // Vérifier si editableTutorial a du contenu réel (pas juste un objet vide)
   const hasEditableContent = editableTutorial && (editableTutorial.id || (editableTutorial.sections && editableTutorial.sections.length > 0))
   
-  const tutorial: Tutorial | undefined =
-    isAdminMode && hasEditableContent
-      ? editableTutorial
-      : publishedTutorial ?? sourceTutorial ?? undefined
-  const fallback = sourceTutorial ?? undefined
+  // Déterminer le tutoriel à afficher en priorité d'ordre
+  let tutorial: Tutorial | undefined
+  
+  if (isAdminMode && hasEditableContent) {
+    // Mode édition : brouillon prioritaire
+    tutorial = editableTutorial
+  } else if (publishedTutorial) {
+    // Version publiée disponible
+    tutorial = publishedTutorial
+  } else if (sourceTutorial) {
+    // Fallback statique
+    tutorial = sourceTutorial
+  } else {
+    // Aucun tutoriel trouvé
+    tutorial = undefined
+  }
 
-  const resolved = tutorial ?? fallback
+  // ═══════════════════════════════════════════════════════════════
+  // RENDU CONDITIONNEL PAR ÉTAT DE CHARGEMENT
+  // ═══════════════════════════════════════════════════════════════
 
-  // Cas 1 : En cours de chargement d'un tutoriel dynamique (pas de fallback statique)
-  // Montrer le loader uniquement si :
-  // - On est en train de charger la version publiée (!isLoadingPublished = false)
-  // - Pas de tutoriel statique (sourceTutorial)
-  // - Pas de brouillon éditable avec contenu (hasEditableContent)
-  // - Rien de résolu (resolved)
-  if (isLoadingPublished && !sourceTutorial && !hasEditableContent && !resolved) {
+  // Cas 1 : Tutoriel dynamique en cours de chargement (pas de contenu statique ni brouillon)
+  if (loadState === 'loading' && !sourceTutorial && !hasEditableContent && !tutorial) {
     return (
       <div className="tutorial-page tutorial-page--empty">
         <div className="container">
@@ -128,8 +153,26 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
     )
   }
 
-  // Cas 2 : Tutoriel inexistant (ni brouillon, ni publié, ni statique)
-  if (!resolved) {
+  // Cas 2 : Erreur réseau lors du chargement
+  if (loadState === 'error' && !tutorial) {
+    return (
+      <div className="tutorial-page tutorial-page--empty">
+        <div className="container">
+          <button className="btn btn-primary" onClick={onReturnHome}>
+            ← Retour à l'accueil
+          </button>
+          <h2>Erreur de chargement</h2>
+          <p>{loadError || 'Impossible de charger ce tutoriel.'}</p>
+          <button className="btn btn-secondary" onClick={onReturnHome}>
+            Retour à l'accueil
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Cas 3 : Tutoriel inexistant (chargement terminé, aucun contenu)
+  if (loadState === 'not-found' && !tutorial) {
     return (
       <div className="tutorial-page tutorial-page--empty">
         <div className="container">
@@ -143,8 +186,8 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
     )
   }
 
-  // Cas 3 : Brouillon vide en édition (admin connecté)
-  if (isAdminMode && hasEditableContent && (!resolved.sections || resolved.sections.length === 0)) {
+  // Cas 4 : Brouillon vide en édition (admin connecté)
+  if (isAdminMode && hasEditableContent && (!tutorial?.sections || tutorial.sections.length === 0)) {
     return (
       <div className="tutorial-page tutorial-page--empty">
         <div className="container">
@@ -167,8 +210,8 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
     )
   }
 
-  // Cas 4 : Tutoriel vide mais pas en édition (visiteur non-admin)
-  if (!resolved.sections || resolved.sections.length === 0) {
+  // Cas 5 : Tutoriel vide mais pas en édition (visiteur non-admin)
+  if (!tutorial?.sections || tutorial.sections.length === 0) {
     return (
       <div className="tutorial-page tutorial-page--empty">
         <div className="container">
@@ -182,7 +225,27 @@ export default function TutorialPage({ tutorialId, onReturnHome }: TutorialPageP
     )
   }
 
-  const sections = resolved.sections
+  // ═══════════════════════════════════════════════════════════════
+  // CONTENU NORMAL : tutoriel avec sections
+  // ═══════════════════════════════════════════════════════════════
+
+  if (!tutorial || !tutorial.sections || tutorial.sections.length === 0) {
+    // Ne devrait pas arriver ici grâce aux gardes ci-dessus
+    return (
+      <div className="tutorial-page tutorial-page--empty">
+        <div className="container">
+          <button className="btn btn-primary" onClick={onReturnHome}>
+            ← Retour à l'accueil
+          </button>
+          <h2>Tutoriel non disponible</h2>
+          <p>Ce tutoriel n'a pas de contenu.</p>
+        </div>
+      </div>
+    )
+  }
+
+  const resolved = tutorial
+  const sections = resolved.sections!  // Assertion : garanti par la vérification ci-dessus
   const safeIndex = Math.min(currentSectionIndex, sections.length - 1)
   const currentSection = sections[safeIndex]
   // En mode admin, la section porte un `_uid` (via le store éditable).
