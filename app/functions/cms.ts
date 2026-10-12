@@ -7,6 +7,12 @@
  * - Événements (events.json)
  * - Accueil (home.json)
  * - Paramètres site (settings.json)
+ * 
+ * Garanties :
+ * - Décodage UTF-8 correct (accents français, caractères non-ASCII)
+ * - Statuts explicites distinguant : avant écriture, écriture réussie, vérification attente, vérification réussie
+ * - Vérification par hash exact (pas juste révision)
+ * - Pas de relance aveugle après écriture réussie
  */
 
 import type { Theme, ThemeLibrary, Announcement, Event, HomePageConfig, SiteSettings } from '../src/cms/types'
@@ -18,16 +24,66 @@ export interface CmsEnv {
 }
 
 /**
- * Publier configuration CMS vers GitHub avec révision monotone
- * 
- * Système de révisions durables et cohérence :
- * 1. Lire SHA + contenu de l'API GitHub (source atomique)
- * 2. Calculer révision monotone côté serveur
- * 3. Calculer hash du contenu nouveau (vérification exacte)
- * 4. Écrire sur GitHub avec SHA courant
- * 5. Vérifier post-publication par SHA + hash (pas juste _rev)
- * 6. Rejeter anciennes révisions même si elles arrivent plus tard
+ * États explicites de publication
  */
+export enum PublicationStatus {
+  BEFORE_WRITE = 'before_write', // Avant tentative d'écriture
+  WRITE_SUCCESS = 'write_success', // Écriture GitHub réussie
+  VERIFY_PENDING = 'verify_pending', // Vérification en attente
+  VERIFY_SUCCESS = 'verify_success', // Vérification réussie
+  CLOUDFLARE_PENDING = 'cloudflare_pending', // En attente de déploiement Cloudflare
+  EXPIRED_VERIFY = 'expired_verify', // Vérification expirée après écriture réussie
+  WRITE_FAILED = 'write_failed', // Écriture GitHub échouée
+  VERIFY_FAILED = 'verify_failed', // Vérification échouée après écriture réussie
+  CONFLICT = 'conflict', // Conflit SHA persistant
+}
+
+/**
+ * Décoder Base64 en UTF-8 correct (accents français, caractères non-ASCII)
+ * 
+ * @param base64String Chaîne base64 (peut contenir sauts de ligne)
+ * @returns Objet JSON décodé
+ */
+function decodeBase64ToJSON(base64String: string): any {
+  // Nettoyer les sauts de ligne que GitHub peut inclure
+  const cleanBase64 = base64String.replace(/\s/g, '')
+  
+  // Convertir base64 en Uint8Array
+  const binaryString = atob(cleanBase64)
+  const bytes = new Uint8Array(binaryString.length)
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i)
+  }
+  
+  // Décoder Uint8Array en UTF-8
+  const decoder = new TextDecoder('utf-8')
+  const jsonString = decoder.decode(bytes)
+  
+  // Parser JSON
+  return JSON.parse(jsonString)
+}
+
+/**
+ * Encoder objet JSON en Base64 UTF-8 correct
+ * 
+ * @param obj Objet à encoder
+ * @returns Chaîne base64 encodée en UTF-8
+ */
+function encodeJSONToBase64(obj: any): string {
+  const jsonString = JSON.stringify(obj, null, 2)
+  
+  // Encoder JSON en UTF-8 bytes
+  const encoder = new TextEncoder()
+  const bytes = encoder.encode(jsonString)
+  
+  // Convertir Uint8Array en base64
+  let binaryString = ''
+  for (let i = 0; i < bytes.length; i++) {
+    binaryString += String.fromCharCode(bytes[i])
+  }
+  
+  return btoa(binaryString)
+}
 
 /**
  * Calculer un hash SHA256 du contenu pour vérification d'identité exacte
@@ -48,10 +104,16 @@ export async function publishCmsConfig(
   filename: string,
   content: any,
   maxRetries = 3
-): Promise<{ ok: boolean; revision?: string; revisionNumber?: number; error?: string }> {
+): Promise<{
+  ok: boolean
+  revision?: string
+  revisionNumber?: number
+  status?: PublicationStatus
+  error?: string
+  details?: string
+}> {
   const path = `app/public/cms/${filename}`
   const apiBase = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}`
-  const rawUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${path}`
 
   const headers = {
     Authorization: `Bearer ${env.GITHUB_TOKEN}`,
@@ -60,11 +122,12 @@ export async function publishCmsConfig(
   }
 
   let lastError = ''
+  let writeSucceeded = false
+  let writtenSha = ''
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       // ÉTAPE 1 : Lire SHA + contenu de manière ATOMIQUE depuis API GitHub
-      // (pas raw.githubusercontent.com qui peut être en cache)
       let currentRevision = 0
       let currentSha: string | undefined
       let currentPublishedContent: any = null
@@ -75,10 +138,9 @@ export async function publishCmsConfig(
           const apiData = (await apiRes.json()) as any
           currentSha = apiData.sha
 
-          // Décoder le contenu depuis API
+          // Décoder le contenu depuis API avec UTF-8 correct
           if (apiData.content) {
-            const decodedContent = atob(apiData.content)
-            currentPublishedContent = JSON.parse(decodedContent)
+            currentPublishedContent = decodeBase64ToJSON(apiData.content)
             currentRevision = currentPublishedContent?._rev || 0
 
             console.info(
@@ -106,10 +168,8 @@ export async function publishCmsConfig(
 
       const newContentHash = hashContent(wrappedContent)
 
-      // ÉTAPE 4 : Encoder et écrire sur GitHub
-      const contentB64 = btoa(
-        unescape(encodeURIComponent(JSON.stringify(wrappedContent, null, 2)))
-      )
+      // ÉTAPE 4 : Encoder avec UTF-8 correct et écrire sur GitHub
+      const contentB64 = encodeJSONToBase64(wrappedContent)
 
       console.info(
         `📤 Tentative d'écriture ${attempt + 1}/${maxRetries}: rev=${newRevision}, hash=${newContentHash.slice(0, 7)}, currentSha=${currentSha?.slice(0, 7)}`
@@ -136,15 +196,25 @@ export async function publishCmsConfig(
             `⚠️ Conflit SHA (409): le fichier a changé entre la lecture et l'écriture. Relecture et retry...`
           )
           if (attempt < maxRetries - 1) {
-            await new Promise((r) => setTimeout(r, 200 * (attempt + 1))) // Backoff
-            continue // Relire le SHA et retry
+            await new Promise((r) => setTimeout(r, 200 * (attempt + 1)))
+            continue
           }
-          return { ok: false, error: 'SHA conflict after retries' }
+          return { 
+            ok: false, 
+            status: PublicationStatus.CONFLICT,
+            error: 'SHA conflict after retries',
+            details: lastError
+          }
         }
 
         // 401 Auth = échouer immédiatement
         if (putRes.status === 401) {
-          return { ok: false, error: 'GitHub auth failed' }
+          return { 
+            ok: false, 
+            status: PublicationStatus.WRITE_FAILED,
+            error: 'GitHub authentication failed',
+            details: lastError
+          }
         }
 
         // Autres erreurs = retry
@@ -152,16 +222,22 @@ export async function publishCmsConfig(
           await new Promise((r) => setTimeout(r, 200 * (attempt + 1)))
           continue
         }
-        return { ok: false, error: lastError }
+        return { 
+          ok: false, 
+          status: PublicationStatus.WRITE_FAILED,
+          error: 'GitHub write failed after retries',
+          details: lastError
+        }
       }
 
       const putResult = (await putRes.json()) as any
       const newSha = putResult.content?.sha
+      writeSucceeded = true
+      writtenSha = newSha
 
-      // ÉTAPE 5 : Vérifier post-publication par SHA + hash (pas juste _rev)
-      // Attendre un peu pour que GitHub propage
+      // ÉTAPE 5 : Vérifier post-publication par SHA + hash + UTF-8 correct
       console.info(
-        `📝 Écriture GitHub réussie: nouveau SHA=${newSha?.slice(0, 7)}, attente propagation...`
+        `📝 ✅ Écriture GitHub réussie: nouveau SHA=${newSha?.slice(0, 7)}, attente propagation...`
       )
       await new Promise((r) => setTimeout(r, 500))
 
@@ -172,17 +248,15 @@ export async function publishCmsConfig(
       // Vérifier 5 fois avec backoff exponentiel
       for (let verifyAttempt = 0; verifyAttempt < 5; verifyAttempt++) {
         try {
-          // Lire depuis API GitHub (source cohérente)
           const verifyRes = await fetch(`${apiBase}?ref=${env.GITHUB_BRANCH}`, { headers })
 
           if (verifyRes.ok) {
             const verifyData = (await verifyRes.json()) as any
             const verifySha = verifyData.sha
 
-            // Décoder contenu
+            // Décoder contenu avec UTF-8 correct
             if (verifyData.content) {
-              const decodedContent = atob(verifyData.content)
-              publishedContent = JSON.parse(decodedContent)
+              publishedContent = decodeBase64ToJSON(verifyData.content)
               publishedHash = hashContent(publishedContent)
 
               // Vérifications STRICTES :
@@ -200,7 +274,12 @@ export async function publishCmsConfig(
                 console.info(
                   `✅ Publication vérifiée: rev=${newRevision}, sha=${newSha?.slice(0, 7)}, hash=${publishedHash.slice(0, 7)}`
                 )
-                return { ok: true, revision: newSha, revisionNumber: newRevision }
+                return { 
+                  ok: true, 
+                  revision: newSha, 
+                  revisionNumber: newRevision,
+                  status: PublicationStatus.VERIFY_SUCCESS
+                }
               }
 
               console.warn(
@@ -231,48 +310,102 @@ export async function publishCmsConfig(
         }
       }
 
+      // Écriture réussie mais vérification échouée
       if (!verified) {
         lastError = `Publication verification failed: expected rev ${newRevision} sha ${newSha?.slice(0, 7)} hash ${newContentHash.slice(0, 7)}, got rev ${publishedContent?._rev} hash ${publishedHash.slice(0, 7)}`
-        console.error(lastError)
-        // Ne pas retry si vérification stricte échoue
-        return { ok: false, error: lastError }
+        console.error(`❌ ${lastError}`)
+        return { 
+          ok: false, 
+          status: PublicationStatus.VERIFY_FAILED,
+          error: 'GitHub write succeeded but verification failed',
+          details: lastError,
+          revision: newSha,
+          revisionNumber: newRevision
+        }
       }
 
-      return { ok: true, revision: newSha, revisionNumber: newRevision }
+      return { 
+        ok: true, 
+        revision: newSha, 
+        revisionNumber: newRevision,
+        status: PublicationStatus.VERIFY_SUCCESS
+      }
     } catch (err) {
       lastError = `Exception: ${(err as any).message}`
       if (attempt === maxRetries - 1) {
-        return { ok: false, error: lastError }
+        if (writeSucceeded) {
+          return {
+            ok: false,
+            status: PublicationStatus.EXPIRED_VERIFY,
+            error: 'Verification expired after write success',
+            details: lastError,
+            revision: writtenSha
+          }
+        }
+        return { 
+          ok: false, 
+          status: PublicationStatus.WRITE_FAILED,
+          error: 'Unexpected error',
+          details: lastError
+        }
       }
       await new Promise((r) => setTimeout(r, 200 * (attempt + 1)))
     }
   }
 
-  return { ok: false, error: lastError }
+  if (writeSucceeded) {
+    return {
+      ok: false,
+      status: PublicationStatus.EXPIRED_VERIFY,
+      error: 'Verification expired after write success',
+      details: lastError,
+      revision: writtenSha
+    }
+  }
+
+  return { 
+    ok: false, 
+    status: PublicationStatus.WRITE_FAILED,
+    error: 'Publication failed after all retries',
+    details: lastError
+  }
 }
 
 /**
- * Charger configuration CMS depuis GitHub
+ * Charger configuration CMS depuis GitHub avec décodage UTF-8 correct
  */
 export async function loadCmsConfig(
   env: CmsEnv,
   filename: string
 ): Promise<{ ok: boolean; data?: any; error?: string }> {
   const path = `app/public/cms/${filename}`
-  const url = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${path}`
+  const apiBase = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}`
+
+  const headers = {
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    'User-Agent': 'lma-cms-function',
+    Accept: 'application/vnd.github+json',
+  }
 
   try {
-    const res = await fetch(url, {
-      headers: { 'Cache-Control': 'no-cache' },
-    })
+    // Lire depuis API GitHub (pas raw.githubusercontent.com qui peut être en cache)
+    const res = await fetch(`${apiBase}?ref=${env.GITHUB_BRANCH}`, { headers })
 
     if (!res.ok) {
       return { ok: false, data: null } // Fichier n'existe pas encore
     }
 
-    const data = await res.json()
-    return { ok: true, data }
+    const apiData = (await res.json()) as any
+    
+    // Décoder contenu avec UTF-8 correct
+    if (apiData.content) {
+      const data = decodeBase64ToJSON(apiData.content)
+      return { ok: true, data }
+    }
+
+    return { ok: false, data: null }
   } catch (err) {
+    console.warn(`⚠️ loadCmsConfig failed: ${(err as any).message}`)
     return { ok: false, data: null }
   }
 }
