@@ -37,9 +37,28 @@ export default defineConfig({
         globPatterns: [
           '**/*.{js,css,html,ico,png,svg,jpeg,jpg,webp,gif,woff,woff2,ttf,eot}'
         ],
+        // Ne jamais précacher les configs CMS dynamiques (annonces, thèmes, etc.)
+        // Elles changent sans redéploiement : doivent toujours venir du réseau.
+        globIgnores: ['**/cms/*.json'],
         // Exclure les routes API de tout type de cache
-        navigateFallbackDenylist: [/^\/api\//],
+        navigateFallbackDenylist: [/^\/api\//, /^\/cms\//],
         runtimeCaching: [
+          // Configs CMS dynamiques (annonces, thèmes, événements, notifs, home,
+          // settings) : TOUJOURS réseau d'abord. Garantit l'affichage des
+          // annonces publiées sans rester bloqué sur une version précachée.
+          // Pattern relatif ET absolu pour couvrir dev + production.
+          {
+            urlPattern: ({ url }) => url.pathname.startsWith('/cms/') && url.pathname.endsWith('.json'),
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'cms-config-cache',
+              networkTimeoutSeconds: 4,
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 5 * 60 // 5 min max en cache (fallback offline)
+              }
+            }
+          },
           // Contenu publié (tutoriels) : toujours vérifier le réseau
           // NetworkFirst = essayer réseau d'abord, fallback au cache si offline
           {

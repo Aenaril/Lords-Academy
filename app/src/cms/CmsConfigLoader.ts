@@ -28,6 +28,42 @@ let globalCmsConfig: CmsConfig | null = null
 let isLoading = false
 let loadPromise: Promise<CmsConfig> | null = null
 
+// ─────────────────────────────────────────────────────────────
+// Système d'abonnement — permet aux composants React de se
+// re-render quand la config CMS est chargée ou rechargée.
+// Corrige la race condition : loadCmsConfigs() est asynchrone,
+// mais getActiveAnnouncements()/getActiveTheme() sont lues au
+// render synchrone. Sans notification, HomePage n'affiche jamais
+// les annonces chargées après le premier render.
+// ─────────────────────────────────────────────────────────────
+type CmsSubscriber = () => void
+const subscribers = new Set<CmsSubscriber>()
+
+/** S'abonner aux changements de config CMS. Retourne une fonction de désabonnement. */
+export function subscribeCmsConfig(cb: CmsSubscriber): () => void {
+  subscribers.add(cb)
+  return () => {
+    subscribers.delete(cb)
+  }
+}
+
+/** Notifier tous les abonnés d'un changement de config. */
+function notifyCmsSubscribers(): void {
+  for (const cb of subscribers) {
+    try {
+      cb()
+    } catch (err) {
+      console.error('Erreur notification abonné CMS:', err)
+    }
+  }
+}
+
+/** Version du cache — incrémentée à chaque changement (utilisé par useSyncExternalStore). */
+let configVersion = 0
+export function getCmsConfigVersion(): number {
+  return configVersion
+}
+
 /**
  * Charger toutes les configs CMS depuis les fichiers publics
  */
@@ -124,12 +160,16 @@ export async function loadCmsConfigs(): Promise<CmsConfig> {
       }
 
       globalCmsConfig = config
-      console.info('✅ CMS configs chargés', config)
+      configVersion++
+      console.info('✅ CMS configs chargés')
     } catch (err) {
       console.error('❌ Erreur critique chargement CMS:', err)
       globalCmsConfig = config
+      configVersion++
     } finally {
       isLoading = false
+      // Notifier les composants React abonnés (déclenche un re-render)
+      notifyCmsSubscribers()
     }
 
     return config
