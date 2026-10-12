@@ -76,11 +76,28 @@ export default function MyTutorialsPanel({
           const published = publishedMap.get(id)
           const isDraft = draftIds.includes(id)
           
+          // Logique de statut corrigée
           let status: 'draft' | 'published'
-          if (published && !isDraft) {
+          if (published) {
+            // Si une version publiée existe, le tutoriel est publié
+            // (peu importe s'il y a aussi un brouillon privé)
             status = 'published'
-          } else {
+          } else if (isDraft) {
+            // Pas de version publique, mais existe dans l'index privé
             status = 'draft'
+          } else {
+            // Ni publié ni brouillon enregistré = ne devrait pas arriver ici
+            status = 'draft'
+          }
+
+          // Date de modification : ne jamais inventer
+          let lastModified = '—'
+          if (published && published.publishedAt) {
+            try {
+              lastModified = new Date(published.publishedAt).toLocaleDateString('fr-FR')
+            } catch {
+              lastModified = '—'
+            }
           }
 
           return {
@@ -88,7 +105,7 @@ export default function MyTutorialsPanel({
             title: published?.title || id,
             category: published?.category || '—',
             status,
-            lastModified: published ? new Date(published.publishedAt || Date.now()).toLocaleDateString('fr-FR') : '—'
+            lastModified
           }
         })
 
@@ -208,7 +225,7 @@ export default function MyTutorialsPanel({
               {tutorials.map((tutorial) => (
                 <tr key={tutorial.id} className={tutorial.id === currentTutorial?.id ? 'active' : ''}>
                   <td className="tutorials-table__title">{tutorial.title}</td>
-                  <td>{tutorial.category}</td>
+                  <td className="tutorials-table__category">{tutorial.category}</td>
                   <td>
                     <span className={`badge badge--${tutorial.status}`}>
                       {tutorial.status === 'draft' ? 'Brouillon' : 'Publié'}

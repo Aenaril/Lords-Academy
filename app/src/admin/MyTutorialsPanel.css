@@ -72,7 +72,8 @@
 .my-tutorials-panel__empty {
   text-align: center;
   padding: 60px 20px;
-  color: #6b7280;
+  color: #1f2937;
+  font-weight: 500;
 }
 
 .my-tutorials-panel__empty {
@@ -111,12 +112,17 @@
   padding: 12px;
   text-align: left;
   font-weight: 600;
-  color: #374151;
+  color: #1f2937;
 }
 
 .tutorials-table td {
   padding: 12px;
   border-bottom: 1px solid #e5e7eb;
+  color: #1f2937;
+}
+
+.tutorials-table tbody tr {
+  background: white;
 }
 
 .tutorials-table tbody tr:hover {
@@ -132,8 +138,12 @@
   color: #1f2937;
 }
 
+.tutorials-table__category {
+  color: #4b5563;
+}
+
 .tutorials-table__date {
-  color: #9ca3af;
+  color: #4b5563;
   font-size: 0.8125rem;
 }
 
@@ -168,7 +178,7 @@
   cursor: pointer;
   padding: 6px;
   font-size: 1.125rem;
-  color: #6b7280;
+  color: #4b5563;
   border-radius: 4px;
   transition: all 150ms ease;
 }
@@ -211,7 +221,7 @@
   border: none;
   text-align: left;
   cursor: pointer;
-  color: #374151;
+  color: #1f2937;
   font-size: 0.875rem;
   transition: all 150ms ease;
 }
@@ -226,7 +236,7 @@
 
 .dropdown-menu__item:hover {
   background: #f3f4f6;
-  color: #1f2937;
+  color: #000;
 }
 
 /* Boutons */
