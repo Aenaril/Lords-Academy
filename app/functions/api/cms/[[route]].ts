@@ -1,16 +1,21 @@
 /**
  * Endpoints CMS pour Étape 3 — SÉCURISÉS
  * 
- * ⚠️ TOUS les endpoints nécessitent une session R4 authentifiée
+ * ⚠️ TOUS les endpoints requièrent une session R4 authentifiée + CSRF
  * Les modifications (publish, save, etc.) sont refusées sans authentification
  * 
+ * Réutilise les fonctions d'authentification du handler principal [[path]].ts :
+ * - readSession() : vérifie le cookie lma_session avec HMAC-SHA256
+ * - csrfOk() : vérifie le header X-Requested-With = 'lma-admin'
+ * - timingSafeEqual() : comparaison timing-safe pour signatures
+ * 
  * Routes :
- * - POST /api/cms/themes — Requiert authentification
- * - POST /api/cms/announcements — Requiert authentification
- * - POST /api/cms/events — Requiert authentification
- * - POST /api/cms/home — Requiert authentification
- * - POST /api/cms/settings — Requiert authentification
- * - POST /api/cms/notifications — Requiert authentification
+ * - POST /api/cms/themes — Requiert authentification + CSRF
+ * - POST /api/cms/announcements — Requiert authentification + CSRF
+ * - POST /api/cms/events — Requiert authentification + CSRF
+ * - POST /api/cms/home — Requiert authentification + CSRF
+ * - POST /api/cms/settings — Requiert authentification + CSRF
+ * - POST /api/cms/notifications — Requiert authentification + CSRF
  */
 
 import {
@@ -22,38 +27,88 @@ import {
   validateSiteSettings,
 } from '../../cms'
 
-// Import des fonctions d'authentification du handler principal
-// (Ces fonctions sont définies dans [[path]].ts et réutilisées ici)
+/**
+ * ✅ AUTHENTIFICATION RÉELLE — Vérifier session avec HMAC-SHA256
+ * 
+ * Format du cookie lma_session :
+ * lma_session=<base64(timestamp)>.<hex(hmac_sha256)>
+ * 
+ * Signature vérifie :
+ * - Cookie n'a pas été forgé
+ * - Timestamp n'a pas été modifié
+ * - Session n'est pas expirée
+ */
 async function readSession(req: Request, env: any): Promise<{ expiresAt: number } | null> {
-  // Réutiliser la logique de [[path]].ts
-  const cookie = req.headers.get('cookie') ?? ''
-  const match = cookie.match(/session=([^;]+)/)
-  if (!match) return null
+  const cookie = req.headers.get('Cookie') ?? ''
+  const match = cookie.match(/lma_session=([^;]+)/)
+  if (!match) {
+    return null
+  }
   
-  const token = match[1]
-  if (!token || token.length < 10) return null
-  
-  // Validation basique du token
-  // Format attendu: {expiresAt}.{signature}
-  const parts = token.split('.')
-  if (parts.length !== 2) return null
+  const [payloadB64, sig] = match[1].split('.')
+  if (!payloadB64 || !sig) {
+    return null
+  }
   
   try {
-    const expiresAt = parseInt(parts[0], 10)
-    if (isNaN(expiresAt) || expiresAt < Date.now()) return null
+    const payload = atob(payloadB64)
+    const expected = await hmac(payload, env.SESSION_SIGNING_KEY)
     
-    // La signature est vérifiée au niveau du handler principal
-    // Ici on accepte juste la présence d'une session valide
+    // Comparaison timing-safe pour éviter timing attacks
+    if (!timingSafeEqual(sig, expected)) {
+      console.warn('❌ CMS: Signature session invalide')
+      return null
+    }
+    
+    const expiresAt = Number(payload)
+    if (!expiresAt || Date.now() > expiresAt) {
+      console.warn('❌ CMS: Session expirée ou invalide')
+      return null
+    }
+    
     return { expiresAt }
-  } catch {
+  } catch (err) {
+    console.warn('❌ CMS: Erreur parsing session:', err)
     return null
   }
 }
 
+/**
+ * HMAC-SHA256 pour vérification signatures
+ */
+async function hmac(data: string, key: string): Promise<string> {
+  const enc = new TextEncoder()
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(key),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const sig = await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(data))
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Comparaison timing-safe pour éviter timing attacks
+ */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  }
+  return diff === 0
+}
+
+/**
+ * ✅ PROTECTION CSRF — Vérifier header X-Requested-With
+ * 
+ * Le header X-Requested-With n'est envoyé que par le frontend autorisé
+ * Les requêtes cross-origin ne peuvent pas le définir (protection du navigateur)
+ */
 function csrfOk(req: Request): boolean {
-  // Vérifier le token CSRF depuis les headers
-  const csrfToken = req.headers.get('x-csrf-token')
-  return !!csrfToken && csrfToken.length > 5
+  return req.headers.get('X-Requested-With') === 'lma-admin'
 }
 
 export const onRequest: PagesFunction = async (context) => {
@@ -105,7 +160,7 @@ export const onRequest: PagesFunction = async (context) => {
 
 /**
  * POST /api/cms/themes — SÉCURISÉ
- * ⚠️ Requiert authentification R4
+ * ⚠️ Requiert authentification R4 + CSRF
  */
 async function handleCmsThemes(req: Request, env: any): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -113,14 +168,14 @@ async function handleCmsThemes(req: Request, env: any): Promise<Response> {
   // ✅ VÉRIFICATION AUTHENTIFICATION — OBLIGATOIRE
   const session = await readSession(req, env)
   if (!session) {
-    console.warn('CMS themes: Tentative sans authentification')
+    console.warn('❌ CMS themes: Tentative sans authentification')
     return json({ error: 'Authentification requise' }, 401)
   }
 
   // ✅ VÉRIFICATION CSRF — OBLIGATOIRE
   if (!csrfOk(req)) {
-    console.warn('CMS themes: CSRF invalide')
-    return json({ error: 'CSRF token invalide' }, 403)
+    console.warn('❌ CMS themes: CSRF invalide')
+    return json({ error: 'CSRF invalide' }, 403)
   }
 
   const body = (await req.json().catch(() => null)) as any
@@ -132,7 +187,7 @@ async function handleCmsThemes(req: Request, env: any): Promise<Response> {
       return json({ ok: false, error: 'Invalid theme' }, 400)
     }
 
-    console.info(`CMS publish theme: ${theme.id} (user authenticated)`)
+    console.info(`✅ CMS publish theme: ${theme.id} (user authenticated)`)
 
     const result = await publishCmsConfig(env, 'themes.json', {
       activeThemeId: theme.id,
@@ -152,17 +207,23 @@ async function handleCmsThemes(req: Request, env: any): Promise<Response> {
 
 /**
  * POST /api/cms/announcements — SÉCURISÉ
- * ⚠️ Requiert authentification R4
+ * ⚠️ Requiert authentification R4 + CSRF
  */
 async function handleCmsAnnouncements(req: Request, env: any): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   // ✅ VÉRIFICATION AUTHENTIFICATION
   const session = await readSession(req, env)
-  if (!session) return json({ error: 'Authentification requise' }, 401)
+  if (!session) {
+    console.warn('❌ CMS announcements: Tentative sans authentification')
+    return json({ error: 'Authentification requise' }, 401)
+  }
 
   // ✅ VÉRIFICATION CSRF
-  if (!csrfOk(req)) return json({ error: 'CSRF token invalide' }, 403)
+  if (!csrfOk(req)) {
+    console.warn('❌ CMS announcements: CSRF invalide')
+    return json({ error: 'CSRF invalide' }, 403)
+  }
 
   const body = (await req.json().catch(() => null)) as any
   const action = body?.action
@@ -180,7 +241,7 @@ async function handleCmsAnnouncements(req: Request, env: any): Promise<Response>
       }
     }
 
-    console.info(`CMS publish announcements: ${announcements.length} items`)
+    console.info(`✅ CMS publish announcements: ${announcements.length} items`)
 
     const result = await publishCmsConfig(env, 'announcements.json', {
       announcements,
@@ -199,17 +260,23 @@ async function handleCmsAnnouncements(req: Request, env: any): Promise<Response>
 
 /**
  * POST /api/cms/events — SÉCURISÉ
- * ⚠️ Requiert authentification R4
+ * ⚠️ Requiert authentification R4 + CSRF
  */
 async function handleCmsEvents(req: Request, env: any): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   // ✅ VÉRIFICATION AUTHENTIFICATION
   const session = await readSession(req, env)
-  if (!session) return json({ error: 'Authentification requise' }, 401)
+  if (!session) {
+    console.warn('❌ CMS events: Tentative sans authentification')
+    return json({ error: 'Authentification requise' }, 401)
+  }
 
   // ✅ VÉRIFICATION CSRF
-  if (!csrfOk(req)) return json({ error: 'CSRF token invalide' }, 403)
+  if (!csrfOk(req)) {
+    console.warn('❌ CMS events: CSRF invalide')
+    return json({ error: 'CSRF invalide' }, 403)
+  }
 
   const body = (await req.json().catch(() => null)) as any
   const action = body?.action
@@ -227,7 +294,7 @@ async function handleCmsEvents(req: Request, env: any): Promise<Response> {
       }
     }
 
-    console.info(`CMS publish events: ${events.length} items`)
+    console.info(`✅ CMS publish events: ${events.length} items`)
 
     const result = await publishCmsConfig(env, 'events.json', {
       events,
@@ -246,17 +313,23 @@ async function handleCmsEvents(req: Request, env: any): Promise<Response> {
 
 /**
  * POST /api/cms/home — SÉCURISÉ
- * ⚠️ Requiert authentification R4
+ * ⚠️ Requiert authentification R4 + CSRF
  */
 async function handleCmsHome(req: Request, env: any): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   // ✅ VÉRIFICATION AUTHENTIFICATION
   const session = await readSession(req, env)
-  if (!session) return json({ error: 'Authentification requise' }, 401)
+  if (!session) {
+    console.warn('❌ CMS home: Tentative sans authentification')
+    return json({ error: 'Authentification requise' }, 401)
+  }
 
   // ✅ VÉRIFICATION CSRF
-  if (!csrfOk(req)) return json({ error: 'CSRF token invalide' }, 403)
+  if (!csrfOk(req)) {
+    console.warn('❌ CMS home: CSRF invalide')
+    return json({ error: 'CSRF invalide' }, 403)
+  }
 
   const body = (await req.json().catch(() => null)) as any
   const action = body?.action
@@ -267,7 +340,7 @@ async function handleCmsHome(req: Request, env: any): Promise<Response> {
       return json({ ok: false, error: 'Invalid home config' }, 400)
     }
 
-    console.info(`CMS save home config`)
+    console.info(`✅ CMS save home config`)
 
     const result = await publishCmsConfig(env, 'home.json', {
       config,
@@ -286,17 +359,23 @@ async function handleCmsHome(req: Request, env: any): Promise<Response> {
 
 /**
  * POST /api/cms/settings — SÉCURISÉ
- * ⚠️ Requiert authentification R4
+ * ⚠️ Requiert authentification R4 + CSRF
  */
 async function handleCmsSettings(req: Request, env: any): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   // ✅ VÉRIFICATION AUTHENTIFICATION
   const session = await readSession(req, env)
-  if (!session) return json({ error: 'Authentification requise' }, 401)
+  if (!session) {
+    console.warn('❌ CMS settings: Tentative sans authentification')
+    return json({ error: 'Authentification requise' }, 401)
+  }
 
   // ✅ VÉRIFICATION CSRF
-  if (!csrfOk(req)) return json({ error: 'CSRF token invalide' }, 403)
+  if (!csrfOk(req)) {
+    console.warn('❌ CMS settings: CSRF invalide')
+    return json({ error: 'CSRF invalide' }, 403)
+  }
 
   const body = (await req.json().catch(() => null)) as any
   const action = body?.action
@@ -307,7 +386,7 @@ async function handleCmsSettings(req: Request, env: any): Promise<Response> {
       return json({ ok: false, error: 'Invalid settings' }, 400)
     }
 
-    console.info(`CMS save site settings`)
+    console.info(`✅ CMS save site settings`)
 
     const result = await publishCmsConfig(env, 'settings.json', {
       settings,
@@ -325,10 +404,15 @@ async function handleCmsSettings(req: Request, env: any): Promise<Response> {
 }
 
 /**
- * POST /api/cms/notifications — SÉCURISÉ
+ * POST /api/cms/notifications — SÉCURISÉ (partiellement)
  * 
- * Gère les abonnements push et la programmation des notifications
- * ⚠️ Requiert authentification R4 pour certaines opérations
+ * Opérations requiérant authentification :
+ * - test : test de structure notification
+ * - schedules : sauvegarde programmations
+ * 
+ * Opérations sans authentification :
+ * - subscribe : inscription aux notifications (côté client)
+ * - unsubscribe : désinscription
  */
 async function handleCmsNotifications(req: Request, env: any): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -339,14 +423,23 @@ async function handleCmsNotifications(req: Request, env: any): Promise<Response>
   if (action === 'test') {
     // Tests de notifications — Authentification requise
     const session = await readSession(req, env)
-    if (!session) return json({ error: 'Authentification requise' }, 401)
+    if (!session) {
+      console.warn('❌ CMS notifications test: Tentative sans authentification')
+      return json({ error: 'Authentification requise' }, 401)
+    }
+
+    // ✅ VÉRIFICATION CSRF
+    if (!csrfOk(req)) {
+      console.warn('❌ CMS notifications test: CSRF invalide')
+      return json({ error: 'CSRF invalide' }, 403)
+    }
 
     const schedule = body?.schedule
     if (!schedule || typeof schedule.title !== 'string') {
       return json({ ok: false, error: 'Invalid schedule' }, 400)
     }
 
-    console.info(`CMS test notification: ${schedule.title}`)
+    console.info(`✅ CMS test notification: ${schedule.title}`)
     return json({ ok: true, message: 'Test notification structure validated' })
   }
 
@@ -358,7 +451,7 @@ async function handleCmsNotifications(req: Request, env: any): Promise<Response>
       return json({ ok: false, error: 'Invalid subscription' }, 400)
     }
 
-    console.info(`CMS subscribe: ${subscription.endpoint.substring(0, 50)}...`)
+    console.info(`✅ CMS subscribe: ${subscription.endpoint.substring(0, 50)}...`)
     return json({ ok: true, message: 'Subscription received' })
   }
 
@@ -369,24 +462,30 @@ async function handleCmsNotifications(req: Request, env: any): Promise<Response>
       return json({ ok: false, error: 'Invalid subscription' }, 400)
     }
 
-    console.info(`CMS unsubscribe: ${subscription.endpoint.substring(0, 50)}...`)
+    console.info(`✅ CMS unsubscribe: ${subscription.endpoint.substring(0, 50)}...`)
     return json({ ok: true, message: 'Unsubscribed' })
   }
 
   if (action === 'schedules') {
     // Sauvegarde programmations — Authentification requise
     const session = await readSession(req, env)
-    if (!session) return json({ error: 'Authentification requise' }, 401)
+    if (!session) {
+      console.warn('❌ CMS schedules: Tentative sans authentification')
+      return json({ error: 'Authentification requise' }, 401)
+    }
 
     // ✅ VÉRIFICATION CSRF
-    if (!csrfOk(req)) return json({ error: 'CSRF token invalide' }, 403)
+    if (!csrfOk(req)) {
+      console.warn('❌ CMS schedules: CSRF invalide')
+      return json({ error: 'CSRF invalide' }, 403)
+    }
 
     const schedules = body?.schedules
     if (!Array.isArray(schedules)) {
       return json({ ok: false, error: 'Invalid schedules' }, 400)
     }
 
-    console.info(`CMS save schedules: ${schedules.length} items`)
+    console.info(`✅ CMS save schedules: ${schedules.length} items`)
     return json({ ok: true, count: schedules.length })
   }
 
@@ -418,7 +517,7 @@ function corsHeadersRestricted(_req: Request, env: any): Record<string, string> 
   return {
     'Access-Control-Allow-Origin': isAllowed ? origin : '',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-CSRF-Token',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Requested-With',
     'Access-Control-Allow-Credentials': 'true',
   }
 }
@@ -434,4 +533,3 @@ function withCors(response: Response, cors: Record<string, string>): Response {
     headers: newHeaders,
   })
 }
-

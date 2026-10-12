@@ -172,10 +172,14 @@ export default function ThemesModule() {
 
     setPublishStatus('publishing')
     try {
-      // Sauvegarder dans les brouillons KV
+      // Publier thème vers l'API
       const response = await fetch('/api/cms/themes', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'lma-admin'  // ✅ CSRF token correct
+        },
+        credentials: 'include',  // ✅ Envoyer cookies (session)
         body: JSON.stringify({ action: 'publish', theme: selectedTheme }),
       })
 
@@ -185,6 +189,8 @@ export default function ThemesModule() {
         setPublishStatus('success')
         setTimeout(() => setPublishStatus('idle'), 3000)
       } else {
+        const error = await response.text()
+        console.error('Erreur publication thème:', response.status, error)
         setPublishStatus('error')
         setTimeout(() => setPublishStatus('idle'), 3000)
       }

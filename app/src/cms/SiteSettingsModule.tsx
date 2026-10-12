@@ -47,7 +47,11 @@ export default function SiteSettingsModule() {
       // Publier vers l'API
       const response = await fetch('/api/cms/settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'lma-admin'  // ✅ CSRF token correct
+        },
+        credentials: 'include',  // ✅ Envoyer cookies (session)
         body: JSON.stringify({ action: 'save', settings }),
       })
 
@@ -55,6 +59,8 @@ export default function SiteSettingsModule() {
         setSaveStatus('success')
         setTimeout(() => setSaveStatus('idle'), 3000)
       } else {
+        const error = await response.text()
+        console.error('Erreur sauvegarde settings:', response.status, error)
         setSaveStatus('error')
         setTimeout(() => setSaveStatus('idle'), 3000)
       }

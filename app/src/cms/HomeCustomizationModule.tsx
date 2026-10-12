@@ -59,14 +59,14 @@ export default function HomeCustomizationModule() {
     try {
       localStorage.setItem('cms:home:config', JSON.stringify(config))
 
-      // Publier vers l'API — Nécessite authentification R4
+      // ✅ Publier vers l'API — Requiert authentification R4 + CSRF
       const response = await fetch('/api/cms/home', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'X-CSRF-Token': Math.random().toString(36).substring(7)
+          'X-Requested-With': 'lma-admin'  // ✅ CSRF token correct
         },
-        credentials: 'include',
+        credentials: 'include',  // ✅ Envoyer cookies (session)
         body: JSON.stringify({ action: 'save', config }),
       })
 

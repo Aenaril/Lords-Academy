@@ -82,7 +82,11 @@ export default function AnnouncementsModule() {
     try {
       const response = await fetch('/api/cms/announcements', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'lma-admin'  // ✅ CSRF token correct
+        },
+        credentials: 'include',  // ✅ Envoyer cookies (session)
         body: JSON.stringify({ action: 'publish', announcements }),
       })
 
@@ -90,6 +94,8 @@ export default function AnnouncementsModule() {
         setPublishStatus('success')
         setTimeout(() => setPublishStatus('idle'), 3000)
       } else {
+        const error = await response.text()
+        console.error('Erreur publication annonces:', response.status, error)
         setPublishStatus('error')
         setTimeout(() => setPublishStatus('idle'), 3000)
       }
