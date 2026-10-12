@@ -1,6 +1,6 @@
 {
   "activeThemeId": "light",
-  "publishedAt": 1791836760536,
+  "publishedAt": 1791836802889,
   "theme": {
     "id": "light",
     "name": "Clair",
@@ -38,10 +38,10 @@
       "xl": 32
     },
     "borderRadius": 8,
-    "createdAt": 1791836738044,
-    "modifiedAt": 1791836738044,
+    "createdAt": 1791836784823,
+    "modifiedAt": 1791836784823,
     "isPredefined": true
   },
-  "_rev": 1,
-  "_publishedAt": 1791836760784
+  "_rev": 2,
+  "_publishedAt": 1791836803126
 }
