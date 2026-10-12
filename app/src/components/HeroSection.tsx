@@ -1,5 +1,6 @@
 import './HeroSection.css'
 import { assetPath } from '../utils/assetPath'
+import type { HomePageConfig } from '../cms/types'
 
 interface HeroSectionProps {
   backgroundImage?: string
@@ -7,6 +8,7 @@ interface HeroSectionProps {
   totalCount?: number
   availableCount?: number
   comingSoonCount?: number
+  heroConfig?: HomePageConfig | null
 }
 
 export default function HeroSection({ 
@@ -14,14 +16,19 @@ export default function HeroSection({
   overlayOpacity = 0.5,
   totalCount = 8,
   availableCount = 1,
-  comingSoonCount = 7
+  comingSoonCount = 7,
+  heroConfig
 }: HeroSectionProps) {
+  // ✅ Utiliser les données CMS si disponibles
+  const heroImage = heroConfig?.heroImageUrl || backgroundImage
+  const heroBgColor = heroConfig?.heroBackgroundColor || undefined
   return (
     <section 
       className="hero-section"
       style={{
-        backgroundImage: `url('${backgroundImage}')`,
-        backgroundAttachment: 'fixed'
+        backgroundImage: `url('${heroImage}')`,
+        backgroundAttachment: 'fixed',
+        backgroundColor: heroBgColor || undefined
       }}
     >
       {/* Overlay gradient */}
@@ -35,10 +42,10 @@ export default function HeroSection({
         <div className="hero-section__inner">
           <h1 className="hero-section__title">
             <span className="hero-section__icon">⚔️</span>
-            Lords Mobile Academy
+            {heroConfig?.title || 'Lords Mobile Academy'}
           </h1>
           <p className="hero-section__subtitle">
-            Maîtrisez les tactiques, devenez un champion de votre guilde
+            {heroConfig?.subtitle || 'Maîtrisez les tactiques, devenez un champion de votre guilde'}
           </p>
           <div className="hero-section__stats">
             <div className="hero-stat">

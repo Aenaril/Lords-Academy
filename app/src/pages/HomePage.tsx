@@ -4,6 +4,7 @@ import TutorialCard from '../components/TutorialCard'
 import HeroSection from '../components/HeroSection'
 import Header from '../components/Header'
 import { openAdminLoginForm } from '../admin/AdminBarWrapper'
+import { getHomeConfig, getActiveAnnouncements } from '../cms/CmsConfigLoader'
 import './HomePage.css'
 
 interface HomePageProps {
@@ -13,6 +14,10 @@ interface HomePageProps {
 export default function HomePage({ onSelectTutorial }: HomePageProps) {
   const [tutorials, setTutorials] = useState<Tutorial[]>(staticTutorials)
   const [loadError, setLoadError] = useState<string | null>(null)
+  
+  // ✅ États pour affichage CMS
+  const homeConfig = getHomeConfig()
+  const activeAnnouncements = getActiveAnnouncements()
 
   // Charger les tutoriels publiés depuis l'API au montage et à intervalle régulier
   useEffect(() => {
@@ -80,22 +85,86 @@ export default function HomePage({ onSelectTutorial }: HomePageProps) {
         totalCount={totalCount}
         availableCount={availableCount}
         comingSoonCount={comingSoonCount}
+        heroConfig={homeConfig}
       />
+
+      {/* Annonces Carrousel CMS (si actives) */}
+      {activeAnnouncements.length > 0 && (
+        <section className="announcements-carousel" style={{ margin: '2rem 0' }}>
+          <div className="container">
+            <div className="carousel-wrapper" style={{ 
+              display: 'grid',
+              gridTemplateColumns: `repeat(${Math.min(activeAnnouncements.length, 3)}, 1fr)`,
+              gap: '1.5rem'
+            }}>
+              {activeAnnouncements.map(ann => (
+                <div 
+                  key={ann.id}
+                  className="announcement-card"
+                  style={{
+                    backgroundColor: ann.bgColor,
+                    color: ann.textColor,
+                    padding: '1.5rem',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    transition: 'transform 0.2s',
+                  }}
+                  onMouseEnter={e => {
+                    (e.currentTarget as HTMLElement).style.transform = 'scale(1.05)'
+                  }}
+                  onMouseLeave={e => {
+                    (e.currentTarget as HTMLElement).style.transform = 'scale(1)'
+                  }}
+                  onClick={() => {
+                    if (ann.linkType === 'tutorial') {
+                      onSelectTutorial(ann.buttonLink)
+                    } else if (ann.linkType === 'external') {
+                      window.open(ann.buttonLink, '_blank')
+                    }
+                  }}
+                >
+                  {ann.imageUrl && (
+                    <img 
+                      src={ann.imageUrl} 
+                      alt={ann.title}
+                      style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '4px', marginBottom: '1rem' }}
+                    />
+                  )}
+                  <h3 style={{ margin: '0 0 0.5rem 0' }}>{ann.title}</h3>
+                  <p style={{ margin: '0 0 1rem 0', fontSize: '0.9rem' }}>{ann.description}</p>
+                  <button 
+                    style={{
+                      backgroundColor: ann.textColor,
+                      color: ann.bgColor,
+                      border: 'none',
+                      padding: '0.5rem 1rem',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    {ann.buttonText}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Description Section */}
       <section className="intro-section">
         <div className="container">
           <div className="intro-content">
-            <h2 className="intro-title">Bienvenue à l'Académie</h2>
+            <h2 className="intro-title">
+              {homeConfig?.title || 'Bienvenue à l\'Académie'}
+            </h2>
             <div className="intro-text">
-              <p>
-                Que vous soyez nouvel arrivant ou joueur vétéran, Lords Mobile Academy vous guide 
-                à travers les meilleures stratégies, formations et tactiques de combat.
-              </p>
-              <p>
-                Chaque tutoriel est conçu pour être ludique, interactif et facilement mémorisable. 
-                Apprenez à votre rythme, et dominez votre prochaine bataille.
-              </p>
+              {(homeConfig?.introText || 
+                'Que vous soyez nouvel arrivant ou joueur vétéran, Lords Mobile Academy vous guide à travers les meilleures stratégies, formations et tactiques de combat.\n\nChaque tutoriel est conçu pour être ludique, interactif et facilement mémorisable. Apprenez à votre rythme, et dominez votre prochaine bataille.'
+              ).split('\n\n').map((para, idx) => (
+                <p key={idx}>{para}</p>
+              ))}
             </div>
           </div>
         </div>

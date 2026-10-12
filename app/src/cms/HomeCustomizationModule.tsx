@@ -9,6 +9,7 @@
 
 import { useState, useEffect } from 'react'
 import { HomePageConfig } from './types'
+import { getHomeConfig, reloadCmsConfigs } from './CmsConfigLoader'
 import './HomeCustomizationModule.css'
 
 const DEFAULT_HOME_CONFIG: HomePageConfig = {
@@ -28,35 +29,58 @@ export default function HomeCustomizationModule() {
   const [config, setConfig] = useState<HomePageConfig>(DEFAULT_HOME_CONFIG)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
 
-  // Charger config
+  // ✅ Charger config depuis CMS à la première utilisation
   useEffect(() => {
-    const saved = localStorage.getItem('cms:home:config')
-    if (saved) {
+    const loadConfig = async () => {
       try {
-        setConfig(JSON.parse(saved))
+        // D'abord charger depuis le CMS public
+        const cmsConfig = getHomeConfig()
+        if (cmsConfig) {
+          setConfig(cmsConfig)
+          return
+        }
+
+        // Sinon essayer de charger depuis les anciens localStorage
+        const saved = localStorage.getItem('cms:home:config')
+        if (saved) {
+          setConfig(JSON.parse(saved))
+        }
       } catch (e) {
-        console.error('Erreur parsing home config:', e)
+        console.error('Erreur loading home config:', e)
       }
     }
+
+    loadConfig()
   }, [])
 
-  // Sauvegarder config
+  // ✅ Sauvegarder config — Publier vers l'API ET recharger CMS
   const saveConfig = async () => {
     setSaveStatus('saving')
     try {
       localStorage.setItem('cms:home:config', JSON.stringify(config))
 
-      // Publier vers l'API
+      // Publier vers l'API — Nécessite authentification R4
       const response = await fetch('/api/cms/home', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': Math.random().toString(36).substring(7)
+        },
+        credentials: 'include',
         body: JSON.stringify({ action: 'save', config }),
       })
 
       if (response.ok) {
         setSaveStatus('success')
+        
+        // ✅ Recharger les configs CMS après publication
+        await reloadCmsConfigs()
+        console.info('✅ Configs CMS rechargés après publication')
+        
         setTimeout(() => setSaveStatus('idle'), 3000)
       } else {
+        const error = await response.text()
+        console.error('Erreur publication:', response.status, error)
         setSaveStatus('error')
         setTimeout(() => setSaveStatus('idle'), 3000)
       }

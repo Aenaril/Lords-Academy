@@ -6,12 +6,38 @@ import AdminBarWrapper from './admin/AdminBarWrapper'
 import PWAInstallPrompt from './components/PWAInstallPrompt'
 import PWAUpdatePrompt from './components/PWAUpdatePrompt'
 import { AdminProvider } from './admin/AdminContext'
+import { loadCmsConfigs } from './cms/CmsConfigLoader'
+import { applyTheme } from './cms/ThemeManager'
 
 type PageType = 'home' | 'tutorial'
 
 function App() {
   const [currentPage, setCurrentPage] = useState<PageType>('home')
   const [selectedTutorialId, setSelectedTutorialId] = useState<string>('dragon-arena')
+
+  // ✅ Charger configs CMS au démarrage
+  useEffect(() => {
+    const initializeCms = async () => {
+      try {
+        const cmsConfig = await loadCmsConfigs()
+        
+        // Appliquer le thème
+        if (cmsConfig.theme) {
+          applyTheme(cmsConfig.theme)
+          console.info('✅ Thème CMS appliqué au démarrage')
+        }
+
+        // Log les erreurs éventuelles
+        if (cmsConfig.errors.length > 0) {
+          console.warn('⚠️ Erreurs chargement CMS:', cmsConfig.errors)
+        }
+      } catch (err) {
+        console.error('❌ Erreur initialisation CMS:', err)
+      }
+    }
+
+    initializeCms()
+  }, [])
 
   // Parser les query params au montage
   useEffect(() => {

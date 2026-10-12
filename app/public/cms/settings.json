@@ -1,0 +1,12 @@
+{
+  "settings": {
+    "siteName": "Lords Mobile Academy",
+    "siteDescription": "Un guide complet pour maîtriser les stratégies avancées dans Lords Mobile",
+    "logoUrl": "/icons/logo.svg",
+    "faviconUrl": "/icons/favicon.ico",
+    "privacyPolicyUrl": "/privacy",
+    "termsUrl": "/terms",
+    "contactEmail": "contact@lords-mobile-academy.com"
+  },
+  "publishedAt": 1728556800000
+}
