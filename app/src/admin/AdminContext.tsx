@@ -263,6 +263,7 @@ interface AdminContextValue {
   /* Admin sécurisée distante */
   remoteConfigured: boolean
   isAuthenticated: boolean
+  isVerifying: boolean  // ✅ Vérification de session en cours
   refreshSession: () => Promise<void>
   logout: () => Promise<void>
   /** Publie vers le backend (si configuré + authentifié). */
@@ -296,6 +297,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
   // Session admin distante (cookie HttpOnly côté Worker)
   const remoteConfigured = isRemoteConfigured()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isVerifying, setIsVerifying] = useState(remoteConfigured) // Vérification en cours au montage si remote
   const [isPublishing, setIsPublishing] = useState(false)
   const [publishLoadError, setPublishLoadError] = useState<string | null>(null) // Erreur de chargement version publiée
   
@@ -430,10 +432,21 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
 
   // Vérifie la session au montage si le backend est configuré.
   useEffect(() => {
-    if (!remoteConfigured) return
+    if (!remoteConfigured) {
+      setIsVerifying(false)
+      return
+    }
     let cancelled = false
     adminApi.session().then((s) => {
-      if (!cancelled) setIsAuthenticated(!!s.authenticated)
+      if (!cancelled) {
+        setIsAuthenticated(!!s.authenticated)
+        setIsVerifying(false)
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setIsAuthenticated(false)
+        setIsVerifying(false)
+      }
     })
     return () => {
       cancelled = true
@@ -453,6 +466,10 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     setIsAuthenticated(false)
     // Désactiver immédiatement le mode édition après déconnexion
     setIsAdminMode(false)
+    // ✅ Nettoyer le flag CMS_OPEN_KEY après déconnexion (prévenir réouverture intempestive)
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('lma_cms_open', 'false')
+    }
   }, [remoteConfigured])
 
   const publish = useCallback(async () => {
@@ -1038,6 +1055,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       deleteVersion,
       remoteConfigured,
       isAuthenticated,
+      isVerifying,  // ✅ Ajouter isVerifying
       refreshSession,
       logout,
       publish,
@@ -1079,6 +1097,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       deleteVersion,
       remoteConfigured,
       isAuthenticated,
+      isVerifying,  // ✅ Ajouter isVerifying au tableau de dépendances
       refreshSession,
       logout,
       publish,

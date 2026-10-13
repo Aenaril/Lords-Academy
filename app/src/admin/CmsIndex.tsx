@@ -49,7 +49,7 @@ export default function CmsIndex({ onSelectTutorial, onClose }: CmsIndexProps) {
   }, [])
 
   const handleClose = () => {
-    // Quand on ferme explicitement, marquer comme fermé
+    // ✅ Marquer explicitement comme fermé dans sessionStorage
     sessionStorage.setItem(CMS_OPEN_KEY, 'false')
     onClose?.()
   }

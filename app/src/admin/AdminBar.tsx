@@ -35,6 +35,7 @@ export default function AdminBar({ onSelectTutorial }: AdminBarProps) {
     discardDraftAsync,
     remoteConfigured,
     isAuthenticated,
+    isVerifying,
     logout,
     publish,
     isPublishing
@@ -43,17 +44,25 @@ export default function AdminBar({ onSelectTutorial }: AdminBarProps) {
   const [showHistory, setShowHistory] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showMyTutorials, setShowMyTutorials] = useState(false)
-  const [showCms, setShowCms] = useState(() => {
-    // Restaurer l'état du CMS depuis sessionStorage (sauf si fermé explicitement)
-    const wasCmsOpen = sessionStorage.getItem(CMS_OPEN_KEY)
-    return wasCmsOpen === 'true'
-  })
+  const [showCms, setShowCms] = useState(false)  // ✅ Initialiser à false (restauration sécurisée via useEffect)
   const isDev = import.meta.env.DEV
 
-  // Synchroniser l'état du CMS avec sessionStorage
+  // ✅ Restauration sécurisée du CMS après F5 :
+  // - Attendre la fin de la vérification (isVerifying === false)
+  // - Vérifier que l'utilisateur est authentifié
+  // - Vérifier que isAdminMode est actif
+  // - Seulement ALORS restaurer si sessionStorage indique "ouvert"
   useEffect(() => {
-    sessionStorage.setItem(CMS_OPEN_KEY, showCms ? 'true' : 'false')
-  }, [showCms])
+    if (isVerifying) return // Attendre la fin de la vérification
+    if (remoteConfigured && !isAuthenticated) return // Session invalide
+    if (!isAdminMode) return // Mode édition désactivé
+    
+    // Session valide + mode édition actif : restaurer l'état du CMS
+    const wasCmsOpen = sessionStorage.getItem(CMS_OPEN_KEY)
+    if (wasCmsOpen === 'true') {
+      setShowCms(true)
+    }
+  }, [isVerifying, remoteConfigured, isAuthenticated, isAdminMode])
 
   const handleDiscard = async () => {
     // CORRECTION : Utiliser discardDraftAsync pour aussi supprimer le KV distant si en mode remote
@@ -259,7 +268,11 @@ export default function AdminBar({ onSelectTutorial }: AdminBarProps) {
       {/* CMS complet — fenêtre modale */}
       <CmsModal
         isOpen={showCms}
-        onClose={() => setShowCms(false)}
+        onClose={() => {
+          // ✅ Marquer explicitement comme fermé pour empêcher la réouverture au F5
+          sessionStorage.setItem(CMS_OPEN_KEY, 'false')
+          setShowCms(false)
+        }}
         onSelectTutorial={onSelectTutorial ?? (() => {})}
       />
     </>
