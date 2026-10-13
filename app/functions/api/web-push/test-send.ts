@@ -170,7 +170,7 @@ async function sendNotification(
 
     const payloadData: any = {
       title: notification.title,
-      message: notification.message,
+      body: notification.message,  // Changed from 'message' to 'body' for Service Worker compatibility
       tag: `lma-${notification.scheduleId}`,
       data: notificationData,
     };
