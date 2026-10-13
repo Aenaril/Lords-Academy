@@ -8,8 +8,21 @@
  * - Idempotence (même endpoint = réutiliser ID existant)
  * - Rate limiting (max 10 req/min par IP)
  * - Pas de journalisation des clés de chiffrement
- * - Stockage KV optionnel (fail gracefully si absent)
+ * - Stockage KV OBLIGATOIRE (pas de faux succès)
  */
+
+/**
+ * Générer un hash SHA-256 déterministe de l'endpoint
+ * Pour lookup idempotent sans exposer l'endpoint complet
+ */
+async function hashEndpoint(endpoint: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(endpoint)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  return hashHex.substring(0, 32) // Limiter à 32 chars
+}
 
 export async function onRequest(context: any) {
   const { request, env } = context
@@ -100,42 +113,78 @@ export async function onRequest(context: any) {
       )
     }
 
-    // ✅ Générer ID de subscription
-    const subscriptionId = `sub-${crypto.randomUUID()}`
-
-    // ✅ Essayer de stocker dans KV (optionnel)
-    let stored = false
-    if (env.NOTIFICATIONS_SUBSCRIPTIONS) {
-      try {
-        await env.NOTIFICATIONS_SUBSCRIPTIONS.put(
-          subscriptionId,
-          JSON.stringify({
-            id: subscriptionId,
-            endpoint,
-            p256dh,
-            auth,
-            createdAt: Date.now(),
-            userAgent: request.headers.get('user-agent') || 'unknown',
-          }),
-          { expirationTtl: 90 * 24 * 60 * 60 } // 90 jours
-        )
-        stored = true
-      } catch (err) {
-        console.warn('[WebPush] KV storage failed (non-blocking):', err)
-        // Continuer même si KV échoue, mais noter l'erreur
-      }
-    }
-
-    // ⚠️ Si KV non disponible ET pas de fallback, avertir
-    if (!stored && !env.NOTIFICATIONS_SUBSCRIPTIONS) {
-      console.warn('[WebPush] Warning: NOTIFICATIONS_SUBSCRIPTIONS KV not configured')
+    // ✅ Vérifier KV disponible
+    if (!env.NOTIFICATIONS_SUBSCRIPTIONS) {
+      console.error('[WebPush] NOTIFICATIONS_SUBSCRIPTIONS KV not configured')
       return new Response(
         JSON.stringify({
           ok: false,
-          error: 'Notifications storage not configured (KV namespace missing)',
+          error: 'Notifications storage not configured',
           code: 'STORAGE_NOT_CONFIGURED',
         }),
         { status: 503, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // ✅ Hash endpoint pour clé déterministe (idempotence)
+    const endpointHash = await hashEndpoint(endpoint)
+    const lookupKey = `endpoint:${endpointHash}`
+
+    // ✅ Chercher abonnement existant (idempotence)
+    let existingSubscription: any = null
+    try {
+      const existing = await env.NOTIFICATIONS_SUBSCRIPTIONS.get(lookupKey, 'json')
+      if (existing && existing.id) {
+        existingSubscription = existing
+      }
+    } catch (err) {
+      // Continuer si lookup échoue
+      console.warn('[WebPush] KV lookup failed (continue):', err)
+    }
+
+    let subscriptionId = existingSubscription?.id
+    let isNewSubscription = !existingSubscription
+
+    // ✅ Si nouvel abonnement, générer ID
+    if (isNewSubscription) {
+      subscriptionId = `sub-${crypto.randomUUID()}`
+    }
+
+    // ✅ Construire payload
+    const subscriptionPayload = {
+      id: subscriptionId,
+      endpoint,
+      p256dh,
+      auth,
+      createdAt: existingSubscription?.createdAt || Date.now(),
+      updatedAt: Date.now(),
+      userAgent: request.headers.get('user-agent') || 'unknown',
+    }
+
+    // ✅ Stocker OBLIGATOIREMENT
+    try {
+      // Store by subscriptionId (primary)
+      await env.NOTIFICATIONS_SUBSCRIPTIONS.put(
+        subscriptionId,
+        JSON.stringify(subscriptionPayload),
+        { expirationTtl: 90 * 24 * 60 * 60 } // 90 jours
+      )
+
+      // Store by endpoint hash (lookup for idempotence)
+      await env.NOTIFICATIONS_SUBSCRIPTIONS.put(
+        lookupKey,
+        JSON.stringify(subscriptionPayload),
+        { expirationTtl: 90 * 24 * 60 * 60 }
+      )
+    } catch (err) {
+      console.error('[WebPush] KV.put failed (CRITICAL):', err)
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: 'Failed to store subscription',
+          code: 'STORAGE_ERROR',
+        }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
       )
     }
 
@@ -144,8 +193,9 @@ export async function onRequest(context: any) {
       JSON.stringify({
         ok: true,
         subscriptionId,
+        isNewSubscription,
       }),
-      { status: 201, headers: { 'Content-Type': 'application/json' } }
+      { status: isNewSubscription ? 201 : 200, headers: { 'Content-Type': 'application/json' } }
     )
   } catch (err) {
     console.error('[WebPush] Subscribe error:', err)

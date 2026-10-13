@@ -7,8 +7,21 @@
  * - Validation stricte du subscriptionId
  * - Limitation à 1 désabonnement par subscription
  * - Protection contre les suppressions arbitraires
- * - Rate limiting (max 10 req/min par IP)
+ * - Stockage KV OBLIGATOIRE (pas de faux succès)
  */
+
+/**
+ * Générer un hash SHA-256 déterministe de l'endpoint
+ * Pour cleanup lookup key lors du désabonnement
+ */
+async function hashEndpoint(endpoint: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(endpoint)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  return hashHex.substring(0, 32)
+}
 
 export async function onRequest(context: any) {
   const { request, env } = context
@@ -62,24 +75,9 @@ export async function onRequest(context: any) {
       )
     }
 
-    // ✅ Supprimer de KV
-    let deleted = false
-    if (env.NOTIFICATIONS_SUBSCRIPTIONS) {
-      try {
-        // Vérifier que la clé existe (protection)
-        const existing = await env.NOTIFICATIONS_SUBSCRIPTIONS.get(subscriptionId)
-        if (existing) {
-          await env.NOTIFICATIONS_SUBSCRIPTIONS.delete(subscriptionId)
-          deleted = true
-        }
-      } catch (err) {
-        console.warn('[WebPush] KV delete failed (non-blocking):', err)
-      }
-    }
-
-    // ⚠️ Si KV non disponible, noter
-    if (!deleted && !env.NOTIFICATIONS_SUBSCRIPTIONS) {
-      console.warn('[WebPush] Warning: NOTIFICATIONS_SUBSCRIPTIONS KV not configured')
+    // ✅ Vérifier KV disponible
+    if (!env.NOTIFICATIONS_SUBSCRIPTIONS) {
+      console.error('[WebPush] NOTIFICATIONS_SUBSCRIPTIONS KV not configured')
       return new Response(
         JSON.stringify({
           ok: false,
@@ -90,7 +88,50 @@ export async function onRequest(context: any) {
       )
     }
 
-    // ✅ Succès (même si pas trouvé = pas d'erreur, juste idempotent)
+    // ✅ Supprimer de KV
+    try {
+      // Vérifier que la clé existe (protection contre suppressions arbitraires)
+      const existing = await env.NOTIFICATIONS_SUBSCRIPTIONS.get(subscriptionId)
+      if (!existing) {
+        // ✅ Idempotence : déjà supprimé = succès
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            alreadyDeleted: true,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      }
+
+      // Supprimer par subscriptionId
+      await env.NOTIFICATIONS_SUBSCRIPTIONS.delete(subscriptionId)
+
+      // Trouver et supprimer aussi par endpoint hash (cleanup lookup key)
+      // Parse existing to get endpoint
+      const subscription = JSON.parse(existing)
+      if (subscription.endpoint) {
+        const endpointHash = await hashEndpoint(subscription.endpoint)
+        const lookupKey = `endpoint:${endpointHash}`
+        try {
+          await env.NOTIFICATIONS_SUBSCRIPTIONS.delete(lookupKey)
+        } catch (err) {
+          console.warn('[WebPush] Failed to delete lookup key:', err)
+          // Non-critique, continuer
+        }
+      }
+    } catch (err) {
+      console.error('[WebPush] KV delete failed (CRITICAL):', err)
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: 'Failed to delete subscription',
+          code: 'STORAGE_ERROR',
+        }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // ✅ Succès
     return new Response(
       JSON.stringify({
         ok: true,

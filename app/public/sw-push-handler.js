@@ -1,17 +1,20 @@
 /**
  * Extension du Service Worker pour gérer les événements push
  * 
- * Ce fichier étend les capacités du SW généré par Workbox
- * pour afficher les notifications push reçues.
+ * IMPORTANT: Ce fichier est EN ATTENTE d'intégration avec Workbox.
+ * Actuellement, Workbox génère son propre SW avec skipWaiting:true,
+ * ce qui peut écraser ce code.
  * 
- * Phase B : mise en place, pas d'envoi réel
- * Phase C : intégration avec le Cron scheduler
+ * Phase B: Handlers enregistrés, pas d'envoi réel
+ * Phase C: Intégration Cron + envois push via pushforge
  */
 
-// ✅ Gérer les événements push entrants
+// ========== PUSH EVENT HANDLER ==========
 self.addEventListener('push', (event) => {
+  console.log('[SW Push] Push event received:', event)
+
   if (!event.data) {
-    console.log('[SW Push] Empty push event (no data)')
+    console.warn('[SW Push] Push event with no data')
     return
   }
 
@@ -38,7 +41,7 @@ self.addEventListener('push', (event) => {
     console.log('[SW Push] Notification displayed:', data.title)
   } catch (err) {
     console.error('[SW Push] Error handling push event:', err)
-    // Fallback : afficher une notification générique
+    // Fallback
     event.waitUntil(
       self.registration.showNotification('Lords Mobile Academy', {
         body: 'Nouvelle notification',
@@ -49,8 +52,10 @@ self.addEventListener('push', (event) => {
   }
 })
 
-// ✅ Gérer les clics sur notifications
+// ========== NOTIFICATION CLICK HANDLER ==========
 self.addEventListener('notificationclick', (event) => {
+  console.log('[SW Push] Notification clicked:', event.notification.tag)
+
   event.notification.close()
 
   const url = event.notification.data?.url || '/'
@@ -72,17 +77,12 @@ self.addEventListener('notificationclick', (event) => {
       })
   )
 
-  console.log('[SW Push] Notification clicked, navigated to:', url)
+  console.log('[SW Push] Navigated to:', url)
 })
 
-// ✅ Gérer les fermetures de notifications
+// ========== NOTIFICATION CLOSE HANDLER ==========
 self.addEventListener('notificationclose', (event) => {
   console.log('[SW Push] Notification closed:', event.notification.tag)
 })
 
-// ✅ Gérer les erreurs de push
-self.addEventListener('push', (event) => {
-  if (!event.data) {
-    console.warn('[SW Push] Push event with no data received')
-  }
-})
+console.log('[SW Push] Push handlers registered in Service Worker')

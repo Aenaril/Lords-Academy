@@ -73,6 +73,15 @@ export async function subscribeToPushNotifications(
     }
   }
 
+  // ✅ Vérifier VAPID
+  if (!vapidPublicKey || typeof vapidPublicKey !== 'string' || vapidPublicKey.length === 0) {
+    return {
+      ok: false,
+      error: 'Clé VAPID publique manquante (configuration serveur requise)',
+      code: 'VAPID_MISSING',
+    }
+  }
+
   try {
     // Enregistrer le Service Worker
     const registration = await navigator.serviceWorker.ready
@@ -106,6 +115,10 @@ export async function subscribeToPushNotifications(
     }
 
     const result = (await response.json()) as SubscriptionResponse
+    // ✅ S'assurer que subscriptionId est retourné
+    if (!result.subscriptionId) {
+      throw new Error('Serveur n\'a pas retourné subscriptionId')
+    }
     return result
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

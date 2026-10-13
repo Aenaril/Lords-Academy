@@ -65,6 +65,13 @@ export function NotificationPermissionButton({ vapidPublicKey }: Props) {
       return
     }
 
+    // ✅ Vérifier VAPID
+    if (!vapidPublicKey) {
+      setSubscriptionState('error')
+      setErrorMessage('Clé VAPID manquante (configuration requise)')
+      return
+    }
+
     setSubscriptionState('loading')
     setErrorMessage('')
 
@@ -83,7 +90,9 @@ export function NotificationPermissionButton({ vapidPublicKey }: Props) {
     // S'abonner
     const response = await subscribeToPushNotifications(vapidPublicKey)
 
-    if (response.ok) {
+    if (response.ok && response.subscriptionId) {
+      // ✅ SAUVEGARDER subscriptionId (CRITIQUE)
+      localStorage.setItem('lma-subscription-id', response.subscriptionId)
       setSubscriptionState('subscribed')
       setErrorMessage('')
     } else {

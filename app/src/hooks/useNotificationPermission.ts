@@ -1,5 +1,9 @@
 /**
  * Hook pour gérer l'état des notifications push
+ * 
+ * ✅ Vérification initiale uniquement (pas de polling agressif)
+ * ✅ Écoute les changements du navigateur (storagechange)
+ * ✅ Utilise localStorage comme source de vérité
  */
 
 import { useState, useEffect } from 'react'
@@ -37,9 +41,18 @@ export function useNotificationPermission(): UseNotificationPermissionResult {
       const perm = await getNotificationState()
       setPermission(perm)
 
-      if (perm === 'granted') {
-        const subscribed = await isCurrentlySubscribed()
-        setIsSubscribed(subscribed)
+      // ✅ Utiliser localStorage comme source de vérité
+      const subscriptionId = localStorage.getItem('lma-subscription-id')
+      if (subscriptionId) {
+        setIsSubscribed(true)
+      } else {
+        // Vérifier si PushManager a une subscription (cas F5 ou localStorage corrompu)
+        if (perm === 'granted') {
+          const subscribed = await isCurrentlySubscribed()
+          setIsSubscribed(subscribed)
+        } else {
+          setIsSubscribed(false)
+        }
       }
 
       setIsLoading(false)
@@ -47,9 +60,17 @@ export function useNotificationPermission(): UseNotificationPermissionResult {
 
     check()
 
-    // Rafraîchir l'état toutes les 5 secondes
-    const interval = setInterval(check, 5000)
-    return () => clearInterval(interval)
+    // ✅ Écouter les changements localStorage (autre onglet/tab)
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'lma-subscription-id') {
+        setIsSubscribed(!!event.newValue)
+      }
+    }
+
+    window.addEventListener('storage', handleStorageChange)
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+    }
   }, [])
 
   return { isSupported, permission, isSubscribed, isLoading }
