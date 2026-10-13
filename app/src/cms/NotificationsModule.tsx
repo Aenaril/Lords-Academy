@@ -25,6 +25,7 @@ import {
   datetimeLocalValueToUtc,
   formatBrussels,
 } from './timezone'
+import { migrateNotifications } from './notificationsMigration'
 import { usePublishedTutorials } from './usePublishedTutorials'
 import './NotificationsModule.css'
 
@@ -68,37 +69,8 @@ export default function NotificationsModule({ isAuthenticated = false }: Notific
       setSyncStatus('loading')
       Promise.all([loadSchedulesServer(), loadEvents()])
         .then(([serverNotifs, serverEvents]) => {
-          // Migration : convertir les anciennes notifications avec eventId
-          // en notifications autonomes
-          const migratedNotifs = serverNotifs.map((notif) => {
-            // Si la notification a eventId (ancien format), on la convertit
-            if (notif.eventId) {
-              const event = serverEvents.find((e) => e.id === notif.eventId)
-              if (event) {
-                // Convertir le format ancien vers autonome
-                const migratedNotif: EventNotificationSchedule = {
-                  id: notif.id,
-                  enabled: notif.enabled,
-                  title: notif.title || `Rappel : ${event.name}`,
-                  message: notif.message || `${event.name} approche !`,
-                  imageUrl: notif.imageUrl,
-                  tutorialId: notif.tutorialId || event.tutorialId,
-                  absoluteTime: notif.absoluteTime || event.startAt,
-                  // Convertir les anciens rappels relatifs en nouveau format
-                  relativeReminders: [], // TODO: si besoin, convertir les anciens reminders
-                  createdAt: notif.createdAt || Date.now(),
-                  modifiedAt: notif.modifiedAt || Date.now(),
-                  eventId: notif.eventId, // Garder temporairement pour debug
-                }
-                return migratedNotif
-              }
-            }
-            // Si déjà au format autonome, nettoyer eventId s'il existe
-            return {
-              ...notif,
-              eventId: undefined, // Supprimer la dépendance aux événements
-            }
-          })
+          // Migration non-destructive : convertir anciennes notifications
+          const migratedNotifs = migrateNotifications(serverNotifs, serverEvents)
 
           setNotifications(migratedNotifs)
           localStorage.setItem(LS_KEY, JSON.stringify(migratedNotifs))
