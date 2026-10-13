@@ -64,7 +64,7 @@ export async function requestNotificationPermission(): Promise<'granted' | 'deni
  * S'abonner aux notifications push
  * 
  * Retourne subscriptionId (pour plus tard) ET revocationSecret
- * (à sauvegarder localement pour désabonner)
+ * (à sauvegarder localement pour désabonner + réabonner)
  */
 export async function subscribeToPushNotifications(
   vapidPublicKey: string,
@@ -102,6 +102,9 @@ export async function subscribeToPushNotifications(
       throw new Error('Données d\'abonnement incomplètes')
     }
 
+    // ✅ SÉCURITÉ : Récupérer l'ancien secret si réabonnement (F5 recovery)
+    const oldRevocationSecret = localStorage.getItem('lma-revocation-secret')
+
     // Envoyer au serveur
     const response = await fetch('/api/web-push/subscribe', {
       method: 'POST',
@@ -110,6 +113,8 @@ export async function subscribeToPushNotifications(
         endpoint: data.endpoint,
         p256dh: data.keys.p256dh,
         auth: data.keys.auth,
+        // ✅ Inclure ancien secret comme preuve de possession (réabonnement)
+        ...(oldRevocationSecret && { oldRevocationSecret }),
       }),
     })
 
@@ -123,6 +128,11 @@ export async function subscribeToPushNotifications(
     if (!result.subscriptionId || !result.revocationSecret) {
       throw new Error('Serveur n\'a pas retourné les identifiants requis')
     }
+
+    // ✅ SAUVEGARDER le nouveau revocationSecret en localStorage
+    localStorage.setItem('lma-subscription-id', result.subscriptionId)
+    localStorage.setItem('lma-revocation-secret', result.revocationSecret)
+
     return result
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

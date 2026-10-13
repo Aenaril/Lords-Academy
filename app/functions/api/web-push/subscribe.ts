@@ -3,16 +3,146 @@
  * 
  * Abonner un joueur aux notifications push.
  * 
- * SÉCURITÉ :
+ * SÉCURITÉ (Protection contre prise de contrôle) :
+ * 
+ * PREMIER ABONNEMENT :
  * - Validation stricte des données
  * - HTTPS obligatoire
  * - Domaines whitelist validés exactement
- * - Idempotence (même endpoint = réutiliser ID existant)
- * - Secret de révocation généré et retourné au navigateur seul
- * - Condensat du secret stocké en KV
- * - Rate limiting implémenté
- * - Stockage KV OBLIGATOIRE
+ * - Générer secret de révocation unique
+ * - Retourner secret AU NAVIGATEUR SEUL (jamais stocké en clair)
+ * - Hasher secret en KV
+ * 
+ * RÉABONNEMENT (endpoint existe) :
+ * - CLIENT DOIT PROUVER POSSESSION : transmettre oldRevocationSecret
+ * - Vérifier hash(oldRevocationSecret) === KV.revocationSecretHash
+ * - Si preuve valide : générer NOUVEAU secret
+ * - Si preuve invalide : 403 UNAUTHORIZED (tiers malveillant rejeté)
+ * - Pas de preuve fournie : 403 UNAUTHORIZED (protection takeover)
+ * 
+ * F5 RECOVERY :
+ * - Navigateur sauvegarde revocationSecret en localStorage
+ * - F5 : localStorage persiste
+ * - Resubscribe envoi (endpoint, keys, oldRevocationSecret)
+ * - Server vérifie hash, génère nouveau secret
+ * - Nouveau secret retourné, localStorage mis à jour
+ * 
+ * RATE LIMITING :
+ * - Basé sur IP + endpoint (via Cloudflare headers X-Forwarded-For)
+ * - Bucket: "rate-limit:IP:endpoint" en KV
+ * - Max 10 subscribe par 15 min par (IP, endpoint)
+ * - Coût: ~0.02 writes/request (1 write par intervalle 15min)
+ * - Compatible plan gratuit Cloudflare
+ * 
+ * Stockage KV OBLIGATOIRE
  */
+
+/**
+ * Vérifier et décrémenter le rate limit
+ * Retourne: { allowed: boolean, remaining: number, resetAt: number }
+ */
+async function checkRateLimit(
+  env: any,
+  ipAddress: string,
+  endpoint: string,
+  maxRequests: number = 10,
+  windowSeconds: number = 15 * 60, // 15 minutes
+): Promise<{
+  allowed: boolean
+  remaining: number
+  resetAt: number
+}> {
+  const key = `rate-limit:${ipAddress}:${endpoint.substring(0, 50)}`
+
+  try {
+    const current = await env.NOTIFICATIONS_SUBSCRIPTIONS.get(key, 'json')
+
+    if (!current) {
+      // Première requête : initialiser le bucket
+      const resetAt = Date.now() + windowSeconds * 1000
+
+      await env.NOTIFICATIONS_SUBSCRIPTIONS.put(
+        key,
+        JSON.stringify({
+          count: 1,
+          resetAt,
+          createdAt: Date.now(),
+        }),
+        { expirationTtl: windowSeconds }
+      )
+
+      return {
+        allowed: true,
+        remaining: maxRequests - 1,
+        resetAt,
+      }
+    }
+
+    // Vérifier si la fenêtre est expirée
+    if (Date.now() > current.resetAt) {
+      // Nouvelle fenêtre
+      const newResetAt = Date.now() + windowSeconds * 1000
+
+      await env.NOTIFICATIONS_SUBSCRIPTIONS.put(
+        key,
+        JSON.stringify({
+          count: 1,
+          resetAt: newResetAt,
+          createdAt: Date.now(),
+        }),
+        { expirationTtl: windowSeconds }
+      )
+
+      return {
+        allowed: true,
+        remaining: maxRequests - 1,
+        resetAt: newResetAt,
+      }
+    }
+
+    // Vérifier si quota dépassé
+    const count = current.count || 0
+    if (count >= maxRequests) {
+      return {
+        allowed: false,
+        remaining: 0,
+        resetAt: current.resetAt,
+      }
+    }
+
+    // Incrémenter le compteur
+    await env.NOTIFICATIONS_SUBSCRIPTIONS.put(
+      key,
+      JSON.stringify({
+        ...current,
+        count: count + 1,
+      }),
+      { expirationTtl: windowSeconds }
+    )
+
+    return {
+      allowed: true,
+      remaining: maxRequests - (count + 1),
+      resetAt: current.resetAt,
+    }
+  } catch (err) {
+    // Si erreur KV, LOG mais ne pas bloquer (fail open)
+    console.warn('[WebPush] Rate limit check failed, allowing request:', err)
+    return {
+      allowed: true,
+      remaining: -1, // Inconnu
+      resetAt: Date.now() + 15 * 60 * 1000,
+    }
+  }
+}
+
+/**
+ * Extraire l'IP depuis Cloudflare headers
+ */
+function getClientIP(request: any): string {
+  // Cloudflare envoie X-Forwarded-For
+  return request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'unknown'
+}
 
 /**
  * Générer un hash SHA-256 déterministe de l'endpoint
@@ -182,6 +312,29 @@ export async function onRequest(context: any) {
       )
     }
 
+    // ✅ RATE LIMITING : Vérifier quota par (IP, endpoint)
+    const clientIP = getClientIP(request)
+    const rateLimit = await checkRateLimit(env, clientIP, endpoint)
+
+    if (!rateLimit.allowed) {
+      const retryAfter = Math.ceil((rateLimit.resetAt - Date.now()) / 1000)
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: 'Rate limit exceeded. Too many subscribe requests.',
+          code: 'RATE_LIMITED',
+          retryAfter,
+        }),
+        {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': String(retryAfter),
+          },
+        }
+      )
+    }
+
     // ✅ Hash endpoint pour clé déterministe (idempotence)
     const endpointHash = await hashEndpoint(endpoint)
     const lookupKey = `endpoint:${endpointHash}`
@@ -199,10 +352,47 @@ export async function onRequest(context: any) {
 
     let subscriptionId = existingSubscription?.id
     let isNewSubscription = !existingSubscription
+    let revocationSecret: string
 
-    // ✅ Générer TOUJOURS un nouveau secret de révocation
-    // (même pour réabonnement = nouvelle preuve)
-    const revocationSecret = generateRevocationSecret()
+    // ✅ SÉCURITÉ : Si réabonnement, exiger preuve de possession
+    if (!isNewSubscription && existingSubscription) {
+      // Réabonnement = endpoint existe déjà
+      // Client DOIT transmettre l'ancien secret pour preuve de possession
+      const { oldRevocationSecret } = body
+
+      if (!oldRevocationSecret || typeof oldRevocationSecret !== 'string') {
+        // Pas de secret fourni = tiers malveillant tentant prise de contrôle
+        console.warn('[WebPush] Resubscription attempt WITHOUT proof for endpoint:', endpointHash)
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: 'Resubscription requires proof of possession (oldRevocationSecret)',
+            code: 'UNAUTHORIZED',
+          }),
+          { status: 403, headers: { 'Content-Type': 'application/json' } }
+        )
+      }
+
+      // ✅ Vérifier que le secret fourni correspond au hash stocké
+      const providedSecretHash = await hashRevocationSecret(oldRevocationSecret)
+      if (providedSecretHash !== existingSubscription.revocationSecretHash) {
+        console.warn('[WebPush] Invalid revocation secret for resubscription')
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: 'Invalid revocation secret',
+            code: 'UNAUTHORIZED',
+          }),
+          { status: 403, headers: { 'Content-Type': 'application/json' } }
+        )
+      }
+
+      // ✅ Preuve valide : générer NOUVEAU secret
+      revocationSecret = generateRevocationSecret()
+    } else {
+      // ✅ Premier abonnement : générer secret neuf
+      revocationSecret = generateRevocationSecret()
+    }
 
     // ✅ Si nouvel abonnement, générer ID
     if (isNewSubscription) {
