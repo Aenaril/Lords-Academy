@@ -87,11 +87,14 @@ export function migrateNotification(
       message: old.message || '',
       imageUrl: old.imageUrl,
       tutorialId: old.tutorialId,
-      // Utiliser l'absoluteTime ancien s'il existe, sinon Date.now()
-      absoluteTime: old.absoluteTime || Date.now(),
+      // ⚠️ CRITIQUE : Utiliser l'absoluteTime ancien s'il existe
+      // NE JAMAIS fallback à Date.now() (cela invente une date arbitraire)
+      // Si absoluteTime manque, utiliser une sentinel value neutre
+      // Phase B déterminera comment gérer ces cas
+      absoluteTime: old.absoluteTime !== undefined ? old.absoluteTime : 0,
       relativeReminders: [],
-      createdAt: old.createdAt || Date.now(),
-      modifiedAt: old.modifiedAt || Date.now(),
+      createdAt: old.createdAt || 0,
+      modifiedAt: old.modifiedAt || 0,
       eventId: old.eventId, // Garder la référence perdue pour audit
     }
   }

@@ -526,26 +526,110 @@ async function handleCmsNotifications(req: Request, env: any): Promise<Response>
   }
 
   if (action === 'subscribe') {
-    // Inscription aux notifications — Pas d'authentification requise (côté client)
-    // La sécurité est fournie par la possession de la clé endpoint (VAPID)
+    // Inscription aux notifications — Phase A : Pas encore implémentée
+    // ⚠️ ACTION BLOQUÉE JUSQU'À PHASE B (KV persistence)
+    // 
+    // Validation de données seulement. Aucune persistance.
+    // À partir de Phase B : sauvegarder dans KV avec TTL (90 jours)
+    
     const subscription = body?.subscription
-    if (!subscription || !subscription.endpoint) {
-      return json({ ok: false, error: 'Invalid subscription' }, 400)
+    
+    // Validation stricte de la structure
+    if (!subscription || typeof subscription !== 'object') {
+      return json(
+        { 
+          ok: false, 
+          error: 'Invalid subscription: must be an object',
+          code: 'INVALID_SUBSCRIPTION_TYPE'
+        }, 
+        400
+      )
     }
-
-    console.info(`✅ CMS subscribe: ${subscription.endpoint.substring(0, 50)}...`)
-    return json({ ok: true, message: 'Subscription received' })
+    
+    if (!subscription.endpoint || typeof subscription.endpoint !== 'string') {
+      return json(
+        { 
+          ok: false, 
+          error: 'Invalid subscription: endpoint is required and must be a string',
+          code: 'INVALID_ENDPOINT'
+        }, 
+        400
+      )
+    }
+    
+    if (!subscription.keys || typeof subscription.keys !== 'object') {
+      return json(
+        { 
+          ok: false, 
+          error: 'Invalid subscription: keys (p256dh, auth) are required',
+          code: 'INVALID_KEYS'
+        }, 
+        400
+      )
+    }
+    
+    const { p256dh, auth } = subscription.keys
+    if (!p256dh || !auth) {
+      return json(
+        { 
+          ok: false, 
+          error: 'Invalid subscription: p256dh and auth keys are required',
+          code: 'MISSING_CRYPTO_KEYS'
+        }, 
+        400
+      )
+    }
+    
+    // ✅ Validation réussie, mais persistance non implémentée
+    console.info(`[Phase A] Subscribe validation OK (endpoint hash: ${hashEndpoint(subscription.endpoint)})`)
+    
+    return json(
+      { 
+        ok: false,
+        error: 'Subscription service not yet available',
+        message: 'Web Push subscriptions will be implemented in Phase B (after KV namespace is configured)',
+        code: 'NOT_IMPLEMENTED_PHASE_B',
+        details: {
+          validationStatus: 'passed',
+          persistenceStatus: 'pending_kv_setup'
+        }
+      },
+      503 // Service Unavailable — indicates temporary unavailability pending infrastructure
+    )
   }
 
   if (action === 'unsubscribe') {
-    // Désinscription — Pas d'authentification requise
+    // Désinscription — Phase A : Pas encore implémentée
+    // ⚠️ ACTION BLOQUÉE JUSQU'À PHASE B (KV persistence)
+    
     const subscription = body?.subscription
-    if (!subscription || !subscription.endpoint) {
-      return json({ ok: false, error: 'Invalid subscription' }, 400)
+    
+    if (!subscription || !subscription.endpoint || typeof subscription.endpoint !== 'string') {
+      return json(
+        { 
+          ok: false, 
+          error: 'Invalid subscription: endpoint is required and must be a string',
+          code: 'INVALID_ENDPOINT'
+        }, 
+        400
+      )
     }
-
-    console.info(`✅ CMS unsubscribe: ${subscription.endpoint.substring(0, 50)}...`)
-    return json({ ok: true, message: 'Unsubscribed' })
+    
+    console.info(`[Phase A] Unsubscribe validation OK (endpoint hash: ${hashEndpoint(subscription.endpoint)})`)
+    
+    return json(
+      { 
+        ok: false,
+        error: 'Unsubscribe service not yet available',
+        message: 'Web Push unsubscriptions will be implemented in Phase B (after KV namespace is configured)',
+        code: 'NOT_IMPLEMENTED_PHASE_B',
+        details: {
+          validationStatus: 'passed',
+          persistenceStatus: 'pending_kv_setup'
+        }
+      },
+      503
+    )
   }
 
   if (action === 'schedules') {
@@ -581,6 +665,16 @@ async function handleCmsNotifications(req: Request, env: any): Promise<Response>
 }
 
 /* Utilitaires */
+
+/**
+ * Hacher un endpoint de subscription pour les logs (sécurité)
+ * Évite d'exposer les URLs complètes dans les logs publics
+ */
+function hashEndpoint(endpoint: string): string {
+  // Prendre les 16 derniers caractères (domaine + path) et les réduire
+  const tail = endpoint.slice(-16)
+  return `...${tail.slice(0, 8)}*${tail.slice(-8)}`
+}
 
 function json(data: any, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), {
