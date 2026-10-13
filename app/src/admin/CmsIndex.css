@@ -190,8 +190,7 @@
 }
 
 .cms-form__input,
-.cms-form__textarea,
-.cms-form__select {
+.cms-form__textarea {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: var(--text-light, #f2f2f2);
@@ -203,8 +202,7 @@
 }
 
 .cms-form__input:focus,
-.cms-form__textarea:focus,
-.cms-form__select:focus {
+.cms-form__textarea:focus {
   outline: none;
   border-color: var(--primary-gold, #d4af37);
   background: rgba(212, 175, 55, 0.05);
@@ -213,6 +211,46 @@
 .cms-form__textarea {
   resize: vertical;
   min-height: 80px;
+}
+
+/* Select dropdown — amélioré pour lisibilité */
+.cms-form__select {
+  background: #1a1a1e url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23d4af37' d='M6 9L1 4h10z'/%3E%3C/svg%3E") no-repeat right 8px center;
+  background-size: 12px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-light, #f2f2f2);
+  border-radius: 6px;
+  padding: 8px 28px 8px 12px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  transition: all 150ms ease;
+}
+
+.cms-form__select:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.25);
+  background-color: #222228;
+}
+
+.cms-form__select:focus {
+  outline: none;
+  border-color: var(--primary-gold, #d4af37);
+  background-color: rgba(212, 175, 55, 0.05);
+}
+
+/* Options dans les select */
+.cms-form__select option {
+  background: #1a1a1e;
+  color: #f2f2f2;
+  padding: 4px 8px;
+}
+
+.cms-form__select option:checked {
+  background: rgba(212, 175, 55, 0.5);
+  color: #f2f2f2;
 }
 
 .cms-btn {
@@ -324,6 +362,3 @@
   background: rgba(211, 47, 47, 0.3);
   border-color: rgba(211, 47, 47, 0.5);
 }
-
-</content>
-</invoke>

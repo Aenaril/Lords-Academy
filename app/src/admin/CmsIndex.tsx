@@ -5,8 +5,10 @@
  * 
  * ⚠️ Appelé directement depuis AdminBar quand authentifié
  * Pas d'AdminBar redondant ni de bouton toggle ici
+ * 
+ * ✅ Restauration de navigation après F5 : sessionStorage CMS_SECTION
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAdmin } from './AdminContext'
 import MyTutorialsPanel from './MyTutorialsPanel'
 import CmsDashboard from './CmsDashboard'
@@ -18,6 +20,9 @@ import NotificationsModule from '../cms/NotificationsModule'
 import SiteSettingsModule from '../cms/SiteSettingsModule'
 import './CmsIndex.css'
 
+const CMS_SECTION_KEY = 'lma_cms_section'
+const CMS_OPEN_KEY = 'lma_cms_open'
+
 type CmsSection = 'dashboard' | 'tutorials' | 'themes' | 'media' | 'home' | 'announcements' | 'notifications' | 'settings'
 
 interface CmsIndexProps {
@@ -27,7 +32,27 @@ interface CmsIndexProps {
 
 export default function CmsIndex({ onSelectTutorial, onClose }: CmsIndexProps) {
   const { isAuthenticated } = useAdmin()
-  const [activeSection, setActiveSection] = useState<CmsSection>('dashboard')  // ✅ Dashboard par défaut
+  const [activeSection, setActiveSection] = useState<CmsSection>(() => {
+    // Restaurer la section précédente depuis sessionStorage
+    const saved = sessionStorage.getItem(CMS_SECTION_KEY)
+    return (saved as CmsSection) || 'dashboard'
+  })
+
+  // Sauvegarder la section active quand elle change
+  useEffect(() => {
+    sessionStorage.setItem(CMS_SECTION_KEY, activeSection)
+  }, [activeSection])
+
+  // Marquer que le CMS est ouvert
+  useEffect(() => {
+    sessionStorage.setItem(CMS_OPEN_KEY, 'true')
+  }, [])
+
+  const handleClose = () => {
+    // Quand on ferme explicitement, marquer comme fermé
+    sessionStorage.setItem(CMS_OPEN_KEY, 'false')
+    onClose?.()
+  }
 
   return (
     <div className="cms-container">
@@ -88,7 +113,7 @@ export default function CmsIndex({ onSelectTutorial, onClose }: CmsIndexProps) {
         {onClose && (
           <button 
             className="cms-close-btn"
-            onClick={onClose}
+            onClick={handleClose}
             title="Fermer CMS"
           >
             ✕ Fermer

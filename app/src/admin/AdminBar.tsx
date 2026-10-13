@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAdmin } from './AdminContext'
 import { openAdminLoginForm } from './AdminBarWrapper'
 import TutorialMetaPanel from './TutorialMetaPanel'
@@ -12,10 +12,13 @@ import './AdminBar.css'
  * Barre flottante de contrôle de l'administration R4.
  * - Mode démo local (localStorage) : toujours disponible.
  * - Admin sécurisée (si Worker configuré) : connexion + publication.
+ * ✅ Restauration navigation CMS après F5 : sessionStorage
  */
 interface AdminBarProps {
   onSelectTutorial?: (tutorialId: string) => void
 }
+
+const CMS_OPEN_KEY = 'lma_cms_open'
 
 export default function AdminBar({ onSelectTutorial }: AdminBarProps) {
   const {
@@ -25,7 +28,7 @@ export default function AdminBar({ onSelectTutorial }: AdminBarProps) {
     isPreview,
     setPreview,
     isDirty,
-    hasDraft, // NOUVEAU : Ajouter hasDraft
+    hasDraft,
     canUndo,
     undoLastChange,
     discardDraft,
@@ -40,8 +43,17 @@ export default function AdminBar({ onSelectTutorial }: AdminBarProps) {
   const [showHistory, setShowHistory] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showMyTutorials, setShowMyTutorials] = useState(false)
-  const [showCms, setShowCms] = useState(false)
+  const [showCms, setShowCms] = useState(() => {
+    // Restaurer l'état du CMS depuis sessionStorage (sauf si fermé explicitement)
+    const wasCmsOpen = sessionStorage.getItem(CMS_OPEN_KEY)
+    return wasCmsOpen === 'true'
+  })
   const isDev = import.meta.env.DEV
+
+  // Synchroniser l'état du CMS avec sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem(CMS_OPEN_KEY, showCms ? 'true' : 'false')
+  }, [showCms])
 
   const handleDiscard = async () => {
     // CORRECTION : Utiliser discardDraftAsync pour aussi supprimer le KV distant si en mode remote
