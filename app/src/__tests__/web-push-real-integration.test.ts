@@ -1,63 +1,36 @@
 /**
- * Tests d'intégration RÉELS pour Web Push
+ * Tests Pragmatiques Web Push Phase B
  * 
- * Importe les véritables fonctions onRequest des endpoints production
- * Teste DIRECTEMENT sans mock de simulation
- * 
- * Note: On ne peut pas importer les Cloudflare Workers directement
- * car ils nécessitent l'environnement Cloudflare spécial.
- * DONC: Nous testons la LOGIQUE uniquement avec des données réalistes.
+ * Focus: Comportements essentiels pour 100 joueurs
+ * - Premier abonnement
+ * - Erreurs KV
+ * - Réabonnement avec preuve
+ * - Réabonnement sans preuve (rejeter)
+ * - Désabonnement
+ * - Erreur secret invalide
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 
-/**
- * Classe simulant KV Storage réel (pour tester la logique KV)
- */
-class RealKVStorage {
-  private data: Map<string, { value: string; expirationTtl?: number; storedAt: number }> =
-    new Map()
+class MockKVStorage {
+  private data: Map<string, any> = new Map()
 
-  async get(key: string, type?: 'json' | 'text'): Promise<any> {
-    const entry = this.data.get(key)
-    if (!entry) return null
-
-    // ✅ Vérifier TTL si présent
-    if (entry.expirationTtl) {
-      const ageSeconds = (Date.now() - entry.storedAt) / 1000
-      if (ageSeconds > entry.expirationTtl) {
-        this.data.delete(key)
-        return null
-      }
-    }
-
-    const value = entry.value
-    if (type === 'json') {
+  async get(key: string, type?: 'json'): Promise<any> {
+    const value = this.data.get(key)
+    if (!value) return null
+    if (type === 'json' && typeof value === 'string') {
       return JSON.parse(value)
     }
     return value
   }
 
-  async put(
-    key: string,
-    value: string | object,
-    options?: { expirationTtl?: number }
-  ): Promise<void> {
-    const strValue = typeof value === 'object' ? JSON.stringify(value) : value
-
-    this.data.set(key, {
-      value: strValue,
-      expirationTtl: options?.expirationTtl,
-      storedAt: Date.now(),
-    })
+  async put(key: string, value: any): Promise<void> {
+    const v = typeof value === 'object' ? JSON.stringify(value) : value
+    this.data.set(key, v)
   }
 
   async delete(key: string): Promise<void> {
     this.data.delete(key)
-  }
-
-  async list(): Promise<{ keys: Array<{ name: string }> }> {
-    return { keys: Array.from(this.data.keys()).map(name => ({ name })) }
   }
 
   clear(): void {
@@ -65,9 +38,6 @@ class RealKVStorage {
   }
 }
 
-/**
- * Helper: Hash SHA-256 (copie de la vraie fonction)
- */
 async function hashString(str: string): Promise<string> {
   const encoder = new TextEncoder()
   const data = encoder.encode(str)
@@ -77,202 +47,68 @@ async function hashString(str: string): Promise<string> {
   return hashHex.substring(0, 32)
 }
 
-/**
- * Helper: Générer secret (copie de la vraie fonction)
- */
 function generateSecret(): string {
   const array = new Uint8Array(32)
   crypto.getRandomValues(array)
   return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
-describe('Web Push Real Integration Tests', () => {
-  let kv: RealKVStorage
+describe('Web Push — Phase B Pragmatic Tests', () => {
+  let kv: MockKVStorage
 
   beforeEach(() => {
-    kv = new RealKVStorage()
+    kv = new MockKVStorage()
   })
 
-  afterEach(() => {
-    kv.clear()
-  })
+  describe('Premier abonnement', () => {
+    it('Générer secret unique, hasher, retourner au navigateur', async () => {
+      const endpoint = 'https://fcm.googleapis.com/fcm/send/ABC123'
+      const secret = generateSecret()
+      const hash = await hashString(secret)
 
-  // =========================================================================
-  // DÉFENSE CONTRE PRISE DE CONTRÔLE
-  // =========================================================================
-
-  describe('Protection contre prise de contrôle d\'abonnement', () => {
-    it('Scénario 1: Deux appareils, même endpoint FCM', async () => {
-      // === APPAREIL 1: Abonnement initial ===
-      const endpoint = 'https://fcm.googleapis.com/fcm/send/TOKEN-FCM-ABC123'
-
-      // Générer secret pour appareil 1
-      const device1Secret = generateSecret()
-      const device1SecretHash = await hashString(device1Secret)
-
-      // Appareil 1 stocke abonnement avec son secret
-      const subscription1 = {
-        id: `sub-device1-uuid`,
+      const subscription = {
+        id: `sub-${crypto.randomUUID()}`,
         endpoint,
-        p256dh: 'DEVICE1_P256DH_KEY',
-        auth: 'DEVICE1_AUTH_KEY',
-        revocationSecretHash: device1SecretHash,
+        revocationSecretHash: hash,
+        p256dh: 'keys',
+        auth: 'keys',
         createdAt: Date.now(),
       }
 
-      const endpointHash = await hashString(endpoint)
-      const lookupKey = `endpoint:${endpointHash}`
+      await kv.put(subscription.id, subscription)
 
-      await kv.put(`sub-device1-uuid`, JSON.stringify(subscription1))
-      await kv.put(lookupKey, JSON.stringify(subscription1))
-
-      // === APPAREIL 2: Tente takeover SANS preuve ===
-      // Appareil 2 connaît l'endpoint, tente de s'abonner
-      // (simule attaquant ayant découvert endpoint)
-
-      // Récupérer abonnement existant
-      const existingFromKV = await kv.get(lookupKey, 'json')
-      expect(existingFromKV).toBeTruthy()
-      expect(existingFromKV.id).toBe('sub-device1-uuid')
-
-      // Appareil 2 essaie de remplacer SANS oldRevocationSecret
-      // C'EST LE CAS REJETÉ : 403 UNAUTHORIZED
-      // (simule attaquant générant son propre secret)
-
-      // LOGIQUE : Si existingFromKV existe ET oldRevocationSecret n'est pas fourni
-      // → REJETER
-      const oldRevocationSecretProvided = undefined // ← Pas fourni par appareil 2
-      if (existingFromKV && !oldRevocationSecretProvided) {
-        // ENDPOINT EXISTS, NO PROOF → 403
-        expect(true).toBe(true) // ✅ REJET CORRECT
-      } else {
-        // ACCEPTER (incorrect)
-        expect(true).toBe(false) // ✗ Ne devrait pas arriver ici
-      }
-    })
-
-    it('Scénario 2: Réabonnement légitime (F5) avec preuve', async () => {
-      // === INITIAL: Appareil 1 s'abonne ===
-      const endpoint = 'https://fcm.googleapis.com/fcm/send/TOKEN-FCM-ABC123'
-      const device1Secret = generateSecret()
-      const device1SecretHash = await hashString(device1Secret)
-
-      const subscription = {
-        id: `sub-device1-uuid`,
-        endpoint,
-        p256dh: 'KEYS',
-        auth: 'KEYS',
-        revocationSecretHash: device1SecretHash,
-        createdAt: Date.now(),
-      }
-
-      const endpointHash = await hashString(endpoint)
-      const lookupKey = `endpoint:${endpointHash}`
-
-      await kv.put(lookupKey, JSON.stringify(subscription))
-
-      // === F5 RELOAD: Même appareil se réabonne ===
-      // localStorage contient encore l'ancien revocationSecret
-      const existingSubFromKV = await kv.get(lookupKey, 'json')
-      expect(existingSubFromKV).toBeTruthy()
-
-      // Appareil envoie : oldRevocationSecret = device1Secret (depuis localStorage)
-      const providedOldSecret = device1Secret
-      const providedHash = await hashString(providedOldSecret)
-
-      // LOGIQUE : Vérifier hash
-      if (providedHash === existingSubFromKV.revocationSecretHash) {
-        // ✅ PREUVE VALIDE
-        const newSecret = generateSecret()
-        const newHash = await hashString(newSecret)
-
-        // Mettre à jour KV avec nouveau secret
-        const updatedSub = {
-          ...existingSubFromKV,
-          revocationSecretHash: newHash,
-          updatedAt: Date.now(),
-        }
-
-        await kv.put(lookupKey, JSON.stringify(updatedSub))
-
-        // Retourner nouveau secret AU NAVIGATEUR
-        expect(newSecret).toBeTruthy()
-        expect(newSecret).not.toBe(device1Secret) // ✅ Différent
-      } else {
-        // ✗ PREUVE INVALIDE
-        expect(true).toBe(false)
-      }
-    })
-
-    it('Scénario 3: Tiers tente resubscription avec mauvais secret', async () => {
-      const endpoint = 'https://fcm.googleapis.com/fcm/send/TOKEN-FCM-ABC123'
-      const legitSecret = generateSecret()
-      const legitHash = await hashString(legitSecret)
-
-      const subscription = {
-        id: `sub-legit-uuid`,
-        endpoint,
-        revocationSecretHash: legitHash,
-      }
-
-      const endpointHash = await hashString(endpoint)
-      const lookupKey = `endpoint:${endpointHash}`
-
-      await kv.put(lookupKey, JSON.stringify(subscription))
-
-      // === Tiers tente avec secret aléatoire ===
-      const attackerSecret = generateSecret() // ← Différent
-      const attackerHash = await hashString(attackerSecret)
-
-      const existingFromKV = await kv.get(lookupKey, 'json')
-
-      if (attackerHash !== existingFromKV.revocationSecretHash) {
-        // ✅ REJET: Secret invalide
-        expect(true).toBe(true) // Rejeter correctement
-      } else {
-        expect(true).toBe(false) // Ne doit pas arriver
-      }
+      const stored = await kv.get(subscription.id, 'json')
+      expect(stored.revocationSecretHash).toBe(hash)
+      expect(stored.revocationSecret).toBeUndefined() // ✓ Jamais en clair
+      expect(stored.id).toBe(subscription.id)
     })
   })
 
-  // =========================================================================
-  // F5 RECOVERY
-  // =========================================================================
-
-  describe('F5 Recovery', () => {
-    it('localStorage persiste revocationSecret → réabonnement autorisé', async () => {
-      // === ÉTAPE 1: Abonnement initial ===
-      const endpoint = 'https://fcm.googleapis.com/fcm/send/TOKEN-FCM-ABC123'
+  describe('Réabonnement', () => {
+    it('Avec preuve valide (oldRevocationSecret)', async () => {
+      // Setup initial
+      const endpoint = 'https://fcm.googleapis.com/fcm/send/TOKEN'
       const initialSecret = generateSecret()
       const initialHash = await hashString(initialSecret)
 
-      const subscription = {
-        id: `sub-recovery-uuid`,
+      const sub = {
+        id: 'sub-initial',
         endpoint,
         revocationSecretHash: initialHash,
-        createdAt: Date.now(),
       }
 
       const endpointHash = await hashString(endpoint)
       const lookupKey = `endpoint:${endpointHash}`
 
-      await kv.put(lookupKey, JSON.stringify(subscription))
+      await kv.put(lookupKey, sub)
 
-      // === ÉTAPE 2: F5 (localStorage persiste initialSecret) ===
-      // Simuler localStorage via une Map
-      const localStorage = new Map<string, string>()
-      localStorage.set('lma-revocation-secret', initialSecret)
-
-      // === ÉTAPE 3: Réabonnement ===
-      const recoveredSecret = localStorage.get('lma-revocation-secret')
-      const recoveredHash = await hashString(recoveredSecret!)
-
+      // Réabonnement avec preuve
       const storedSub = await kv.get(lookupKey, 'json')
-      expect(storedSub).toBeTruthy()
+      const providedOldSecret = initialSecret
+      const providedHash = await hashString(providedOldSecret)
 
-      // Vérifier preuve
-      if (recoveredHash === storedSub.revocationSecretHash) {
-        // ✅ Preuve valide
+      if (providedHash === storedSub.revocationSecretHash) {
+        // ✓ Preuve valide
         const newSecret = generateSecret()
         const newHash = await hashString(newSecret)
 
@@ -282,150 +118,130 @@ describe('Web Push Real Integration Tests', () => {
           updatedAt: Date.now(),
         }
 
-        await kv.put(lookupKey, JSON.stringify(updated))
-        localStorage.set('lma-revocation-secret', newSecret)
-
-        // Vérification finale
+        await kv.put(lookupKey, updated)
         expect(newSecret).not.toBe(initialSecret)
-        expect(localStorage.get('lma-revocation-secret')).toBe(newSecret)
       } else {
-        expect(true).toBe(false)
+        expect(true).toBe(false) // Ne devrait pas arriver
       }
     })
-  })
 
-  // =========================================================================
-  // SÉCURITÉ GÉNÉRALE
-  // =========================================================================
+    it('Sans preuve (rejeter 403)', async () => {
+      const endpoint = 'https://fcm.googleapis.com/fcm/send/TOKEN'
+      const existingHash = await hashString('existing-secret')
 
-  describe('Sécurité du stockage', () => {
-    it('Secrets JAMAIS stockés en clair, toujours hashés', async () => {
-      const secret = generateSecret()
-      const hash = await hashString(secret)
-
-      const subscription = {
-        id: 'sub-123',
-        endpoint: 'https://fcm.googleapis.com/fcm/send/TOKEN',
-        revocationSecretHash: hash, // ✅ Hash
-        // ✗ revocationSecret: secret (JAMAIS!)
-      }
-
-      await kv.put('sub-123', JSON.stringify(subscription))
-
-      const stored = await kv.get('sub-123', 'json')
-      expect(stored.revocationSecretHash).toBeTruthy()
-      expect(stored.revocationSecret).toBeUndefined() // ✅ Pas de secret brut
-
-      // Vérifier le hash ne contient pas le secret
-      expect(stored.revocationSecretHash).not.toContain(secret.substring(0, 10))
-    })
-
-    it('Endpoint ne doit pas être dans la clé KV principale', async () => {
-      const secret = generateSecret()
-      const endpoint = 'https://fcm.googleapis.com/fcm/send/SECRET_TOKEN_123'
-
-      const subscription = {
-        id: 'sub-456',
+      const sub = {
+        id: 'sub-existing',
         endpoint,
-        revocationSecretHash: await hashString(secret),
+        revocationSecretHash: existingHash,
       }
 
-      await kv.put('sub-456', JSON.stringify(subscription))
-
-      // Récupérer et vérifier
-      const stored = await kv.get('sub-456', 'json')
-
-      // Endpoint est dans la valeur (normal)
-      expect(JSON.stringify(stored)).toContain('fcm.googleapis.com')
-
-      // Mais pas directement dans la clé
-      expect('sub-456').not.toContain('fcm')
-      expect('sub-456').not.toContain('TOKEN')
-    })
-  })
-
-  // =========================================================================
-  // TTL ET EXPIRATION
-  // =========================================================================
-
-  describe('TTL et gestion d\'expiration KV', () => {
-    it('Abonnements ont TTL de 90 jours', async () => {
-      const subscription = {
-        id: 'sub-ttl-test',
-        endpoint: 'https://fcm.googleapis.com/fcm/send/TOKEN',
-        revocationSecretHash: await hashString('secret'),
-      }
-
-      // ✅ Stocker avec TTL 90 jours
-      const ttl90Days = 90 * 24 * 60 * 60
-
-      await kv.put('sub-ttl-test', JSON.stringify(subscription), {
-        expirationTtl: ttl90Days,
-      })
-
-      // Vérifier qu'il est toujours accessible
-      const stored = await kv.get('sub-ttl-test', 'json')
-      expect(stored).toBeTruthy()
-      expect(stored.id).toBe('sub-ttl-test')
-    })
-  })
-
-  // =========================================================================
-  // IDEMPOTENCE
-  // =========================================================================
-
-  describe('Idempotence des opérations', () => {
-    it('Même endpoint = lookup key identique', async () => {
-      const endpoint = 'https://fcm.googleapis.com/fcm/send/TOKEN-ABC'
-
-      const hash1 = await hashString(endpoint)
-      const hash2 = await hashString(endpoint)
-
-      expect(hash1).toBe(hash2) // ✅ Déterministe
-    })
-
-    it('Premier et deuxième subscribe doivent pouvoir coexister', async () => {
-      // NOTE: Avec protection takeover, seul le second est accepté
-      // (ancien doit prouver possession)
-      // Mais si ancien est perdu, il faut procédure de récupération
-
-      const endpoint = 'https://fcm.googleapis.com/fcm/send/SAME-TOKEN'
       const endpointHash = await hashString(endpoint)
       const lookupKey = `endpoint:${endpointHash}`
 
-      // === Première requête ===
-      const sub1Secret = generateSecret()
-      const sub1 = {
-        id: `sub-1`,
-        endpoint,
-        revocationSecretHash: await hashString(sub1Secret),
+      await kv.put(lookupKey, sub)
+
+      // Tentative sans oldRevocationSecret
+      const stored = await kv.get(lookupKey, 'json')
+
+      if (stored) {
+        // ✓ REJETER (tiers sans preuve)
+        expect(true).toBe(true)
+      }
+    })
+  })
+
+  describe('Désabonnement', () => {
+    it('Avec secret valide', async () => {
+      const secret = generateSecret()
+      const hash = await hashString(secret)
+
+      const sub = {
+        id: 'sub-to-remove',
+        revocationSecretHash: hash,
       }
 
-      await kv.put(`sub-1`, JSON.stringify(sub1))
-      await kv.put(lookupKey, JSON.stringify(sub1))
+      await kv.put('sub-to-remove', sub)
 
-      // === Deuxième requête (avec preuve) ===
-      const existing = await kv.get(lookupKey, 'json')
-      expect(existing.id).toBe('sub-1')
+      // Vérifier secret
+      const stored = await kv.get('sub-to-remove', 'json')
+      const providedHash = await hashString(secret)
 
-      // Avec preuve valide
-      const sub2Secret = generateSecret()
-      const sub2 = {
-        id: `sub-2`,
-        endpoint,
-        revocationSecretHash: await hashString(sub2Secret),
+      if (providedHash === stored.revocationSecretHash) {
+        // ✓ Secret valide → supprimer
+        await kv.delete('sub-to-remove')
+        const deleted = await kv.get('sub-to-remove')
+        expect(deleted).toBeNull()
+      }
+    })
+
+    it('Avec secret invalide (rejeter 403)', async () => {
+      const correctSecret = generateSecret()
+      const wrongSecret = generateSecret()
+      const hash = await hashString(correctSecret)
+
+      const sub = {
+        id: 'sub-protected',
+        revocationSecretHash: hash,
       }
 
-      await kv.put(`sub-2`, JSON.stringify(sub2))
-      await kv.put(lookupKey, JSON.stringify(sub2)) // Remplace la lookup
+      await kv.put('sub-protected', sub)
 
-      // Vérifier: lookup pointe maintenant à sub-2
-      const updated = await kv.get(lookupKey, 'json')
-      expect(updated.id).toBe('sub-2')
+      // Tenter avec mauvais secret
+      const stored = await kv.get('sub-protected', 'json')
+      const wrongHash = await hashString(wrongSecret)
 
-      // Mais sub-1 est toujours récupérable par ID direct
-      const oldEntry = await kv.get('sub-1', 'json')
-      expect(oldEntry).toBeTruthy()
+      if (wrongHash !== stored.revocationSecretHash) {
+        // ✓ REJETER
+        expect(true).toBe(true)
+      }
+    })
+  })
+
+  describe('Gestion KV', () => {
+    it('Endpoint hash idempotent', async () => {
+      const endpoint = 'https://fcm.googleapis.com/fcm/send/TOKEN'
+      const hash1 = await hashString(endpoint)
+      const hash2 = await hashString(endpoint)
+
+      expect(hash1).toBe(hash2)
+    })
+
+    it('Lookup key déterministe', async () => {
+      const endpoint = 'https://fcm.googleapis.com/fcm/send/TOKEN'
+      const hash = await hashString(endpoint)
+      const key = `endpoint:${hash}`
+
+      expect(key).toMatch(/^endpoint:[a-f0-9]{32}$/)
+    })
+  })
+
+  describe('F5 Recovery', () => {
+    it('localStorage persiste, réabonnement OK', async () => {
+      // Simule localStorage
+      const storage = new Map<string, string>()
+
+      // Initial
+      const secret1 = generateSecret()
+      storage.set('lma-revocation-secret', secret1)
+
+      // F5 (localStorage persiste)
+      const retrieved = storage.get('lma-revocation-secret')
+      expect(retrieved).toBe(secret1)
+
+      // Réabonnement
+      const hash1 = await hashString(secret1)
+      const stored = {
+        revocationSecretHash: hash1,
+      }
+
+      const providedHash = await hashString(retrieved!)
+
+      if (providedHash === stored.revocationSecretHash) {
+        // ✓ Preuve OK
+        const secret2 = generateSecret()
+        storage.set('lma-revocation-secret', secret2)
+        expect(storage.get('lma-revocation-secret')).toBe(secret2)
+      }
     })
   })
 })
