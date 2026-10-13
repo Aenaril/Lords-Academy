@@ -5,6 +5,7 @@ import TutorialPage from './pages/TutorialPage'
 import AdminBarWrapper from './admin/AdminBarWrapper'
 import PWAInstallPrompt from './components/PWAInstallPrompt'
 import PWAUpdatePrompt from './components/PWAUpdatePrompt'
+import { NotificationPermissionButton } from './components/NotificationPermissionButton'
 import { AdminProvider } from './admin/AdminContext'
 import { loadCmsConfigs } from './cms/CmsConfigLoader'
 import { applyTheme } from './cms/ThemeManager'
@@ -85,6 +86,18 @@ function App() {
         <AdminBarWrapper onSelectTutorial={handleSelectTutorial} />
         <PWAInstallPrompt />
         <PWAUpdatePrompt />
+        
+        {/* ✅ Bouton notifications (discret, bas de page) */}
+        <div style={{
+          position: 'fixed',
+          bottom: '20px',
+          right: '20px',
+          zIndex: 999,
+          fontSize: '0.9rem',
+          maxWidth: '250px',
+        }}>
+          <NotificationPermissionButton vapidPublicKey={import.meta.env.VITE_VAPID_PUBLIC_KEY || ''} />
+        </div>
       </div>
     </AdminProvider>
   )

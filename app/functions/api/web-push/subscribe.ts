@@ -80,6 +80,21 @@ export async function onRequest(context: any) {
     })
   }
 
+  // ✅ Vérifier Origin pour POST (security)
+  const origin = request.headers.get('Origin') || ''
+  const allowedOrigins = [
+    'https://lords-academy.pages.dev',
+    'https://lords-mobile-academy.pages.dev',
+    'http://localhost:5173',
+    'http://localhost:3000',
+  ]
+  if (origin && !allowedOrigins.some(allowed => origin === allowed)) {
+    return new Response(JSON.stringify({ ok: false, error: 'Origin not allowed' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
   try {
     // ✅ Parser body
     let body: any
@@ -183,13 +198,15 @@ export async function onRequest(context: any) {
     }
 
     let subscriptionId = existingSubscription?.id
-    let revocationSecret = existingSubscription?.revocationSecret
     let isNewSubscription = !existingSubscription
 
-    // ✅ Si nouvel abonnement, générer ID + secret
+    // ✅ Générer TOUJOURS un nouveau secret de révocation
+    // (même pour réabonnement = nouvelle preuve)
+    const revocationSecret = generateRevocationSecret()
+
+    // ✅ Si nouvel abonnement, générer ID
     if (isNewSubscription) {
       subscriptionId = `sub-${crypto.randomUUID()}`
-      revocationSecret = generateRevocationSecret()
     }
 
     // ✅ Hasher le secret pour stockage

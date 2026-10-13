@@ -67,6 +67,17 @@ export async function onRequest(context: any) {
     })
   }
 
+  // ✅ Valider Origin header (POST)
+  const origin = request.headers.get('Origin')
+  const allowedOrigin = env.CLIENT_ORIGIN || 'https://lords-academy.pages.dev'
+  if (origin && origin !== allowedOrigin) {
+    console.warn('[WebPush] Unsubscribe: Origin mismatch. Received:', origin, 'Expected:', allowedOrigin)
+    return new Response(JSON.stringify({ ok: false, error: 'Origin not allowed' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
   try {
     // ✅ Parser body
     let body: any

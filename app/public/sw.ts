@@ -3,10 +3,12 @@
  * 
  * Combine:
  * - Workbox precache + runtime caching (tutoriels, CMS, images)
+ *   ✅ Cleanup géré par Workbox (cleanupOutdatedCaches: true)
  * - Web Push handlers (push, notificationclick, notificationclose)
  * - Offline support
  * 
  * Généré via Vite-PWA injectManifest strategy
+ * Préserve les caches antérieurs via Workbox
  */
 
 /// <reference lib="webworker" />
@@ -172,31 +174,5 @@ self.addEventListener('notificationclose', (event: NotificationEvent) => {
 })
 
 // ========== SERVICE WORKER LIFECYCLE ==========
-
-// Activate event — Nettoyer les anciens caches
-self.addEventListener('activate', (event: ExtendableEvent) => {
-  console.log('[SW] Activating service worker')
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          // Garder seulement les caches nommés ci-dessus
-          const validCaches = [
-            'cms-config-cache',
-            'published-content-cache',
-            'images-cache',
-            'content-cache',
-            'pages-cache',
-            'workbox-cache-v1',
-          ]
-          if (!validCaches.includes(cacheName)) {
-            console.log('[SW] Deleting old cache:', cacheName)
-            return caches.delete(cacheName)
-          }
-        })
-      )
-    })
-  )
-})
 
 console.log('[SW] Service Worker loaded (Workbox + Push handlers)')

@@ -139,6 +139,7 @@ export async function subscribeToPushNotifications(
  * 
  * Récupère subscriptionId + revocationSecret depuis localStorage
  * Les envoie au serveur pour vérification
+ * ✅ N'efface PAS localement avant confirmation serveur
  */
 export async function unsubscribeFromPushNotifications(
   subscriptionId: string,
@@ -162,15 +163,7 @@ export async function unsubscribeFromPushNotifications(
       }
     }
 
-    // Désabonner localement
-    const registration = await navigator.serviceWorker.ready
-    const subscription = await registration.pushManager.getSubscription()
-
-    if (subscription) {
-      await subscription.unsubscribe()
-    }
-
-    // Notifier le serveur (avec preuve de révocation)
+    // ✅ Notifier le serveur AVANT de désabonner localement
     const response = await fetch('/api/web-push/unsubscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -183,6 +176,17 @@ export async function unsubscribeFromPushNotifications(
     }
 
     const result = (await response.json()) as SubscriptionResponse
+    
+    // ✅ SEULEMENT si serveur valide : désabonner localement
+    if (result.ok) {
+      const registration = await navigator.serviceWorker.ready
+      const subscription = await registration.pushManager.getSubscription()
+
+      if (subscription) {
+        await subscription.unsubscribe()
+      }
+    }
+
     return result
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

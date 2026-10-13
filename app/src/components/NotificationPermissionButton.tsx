@@ -137,8 +137,8 @@ export function NotificationPermissionButton({ vapidPublicKey }: Props) {
           ⓘ Notifications non disponibles sur votre appareil ou navigateur.
           <br />
           <small>
-            Les notifications push ne sont pas supportées sur iPhone en utilisant Safari ou l'app
-            intégrée.
+            Sur iPhone/iPad: Web Push requiert Safari 16.1+ avec l'app installée sur l'écran d'accueil.
+            Sur macOS Safari: Web Push est supporté.
           </small>
         </p>
       </div>
@@ -164,6 +164,15 @@ export function NotificationPermissionButton({ vapidPublicKey }: Props) {
   }
 
   if (subscriptionState === 'subscribed') {
+    // ✅ Vérifier VRAIMENT : localStorage + PushManager
+    const hasSecret = localStorage.getItem('lma-revocation-secret')
+    if (!hasSecret) {
+      // localStorage corrompu = pas vraiment abonné
+      setSubscriptionState('error')
+      setErrorMessage('État local corrompu (secret manquant)')
+      return
+    }
+
     return (
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
         <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>✓ Notifications activées</span>
