@@ -1,0 +1,49 @@
+/**
+ * Wrapper pour le bouton Notification
+ * Positionne le bouton sans chevauchement avec Admin button
+ * Adapte le layout à tous les breakpoints
+ */
+
+.notification-button-wrapper {
+  position: fixed;
+  z-index: 998;
+  font-size: 0.9rem;
+  padding: 0.5rem;
+  
+  /* Desktop: Au-dessus (stacké verticalement avec Admin button) */
+  bottom: 80px;
+  right: 20px;
+  max-width: 300px;
+}
+
+/* Tablet (<768px): Au-dessus du Admin button, mais plus proche */
+@media (max-width: 768px) {
+  .notification-button-wrapper {
+    bottom: 90px;
+    right: 10px;
+    max-width: 250px;
+    padding: 0.4rem;
+    font-size: 0.85rem;
+  }
+}
+
+/* Mobile petit écran (<480px): Empilé verticalement, bien séparé */
+@media (max-width: 480px) {
+  .notification-button-wrapper {
+    bottom: 100px;
+    right: 5px;
+    max-width: 200px;
+    padding: 0.3rem;
+    font-size: 0.8rem;
+  }
+}
+
+/* Très petit écran (<360px): Position alternative (gauche) si besoin */
+@media (max-width: 360px) {
+  .notification-button-wrapper {
+    bottom: 100px;
+    left: 5px;
+    right: auto;
+    max-width: 150px;
+  }
+}

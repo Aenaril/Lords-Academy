@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import './App.css'
+import './components/NotificationButtonWrapper.css'
 import HomePage from './pages/HomePage'
 import TutorialPage from './pages/TutorialPage'
 import AdminBarWrapper from './admin/AdminBarWrapper'
@@ -87,16 +88,8 @@ function App() {
         <PWAInstallPrompt />
         <PWAUpdatePrompt />
         
-        {/* ✅ Bouton notifications (discret, bas de page, espace respecté) */}
-        <div style={{
-          position: 'fixed',
-          bottom: '20px',
-          right: '80px', /* Décalé de FloatingAdminButton (qui est à 20px) */
-          zIndex: 998,  /* Sous les modales mais au-dessus du contenu */
-          fontSize: '0.9rem',
-          maxWidth: '300px',
-          padding: '0.5rem',
-        }}>
+        {/* ✅ Bouton notifications (repositionné pour mobile & desktop sans chevauchement) */}
+        <div className="notification-button-wrapper">
           <NotificationPermissionButton vapidPublicKey={import.meta.env.VITE_VAPID_PUBLIC_KEY || ''} />
         </div>
       </div>
