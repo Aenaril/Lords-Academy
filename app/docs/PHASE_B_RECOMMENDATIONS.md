@@ -2,7 +2,7 @@
 
 **Date** : 2026-10-10  
 **Statut** : Phase A terminée (correction API, migration, modèles)  
-**Audience** : Développeurs Phase B  
+**Audience** : Développeurs Phase B
 
 ---
 
@@ -10,29 +10,32 @@
 
 ### Comparaison pour 100 utilisateurs
 
-| Critère | KV Namespace | Durable Objects + SQLite |
-|---------|--------------|-------------------------|
-| **Quotas gratuits** | 100k reads, 1k writes/jour | 1M writes/jour, stockage SQL |
-| **Latence** | ~5ms | ~2ms (co-local avec logic) |
-| **Cohérence** | Éventuellement cohérent | Strongly consistent (transactions) |
-| **Coût au-delà** | $0.50 / million reads | $12 / 1M write-ops |
-| **Complexité** | JSON simple | SQLite migrations |
-| **100 users cas nominal** | 100 reads × 1 send/jour = sûr | Overkill, mais flexible |
+| Critère                   | KV Namespace                  | Durable Objects + SQLite           |
+| ------------------------- | ----------------------------- | ---------------------------------- |
+| **Quotas gratuits**       | 100k reads, 1k writes/jour    | 1M writes/jour, stockage SQL       |
+| **Latence**               | ~5ms                          | ~2ms (co-local avec logic)         |
+| **Cohérence**             | Éventuellement cohérent       | Strongly consistent (transactions) |
+| **Coût au-delà**          | $0.50 / million reads         | $12 / 1M write-ops                 |
+| **Complexité**            | JSON simple                   | SQLite migrations                  |
+| **100 users cas nominal** | 100 reads × 1 send/jour = sûr | Overkill, mais flexible            |
 
 ### Recommandation : **KV + Audit Trail**
 
 **Raison** :
+
 - ✅ Suffisant pour 100 utilisateurs
 - ✅ Coûts zerp (vs $12/M writes en DO payant)
 - ✅ Pas de migrations SQLite à gérer
 - ✅ LocalStorage + API + KV = architecture simple
 
 **Limitations acceptées** :
+
 - ⚠️ Cohérence éventuellement (rarement un problème pour notifications)
 - ⚠️ Quotas serrés si >1000 utilisateurs
 - ⚠️ TTL auto-expiration (pas de soft delete)
 
 **Plan B si dépassement** :
+
 - Si >500 utilisateurs : passer à Durable Objects avec transactions
 - Prévoir le code base pour cette migration ultérieurement
 
@@ -47,6 +50,7 @@ npm install pushforge@latest
 ```
 
 **Propriétés** :
+
 - ✅ Zéro dépendances npm
 - ✅ Web Crypto API natif (disponible dans Workers)
 - ✅ ECDP256 signing (VAPID)
@@ -62,32 +66,32 @@ npm install pushforge@latest
 
 ```typescript
 // worker/src/notifications-sender.ts
-import { sendPushMessage } from 'pushforge'
+import { sendPushMessage } from 'pushforge';
 
 export async function sendPush(
   subscription: PushDeviceSubscription,
   payload: NotificationPayload,
-  vapidKeys: VapidKeyPair
+  vapidKeys: VapidKeyPair,
 ): Promise<PushSendEvent> {
   try {
     const response = await sendPushMessage(subscription, payload, {
       vapidDetails: {
         privateKey: vapidKeys.private,
         publicKey: vapidKeys.public,
-        subject: 'mailto:admin@example.com'
-      }
-    })
-    
+        subject: 'mailto:admin@example.com',
+      },
+    });
+
     return {
       id: generateId(),
       subscriptionId: subscription.id,
       status: response.ok ? 'success' : 'failed',
       httpStatus: response.status,
-      sentAt: Date.now()
-    }
+      sentAt: Date.now(),
+    };
   } catch (err) {
     // Gestion d'erreur + nettoyage si 410 Gone
-    return handlePushError(err, subscription)
+    return handlePushError(err, subscription);
   }
 }
 ```
@@ -99,6 +103,7 @@ export async function sendPush(
 ### Génération (à faire une seule fois, hors du repo)
 
 **Localement** (jamais en CI) :
+
 ```bash
 # Option 1 : web-push CLI (Node.js local)
 npx web-push generate-vapid-keys
@@ -109,6 +114,7 @@ npx web-push generate-vapid-keys
 ```
 
 **Résultat** :
+
 ```
 VAPID_PUBLIC_KEY=BMjPjWZR1j2K3lM4nOpQrStUvWxYzAbCdEfGhIjKlMnOp...
 VAPID_PRIVATE_KEY=vHr8iL3dK9mNoPqRsTuVwXyZaBcDeFgHiJkLmNoPq...
@@ -143,14 +149,15 @@ VITE_VAPID_PUBLIC_KEY=BMjPjWZR... # ✅ Public, sûr
 ```
 
 **Frontend va l'utiliser** :
+
 ```typescript
 // app/src/utils/notifications.ts
-const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
 const subscription = await pushManager.subscribe({
   userVisibleOnly: true,
-  applicationServerKey: VAPID_PUBLIC_KEY
-})
+  applicationServerKey: VAPID_PUBLIC_KEY,
+});
 ```
 
 ---
@@ -175,9 +182,13 @@ binding = "NOTIFICATIONS_SCHEDULES"
 id = "<create-this-in-dashboard>"
 preview_id = "<create-this-in-dashboard>"
 
-# Cron trigger pour broadcasts quotidiens
-[[triggers.crons]]
-crons = ["0 9 * * *"]  # 9 AM UTC chaque jour
+# ⚠️ Cron trigger — À configurer en Phase B SEULEMENT
+# Phase A : cette section est un placeholder
+# Phase B : Implémenter vérification périodique (toutes les 30 min en UTC)
+# avec déduplication et tolérance d'horaires (±5 min)
+#
+# [[triggers.crons]]
+# crons = ["*/30 * * * *"]  # Toutes les 30 minutes
 ```
 
 ### KV Namespaces à créer
@@ -200,34 +211,120 @@ crons = ["0 9 * * *"]  # 9 AM UTC chaque jour
 
 ---
 
-## 5. Limites du Plan Gratuit (avec mitigation)
+## 5. Vérification Périodique des Rappels (Phase B)
 
-| Limite | Quotidien | Mitigation |
-|--------|-----------|-----------|
-| **KV reads** | 100k | 1 read/user/jour = 100 reads max → ✅ Safe |
-| **KV writes** | 1k | Subscribe 5×/user/mois = 500 writes max → ✅ Safe |
-| **Cron triggers** | 5 max | 1 daily + 1 weekly + 1 event = 3 used → ✅ Safe |
-| **Request cap** | 100k/jour | 1 broadcast × 100 users = 100 requests → ✅ Safe |
+### Architecture recommandée (NOT quotidien)
+
+**Problème** : Un seul Cron quotidien (9 AM UTC) ne peut pas couvrir des rappels programmés à différentes heures.
+
+**Solution** : Vérification périodique avec déduplication
+
+```
+Architecture :
+- Cron Worker déclenché toutes les 30 minutes (UTC)
+- À chaque trigger :
+  1. Lire KV NOTIFICATIONS_SCHEDULES (toutes les programmations)
+  2. Pour chaque schedule + rappel relatif :
+     * Calculer deadline = absoluteTime + relativeDelay
+     * Vérifier si now >= deadline
+     * Vérifier clé de déduplication (jamais envoyer deux fois)
+     * Si deadline atteinte ET pas déjà envoyé :
+       - Envoyer le push
+       - Marquer le rappel comme 'sent'
+       - Logger l'événement
+  3. Si timeout (30 secondes) :
+     * Terminer gracieusement
+     * Retry au prochain cycle (30 min plus tard)
+
+Déduplication :
+- Clé : `${scheduleId}#${reminderId}#${subscriptionId}`
+- Stockage : KV sous `SENT_NOTIFICATIONS:${key}`
+- TTL : 7 jours (après = peut renvoyer en cas d'oubli)
+
+Tolérance :
+- Envoyer si : deadline - now est entre -5 min et +5 min
+- Évite les faux positifs (now juste avant deadline)
+```
+
+### Configuration Phase B
+
+```toml
+# Cron trigger — 30 minutes (NOT quotidien)
+[[triggers.crons]]
+crons = ["*/30 * * * *"]  # Toutes les 30 minutes en UTC
+```
+
+**Avantages** :
+
+- ✅ Couvre rappels à N'IMPORTE quelle heure
+- ✅ Tolérance ±5 min acceptable pour notifications
+- ✅ Déduplication = pas de doubles envois
+- ✅ Retry automatique si Worker timeout
+- ✅ 48 exécutions/jour << 100k request cap gratuit
+
+### Quotas avec cette approche
+
+| Limite           | Par jour               | Pour 100 users                         |
+| ---------------- | ---------------------- | -------------------------------------- |
+| **Cron trigger** | 5 max (1 seul utilisé) | 1 trigger/30 min = 48/jour >> 5 max ⚠️ |
+
+**Clarification Cloudflare** :
+
+- Les 5 Cron triggers max = 5 **différents** schedules de Cron
+- UN seul Cron qui s'exécute 48 fois/jour = 1 "trigger" (le schedule)
+- ✅ Safe : UNE seule ligne `[[triggers.crons]]`
+
+### Risques et Mitigations
+
+1. **Worker timeout (30s)**
+   - Risque : Notifications perdues si >100 subscriptions
+   - Mitigation : Limiter batch à 50 subscriptions/run, retry prochaine exécution
+
+2. **KV quota**
+   - Risque : 48 reads/jour × 100 subscriptions = 4800 reads — Safe ✅
+   - 48 writes/jour (marquer sent) × 100 = 4800 writes — Safe ✅
+
+3. **Notifications tardives**
+   - Risque : Rappel 24h avant = 48 × 30min windows. Peut être jusqu'à 15 min en retard
+   - Mitigation : Acceptable pour notifications (user attends ±15 min)
+   - Alternative : Cron toutes les 10 min si plus précis requis (vérifier quotas)
+
+---
+
+## 6. Limites du Plan Gratuit (avec mitigation)
+
+| Limite            | Quotidien | Mitigation                                         |
+| ----------------- | --------- | -------------------------------------------------- |
+| **KV reads**      | 100k      | 48 Cron runs × 100 reads = 4800 reads → ✅ Safe    |
+| **KV writes**     | 1k        | 48 Cron runs × mark sent = 4800 writes... ⚠️ Tight |
+| **Cron triggers** | 5 max     | 1 trigger (\*/30 min) = 1 utilisé → ✅ Safe        |
+| **Request cap**   | 100k/jour | 48 runs × 100 push = 4800 requests → ✅ Safe       |
+
+**Clarification** : Les 4800 writes/jour dépassent le quota gratuit (1k). **Solution Phase B** :
+
+- Batch les writes (1 appel KV/reminder, pas par subscription)
+- Ou utiliser Durable Objects (transactions SQLite) pour >100 users
 
 ### Risques et Mitigations
 
 1. **Spike d'inscriptions** (ex: 1000 users en 1h)
-   - Risque : Quota dépassé
+   - Risque : Quota KV write dépassé
    - Mitigation : Rate-limit front-end, queue local sur 1h
 
-2. **Multiple broadcasts simultanés**
-   - Risque : Cron timeout (30s) ou quota
-   - Mitigation : Limiter à 1 broadcast actif à la fois; spreader sur 24h
+2. **Worker timeout (30s) avec >100 users**
+   - Risque : Notifications perdues
+   - Mitigation : Limiter batch, retry prochain Cron (30 min après)
 
 3. **Push Service retry chain**
    - Risque : Requêtes perdues = KV ops qui comptent mais aucun envoi
-   - Mitigation : Idempotence clé (déduplication `scheduleId#reminderId#subscriptionId`)
+   - Mitigation : Déduplication `scheduleId#reminderId#subscriptionId` + retry
 
 ---
 
-## 6. API Stateless (Phase A → B)
+## 7. API Stateless (Phase A → B)
 
 ### Avant (Phase A) :
+
 ```typescript
 // app/functions/api/cms/notifications
 POST /api/cms/notifications
@@ -239,6 +336,7 @@ POST /api/cms/notifications
 ```
 
 ### Après (Phase B) :
+
 ```typescript
 // Action 1 : Subscribe
 POST /api/cms/notifications
@@ -274,6 +372,7 @@ POST /api/cms/notifications
 ```
 
 ### Validation stricte Phase B
+
 - ✅ Reject malformed subscriptions (no p256dh, auth)
 - ✅ Reject expired endpoints (after unsubscribe)
 - ✅ Reject duplicate IDs (de-duplicate via KV key)
@@ -281,7 +380,7 @@ POST /api/cms/notifications
 
 ---
 
-## 7. Service Worker Push Event Handler
+## 8. Service Worker Push Event Handler
 
 ### Fichier `app/public/sw.js` (ou `app/src/sw.ts`)
 
@@ -292,9 +391,9 @@ Phase B doit implémenter :
 self.addEventListener('push', (event) => {
   const data = event.data?.json() ?? {
     title: 'Lords Mobile Academy',
-    body: 'Nouvelle notification'
-  }
-  
+    body: 'Nouvelle notification',
+  };
+
   event.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
@@ -303,33 +402,33 @@ self.addEventListener('push', (event) => {
       tag: data.scheduleId || 'lma-notification',
       requireInteraction: data.requireInteraction ?? false,
       data: {
-        url: data.tutorialId ? `/tutorials/${data.tutorialId}` : '/'
-      }
-    })
-  )
-})
+        url: data.tutorialId ? `/tutorials/${data.tutorialId}` : '/',
+      },
+    }),
+  );
+});
 
 // Handle notification click
 self.addEventListener('notificationclick', (event) => {
-  event.notification.close()
+  event.notification.close();
   event.waitUntil(
     clients.matchAll({ type: 'window' }).then((clientList) => {
-      const url = event.notification.data?.url ?? '/'
-      
+      const url = event.notification.data?.url ?? '/';
+
       // Focus existing window si déjà ouvert
-      const existing = clientList.find((c) => c.url.endsWith(url))
-      if (existing) return existing.focus()
-      
+      const existing = clientList.find((c) => c.url.endsWith(url));
+      if (existing) return existing.focus();
+
       // Sinon ouvrir nouveau
-      return clients.openWindow(url)
-    })
-  )
-})
+      return clients.openWindow(url);
+    }),
+  );
+});
 ```
 
 ---
 
-## 8. Flux Complet (Phase B) : Subscribe → Schedule → Send
+## 9. Flux Complet (Phase B) : Subscribe → Schedule → Send
 
 ```
 1. FRONTEND USER
@@ -370,12 +469,14 @@ self.addEventListener('notificationclick', (event) => {
 
 ---
 
-## 9. Tests Phase B
+## 10. Tests Phase B
 
 ### Tests unitaires (déjà faits Phase A)
+
 - ✅ `app/src/cms/__tests__/notificationsMigration.test.ts`
 
 ### À ajouter Phase B
+
 ```typescript
 // app/src/__tests__/webpush.integration.test.ts
 describe('Web Push Integration', () => {
@@ -383,33 +484,35 @@ describe('Web Push Integration', () => {
     // Mock KV
     // POST /api/cms/notifications { action: 'subscribe', ... }
     // Assert : KV contains subscription
-  })
-  
+  });
+
   it('should send push to all subscriptions', async () => {
     // Mock Cron trigger
     // Assert : sendPushMessage called for each subscription
     // Assert : 410 Gone removes subscription
-  })
-  
+  });
+
   it('should deduplicate sends', async () => {
     // Send same schedule twice
     // Assert : only one notification per user
-  })
-})
+  });
+});
 ```
 
 ### À ajouter Worker tests
+
 ```typescript
 // worker/src/__tests__/notifications-sender.test.ts
 describe('Notification Sender', () => {
   it('should send with VAPID signature', async () => {
     // Mock pushforge.sendPushMessage
     // Assert : VAPID headers present
-  })
-})
+  });
+});
 ```
 
 ### Smoke test (production)
+
 ```bash
 # Après déploiement Phase B
 npm run test:smoke -- --notifications
@@ -422,29 +525,33 @@ npm run test:smoke -- --notifications
 
 ---
 
-## 10. Dépannage Common
+## 11. Dépannage Common
 
 ### Subscribe retourne 503
+
 → KV namespace pas configuré  
 → Vérifier Cloudflare Dashboard → Pages → Functions → KV Bindings
 
 ### Cron job ne s'exécute pas
+
 → Vérifier `worker/wrangler.toml` [[triggers.crons]]  
 → Logs : `wrangler tail --env production`
 
 ### Push notification ne s'affiche pas
+
 → Service Worker pas installé : vérifier `navigator.serviceWorker.ready`  
 → VAPID key invalide : vérifier env vars  
 → Notification permission non accordée : user a refusé
 
 ### Erreur 410 Gone (endpoint dead)
+
 → Normal : user a désinstallé app ou révoqué permission  
 → Supprimer subscription de KV (automatique Phase B)  
 → Retry : pas besoin
 
 ---
 
-## 11. Checklist Pré-Production Phase B
+## 12. Checklist Pré-Production Phase B
 
 - [ ] KV namespaces créées dans Cloudflare
 - [ ] VAPID keys générées (localement, pas dans repo)
@@ -463,6 +570,7 @@ npm run test:smoke -- --notifications
 ## Fin Phase A
 
 **Livrables** :
+
 - ✅ API stateless avec contrats explicites (503 pending Phase B)
 - ✅ Migration des notifications : idempotente, pas de Date.now() fallback
 - ✅ Types TypeScript Web Push complets (PushDeviceSubscription, etc)

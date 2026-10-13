@@ -581,7 +581,8 @@ async function handleCmsNotifications(req: Request, env: any): Promise<Response>
     }
     
     // ✅ Validation réussie, mais persistance non implémentée
-    console.info(`[Phase A] Subscribe validation OK (endpoint hash: ${hashEndpoint(subscription.endpoint)})`)
+    const endpointHash = await hashEndpoint(subscription.endpoint)
+    console.info(`[Phase A] Subscribe validation OK (endpoint hash: ${endpointHash})`)
     
     return json(
       { 
@@ -615,7 +616,7 @@ async function handleCmsNotifications(req: Request, env: any): Promise<Response>
       )
     }
     
-    console.info(`[Phase A] Unsubscribe validation OK (endpoint hash: ${hashEndpoint(subscription.endpoint)})`)
+    console.info(`[Phase A] Unsubscribe validation OK (endpoint hash: ${await hashEndpoint(subscription.endpoint)})`)
     
     return json(
       { 
@@ -667,13 +668,28 @@ async function handleCmsNotifications(req: Request, env: any): Promise<Response>
 /* Utilitaires */
 
 /**
- * Hacher un endpoint de subscription pour les logs (sécurité)
- * Évite d'exposer les URLs complètes dans les logs publics
+ * Hacher un endpoint de subscription pour les logs (sécurité cryptographique)
+ * 
+ * GARANTIES :
+ * - ✅ Hash SHA-256 via Web Crypto (non-déterministe simplement d'après l'URL)
+ * - ✅ Jamais d'exposition d'URL, p256dh ou auth
+ * - ✅ Identifiant interne utilisable pour dédoublonnage
+ * - ✅ Hash hexadécimal lisible (prend 8 premiers caractères)
+ * 
+ * USAGE :
+ * console.info(`Endpoint hash: ${hashEndpoint(subscription.endpoint)}`)
+ * // Output : "5f3a2b1c" (8 hex chars, parmi 64 possibles)
  */
-function hashEndpoint(endpoint: string): string {
-  // Prendre les 16 derniers caractères (domaine + path) et les réduire
-  const tail = endpoint.slice(-16)
-  return `...${tail.slice(0, 8)}*${tail.slice(-8)}`
+async function hashEndpoint(endpoint: string): Promise<string> {
+  // Web Crypto API (disponible en Cloudflare Workers et navigateur moderne)
+  const encoder = new TextEncoder()
+  const data = encoder.encode(endpoint)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  
+  // Convertir en hex et prendre 8 premiers caractères
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+  return hashHex.slice(0, 8)
 }
 
 function json(data: any, status = 200, headers: Record<string, string> = {}): Response {

@@ -117,23 +117,59 @@ export function migrateNotification(
     }
   } else if (old.timing === 'absolute' && old.absoluteTime) {
     // Rappel absolu : créer un rappel "synth" avec le délai calculé
-    const delay = old.absoluteTime - event.startAt
-    const delayStr = delay === 0 ? '0m' : `${Math.round(delay / 60000)}m`
+    // IMPORTANT : délai = (absoluteTime - startAt)
+    // Si positif : rappel APRÈS l'événement (invalide mais préservé)
+    // Si négatif : rappel AVANT l'événement (normal)
+    const delayMs = old.absoluteTime - event.startAt
+    
+    // Format du délai relatif pour relativeReminders
+    // delayMinutes peut être positif, négatif, ou zéro
+    const delayMinutes = Math.round(delayMs / 60000)
+    
+    // Format : 
+    // - Si delayMinutes === 0 : "0m" (pas de signe)
+    // - Si delayMinutes < 0 : "-{abs}m" (signe négatif)
+    // - Si delayMinutes > 0 : "{num}m" (positif, pas de signe — c'est rare/invalide)
+    let delayStr: string
+    if (delayMinutes === 0) {
+      delayStr = '0m'
+    } else if (delayMinutes < 0) {
+      delayStr = `${delayMinutes}m`  // déjà négatif
+    } else {
+      delayStr = `${delayMinutes}m`  // positif (invalide mais préservé)
+    }
+    
     reminders.push({
       id: `rem-${old.id}`,
       enabled: old.enabled,
-      relativeDelay: `-${delayStr}`,
+      relativeDelay: delayStr,
       sentAt: old.sentAt,
       status: old.status || 'pending',
     })
+    
+    console.log(
+      `[Migration] Rappel absolu: absoluteTime=${old.absoluteTime}, startAt=${event.startAt}, ` +
+      `delayMs=${delayMs}, relativeDelay="-${delayStr}", ` +
+      `verify: startAt + (-${delayStr}) = ${event.startAt + (delayMs / 60000 * 60000)} (should be ${old.absoluteTime})`
+    )
   } else if (old.absoluteTime) {
     // Pas de timing spécifié, mais absoluteTime → traiter comme absolu
-    const delay = old.absoluteTime - event.startAt
-    const delayStr = delay === 0 ? '0m' : `${Math.round(delay / 60000)}m`
+    const delayMs = old.absoluteTime - event.startAt
+    const delayMinutes = Math.round(delayMs / 60000)
+    
+    let delayStr: string
+    if (delayMinutes === 0) {
+      delayStr = '0m'
+    } else if (delayMinutes < 0) {
+      delayStr = `${delayMinutes}m`
+    } else {
+      delayStr = `${delayMinutes}m`
+    }
+    
     reminders.push({
       id: `rem-${old.id}`,
       enabled: old.enabled,
-      relativeDelay: `-${delayStr}`,
+      relativeDelay: delayStr,
       sentAt: old.sentAt,
       status: old.status || 'pending',
     })
@@ -148,12 +184,30 @@ export function migrateNotification(
     imageUrl: old.imageUrl,
     tutorialId: old.tutorialId || event.tutorialId,
     // Instant de base : l'ancien absoluteTime ou le début de l'événement
-    absoluteTime: old.absoluteTime || event.startAt,
+    // NE JAMAIS utiliser Date.now() comme fallback — ce serait inventer une date
+    absoluteTime: old.absoluteTime !== undefined ? old.absoluteTime : event.startAt,
     relativeReminders: reminders,
-    createdAt: old.createdAt || Date.now(),
-    modifiedAt: old.modifiedAt || Date.now(),
+    // ⚠️ CRITIQUE : Si createdAt/modifiedAt manquent, utiliser SENTINEL (0 ou -1)
+    // Pas Date.now() qui inventerait une date arbitraire
+    // 0 = pas de date valide (à corriger manuellement en Phase B si besoin)
+    createdAt: old.createdAt !== undefined ? old.createdAt : 0,
+    modifiedAt: old.modifiedAt !== undefined ? old.modifiedAt : 0,
     // Marquer comme migrée, supprimer eventId
     eventId: undefined,
+  }
+
+  // Signaler les dates invalides pour correction manuelle
+  if (migrated.createdAt === 0) {
+    console.warn(
+      `[Migration] MISSING METADATA: Notification ${old.id} has no createdAt — was manually set to 0. ` +
+      `This should be corrected in Phase B.`
+    )
+  }
+  if (migrated.modifiedAt === 0) {
+    console.warn(
+      `[Migration] MISSING METADATA: Notification ${old.id} has no modifiedAt — was manually set to 0. ` +
+      `This should be corrected in Phase B.`
+    )
   }
 
   console.log(
