@@ -1,8 +1,11 @@
 /**
- * LORDS MOBILE ACADEMY — Phase C Web Push Notifications Worker
+ * LORDS MOBILE ACADEMY — Phase C Web Push Notifications Worker (V3 - VAPID)
  * 
  * Production-ready Web Push implementation with:
- * - RFC 8292-compliant encryption (AES-128-GCM with HKDF-SHA256)
+ * - RFC 8291: Web Push Protocol (HTTP POST with Content-Encoding)
+ * - RFC 8292: Message Encryption for Web Push
+ *   - Section 2: Encryption (AES-128-GCM with HKDF-SHA256)
+ *   - Section 3: VAPID signing (JWT ES256 with RFC 8292 headers)
  * - Phase B subscription format (sub-<UUID>)
  * - CMS-driven scheduling from GitHub
  * - Minimal KV writes (7-day TTL, dedup only)
@@ -158,6 +161,124 @@ async function hkdfExpand(prk: Uint8Array, info: Uint8Array, length: number): Pr
   }
 
   return okm.slice(0, length);
+}
+
+// ============================================================================
+// VAPID (RFC 8292 Section 3) - JWT Signing
+// ============================================================================
+
+/**
+ * Generate VAPID JWT per RFC 8292 Section 3.2
+ * 
+ * JWT format: eyJhbGc...eyJhdW...signature
+ * Claims: aud (push service), exp (expiration), sub (admin contact)
+ * Algorithm: ES256 (ECDSA P-256 + SHA-256)
+ */
+async function generateVAPIDJWT(
+  vapidPrivateKey: string,
+  pushServiceUrl: string,
+  expirationSeconds: number = 3600
+): Promise<string> {
+  try {
+    // Parse private key (base64 encoded, 32 bytes for ES256)
+    const privateKeyBytes = base64ToUint8Array(vapidPrivateKey);
+
+    if (privateKeyBytes.length !== 32) {
+      throw new Error(`Invalid VAPID private key length: ${privateKeyBytes.length}, expected 32`);
+    }
+
+    // Extract audience from push service URL (RFC 8292 Section 3.2)
+    // aud must be origin: scheme + authority (host + port)
+    const url = new URL(pushServiceUrl);
+    const audience = `${url.protocol}//${url.host}`;
+
+    // Current time
+    const now = Math.floor(Date.now() / 1000);
+    const exp = now + expirationSeconds;
+
+    // Header (ES256 = ECDSA with SHA-256)
+    const header = {
+      typ: 'JWT',
+      alg: 'ES256',
+    };
+
+    // Claims per RFC 8292
+    const payload = {
+      aud: audience,
+      exp: exp,
+      sub: 'mailto:academy@lords-mobile-academy.local',
+    };
+
+    // Encode header and payload to base64url
+    const headerJson = JSON.stringify(header);
+    const payloadJson = JSON.stringify(payload);
+
+    const headerB64 = uint8ArrayToBase64(new TextEncoder().encode(headerJson))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '');
+
+    const payloadB64 = uint8ArrayToBase64(new TextEncoder().encode(payloadJson))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '');
+
+    const signatureInput = `${headerB64}.${payloadB64}`;
+    const signatureInputBytes = new TextEncoder().encode(signatureInput);
+
+    // Import private key for ES256 signing
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      privateKeyBytes,
+      {
+        name: 'ECDSA',
+        namedCurve: 'P-256',
+      },
+      false,
+      ['sign']
+    );
+
+    // Sign with SHA-256
+    const signatureRaw = await crypto.subtle.sign(
+      {
+        name: 'ECDSA',
+        hash: 'SHA-256',
+      },
+      cryptoKey,
+      signatureInputBytes
+    );
+
+    // Convert to base64url
+    const signatureBytes = new Uint8Array(signatureRaw);
+    const signature = uint8ArrayToBase64(signatureBytes)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '');
+
+    // Construct final JWT
+    return `${signatureInput}.${signature}`;
+  } catch (error) {
+    console.error('VAPID JWT generation failed:', error);
+    throw new Error(`Failed to generate VAPID JWT: ${String(error)}`);
+  }
+}
+
+/**
+ * Generate VAPID Authorization header (RFC 8292 Section 3.3)
+ * 
+ * Modern format: Authorization: Bearer <JWT>
+ */
+async function generateVAPIDAuthHeader(
+  vapidPrivateKey: string,
+  pushServiceUrl: string
+): Promise<string> {
+  try {
+    const jwt = await generateVAPIDJWT(vapidPrivateKey, pushServiceUrl);
+    return `Bearer ${jwt}`;
+  } catch (error) {
+    console.error('VAPID auth header generation failed:', error);
+    throw error;
+  }
 }
 
 /**
@@ -404,7 +525,7 @@ async function markNotificationSent(
 // ============================================================================
 
 /**
- * Send push notification to a subscription
+ * Send push notification to a subscription with VAPID authentication
  */
 async function sendPushNotification(
   subscription: PhaseB_Subscription,
@@ -437,22 +558,37 @@ async function sendPushNotification(
       subscription.auth
     );
 
-    // Send to push service
+    // Get VAPID keys from environment
+    const vapidPrivateKey = env.VAPID_PRIVATE_KEY;
+    const vapidPublicKey = env.VAPID_PUBLIC_KEY;
+
+    if (!vapidPrivateKey || !vapidPublicKey) {
+      throw new Error('VAPID keys not configured (VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY)');
+    }
+
+    // Generate VAPID Authorization header
+    const authHeader = await generateVAPIDAuthHeader(vapidPrivateKey, subscription.endpoint);
+
+    // Send to push service with VAPID authentication (RFC 8292)
     const response = await fetch(subscription.endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/octet-stream',
         'Content-Encoding': 'aes128gcm',
-        'TTL': '24h',
+        'TTL': '86400', // 24 hours in seconds (RFC 8030)
+        'Urgency': 'high',
+        'Authorization': authHeader,
       },
       body: encryptedPayload,
     });
 
     if (!response.ok) {
-      if (response.status === 410) {
+      if (response.status === 410 || response.status === 404) {
         // Subscription expired
-        console.log(`Subscription ${subscription.id} expired (410)`);
-        return false; // Mark for removal
+        console.log(`Subscription ${subscription.id} expired (${response.status})`);
+        // Delete from KV
+        await env.NOTIFICATIONS_KV.delete(subscription.id);
+        return false;
       }
       throw new Error(`Push service error: ${response.status}`);
     }

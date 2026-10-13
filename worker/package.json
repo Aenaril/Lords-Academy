@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "test": "vitest --run",
-    "test:phase-c": "vitest --run src/notifications-phase-c.test.ts"
+    "test:phase-c": "vitest --run src/notifications-phase-c.test.ts",
+    "test:vapid": "vitest --run src/notifications-phase-c-vapid.test.ts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240925.0",
