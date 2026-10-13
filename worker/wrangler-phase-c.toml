@@ -1,0 +1,36 @@
+# Cloudflare Worker Configuration — Phase C Notifications
+# 
+# ATTENTION: Ce fichier est PRÉPARATOIRE.
+# N'activate PAS le Cron trigger automatiquement.
+# À utiliser SEULEMENT après validation utilisateur.
+
+name = "lma-notifications-phase-c"
+main = "dist/notifications-phase-c.js"
+compatibility_date = "2024-10-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+# ⚠️ CRON DÉSACTIVÉ POUR PHASE DE DÉVELOPPEMENT
+# 
+# À activer UNIQUEMENT après validation:
+# [[triggers.crons]]
+# crons = ["0 * * * *"]  # Toutes les heures UTC
+
+# KV Namespace (réutilisé Phase B)
+[env.production]
+kv_namespaces = [
+  { binding = "NOTIFICATIONS_SUBSCRIPTIONS", id = "", preview_id = "" }
+]
+
+# Variables d'environnement
+[env.production.vars]
+GITHUB_REPO = "Aenaril/Lords-Academy"
+GITHUB_BRANCH = "main"
+VAPID_PUBLIC_KEY = ""
+VAPID_PRIVATE_KEY = ""
+
+# Notes:
+# - KV ID et VAPID keys à remplir avant déploiement
+# - Endpoint test (sans Cron auto): POST /test-send
+#   Body: { subscriptionId: "...", title: "...", message: "..." }
+# - Cron trigger à ajouter après validation
