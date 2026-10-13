@@ -33,20 +33,22 @@ export default defineConfig({
           }
         ]
       },
+      strategies: 'injectManifest',
+      srcDir: 'public',
+      filename: 'sw.ts',
+      injectManifest: {
+        injectionPoint: 'self.__WB_MANIFEST',
+        modifyURLPrefix: {
+          '': process.env.NODE_ENV === 'production' ? '/Lords-Academy/' : '',
+        },
+      },
       workbox: {
         globPatterns: [
           '**/*.{js,css,html,ico,png,svg,jpeg,jpg,webp,gif,woff,woff2,ttf,eot}'
         ],
-        // Ne jamais précacher les configs CMS dynamiques (annonces, thèmes, etc.)
-        // Elles changent sans redéploiement : doivent toujours venir du réseau.
-        globIgnores: ['**/cms/*.json'],
-        // Exclure les routes API de tout type de cache
+        globIgnores: ['**/cms/*.json', 'sw.ts'],
         navigateFallbackDenylist: [/^\/api\//, /^\/cms\//],
         runtimeCaching: [
-          // Configs CMS dynamiques (annonces, thèmes, événements, notifs, home,
-          // settings) : TOUJOURS réseau d'abord. Garantit l'affichage des
-          // annonces publiées sans rester bloqué sur une version précachée.
-          // Pattern relatif ET absolu pour couvrir dev + production.
           {
             urlPattern: ({ url }) => url.pathname.startsWith('/cms/') && url.pathname.endsWith('.json'),
             handler: 'NetworkFirst',
@@ -55,12 +57,10 @@ export default defineConfig({
               networkTimeoutSeconds: 4,
               expiration: {
                 maxEntries: 10,
-                maxAgeSeconds: 5 * 60 // 5 min max en cache (fallback offline)
+                maxAgeSeconds: 5 * 60
               }
             }
           },
-          // Contenu publié (tutoriels) : toujours vérifier le réseau
-          // NetworkFirst = essayer réseau d'abord, fallback au cache si offline
           {
             urlPattern: /^https:\/\/lords-academy\.pages\.dev\/api\/published/,
             handler: 'NetworkFirst',
@@ -69,11 +69,10 @@ export default defineConfig({
               networkTimeoutSeconds: 5,
               expiration: {
                 maxEntries: 10,
-                maxAgeSeconds: 60 * 60 // 1 heure max en cache
+                maxAgeSeconds: 60 * 60
               }
             }
           },
-          // Images publiques : cache long terme (30 jours)
           {
             urlPattern: /^https:\/\/lords-academy\.pages\.dev\/images\//,
             handler: 'CacheFirst',
@@ -85,7 +84,6 @@ export default defineConfig({
               }
             }
           },
-          // Fichiers statiques de contenu (JSON, etc.) : StaleWhileRevalidate
           {
             urlPattern: /^https:\/\/lords-academy\.pages\.dev\/content\//,
             handler: 'StaleWhileRevalidate',
@@ -93,20 +91,16 @@ export default defineConfig({
               cacheName: 'content-cache',
               expiration: {
                 maxEntries: 20,
-                maxAgeSeconds: 7 * 24 * 60 * 60 // 7 jours
+                maxAgeSeconds: 7 * 24 * 60 * 60
               }
             }
           }
         ],
-        // Nettoyer les anciens caches
         cleanupOutdatedCaches: true,
-        // Activations plus agressives
-        skipWaiting: true,        // ← Mise à jour immédiate du SW
-        clientsClaim: true        // ← Reprendre les clients immédiatement
+        skipWaiting: false,        // ← Attendre l'activation (important pour SW custom)
+        clientsClaim: true
       },
-      // Injecter le Service Worker avec détection de mise à jour explicite
       injectRegister: 'auto',
-      // Activer registerPlugin pour les mises à jour
       registerType: 'autoUpdate'
     })
   ],

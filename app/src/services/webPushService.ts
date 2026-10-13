@@ -17,6 +17,7 @@ export interface PushSubscriptionData {
 export interface SubscriptionResponse {
   ok: boolean
   subscriptionId?: string
+  revocationSecret?: string
   error?: string
   code?: string
 }
@@ -61,6 +62,9 @@ export async function requestNotificationPermission(): Promise<'granted' | 'deni
 
 /**
  * S'abonner aux notifications push
+ * 
+ * Retourne subscriptionId (pour plus tard) ET revocationSecret
+ * (à sauvegarder localement pour désabonner)
  */
 export async function subscribeToPushNotifications(
   vapidPublicKey: string,
@@ -115,9 +119,9 @@ export async function subscribeToPushNotifications(
     }
 
     const result = (await response.json()) as SubscriptionResponse
-    // ✅ S'assurer que subscriptionId est retourné
-    if (!result.subscriptionId) {
-      throw new Error('Serveur n\'a pas retourné subscriptionId')
+    // ✅ S'assurer que subscriptionId + revocationSecret sont retournés
+    if (!result.subscriptionId || !result.revocationSecret) {
+      throw new Error('Serveur n\'a pas retourné les identifiants requis')
     }
     return result
   } catch (err) {
@@ -132,6 +136,9 @@ export async function subscribeToPushNotifications(
 
 /**
  * Se désabonner des notifications push
+ * 
+ * Récupère subscriptionId + revocationSecret depuis localStorage
+ * Les envoie au serveur pour vérification
  */
 export async function unsubscribeFromPushNotifications(
   subscriptionId: string,
@@ -145,6 +152,16 @@ export async function unsubscribeFromPushNotifications(
   }
 
   try {
+    // ✅ Récupérer le secret de révocation depuis localStorage
+    const revocationSecret = localStorage.getItem('lma-revocation-secret')
+    if (!revocationSecret) {
+      return {
+        ok: false,
+        error: 'Secret de révocation manquant (stockage local corrompu)',
+        code: 'REVOCATION_SECRET_MISSING',
+      }
+    }
+
     // Désabonner localement
     const registration = await navigator.serviceWorker.ready
     const subscription = await registration.pushManager.getSubscription()
@@ -153,11 +170,11 @@ export async function unsubscribeFromPushNotifications(
       await subscription.unsubscribe()
     }
 
-    // Notifier le serveur
+    // Notifier le serveur (avec preuve de révocation)
     const response = await fetch('/api/web-push/unsubscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subscriptionId }),
+      body: JSON.stringify({ subscriptionId, revocationSecret }),
     })
 
     if (!response.ok) {

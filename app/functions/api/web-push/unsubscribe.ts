@@ -4,19 +4,41 @@
  * Désabonner un joueur des notifications push.
  * 
  * SÉCURITÉ :
- * - Validation stricte du subscriptionId
- * - Limitation à 1 désabonnement par subscription
+ * - Validation stricte du subscriptionId + revocationSecret
+ * - Preuve de possession requise (secret envoyé au navigateur seul)
+ * - Condensat SHA-256 stocké côté serveur (jamais le secret brut)
  * - Protection contre les suppressions arbitraires
- * - Stockage KV OBLIGATOIRE (pas de faux succès)
+ * - Limitation des abus
  */
 
 /**
  * Générer un hash SHA-256 déterministe de l'endpoint
- * Pour cleanup lookup key lors du désabonnement
+ * Pour lookup idempotent
  */
 async function hashEndpoint(endpoint: string): Promise<string> {
   const encoder = new TextEncoder()
   const data = encoder.encode(endpoint)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  return hashHex.substring(0, 32)
+}
+
+/**
+ * Générer un secret de révocation aléatoire (pour le navigateur)
+ */
+function generateRevocationSecret(): string {
+  const array = new Uint8Array(32)
+  crypto.getRandomValues(array)
+  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Hasher le secret de révocation (pour le serveur)
+ */
+async function hashRevocationSecret(secret: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(secret)
   const hashBuffer = await crypto.subtle.digest('SHA-256', data)
   const hashArray = Array.from(new Uint8Array(hashBuffer))
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
@@ -30,7 +52,7 @@ export async function onRequest(context: any) {
   if (request.method === 'OPTIONS') {
     return new Response(null, {
       headers: {
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': env.CLIENT_ORIGIN || 'https://lords-academy.pages.dev',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
       },
@@ -57,8 +79,8 @@ export async function onRequest(context: any) {
       )
     }
 
-    // ✅ Valider subscriptionId
-    const { subscriptionId } = body
+    // ✅ Valider subscriptionId + revocationSecret
+    const { subscriptionId, revocationSecret } = body
 
     if (!subscriptionId || typeof subscriptionId !== 'string') {
       return new Response(
@@ -67,7 +89,14 @@ export async function onRequest(context: any) {
       )
     }
 
-    // ✅ Vérifier format (sub-*)
+    if (!revocationSecret || typeof revocationSecret !== 'string' || revocationSecret.length < 32) {
+      return new Response(
+        JSON.stringify({ ok: false, error: 'Missing or invalid revocationSecret' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // ✅ Vérifier format subscriptionId (sub-*)
     if (!subscriptionId.match(/^sub-[a-f0-9-]{36}$/)) {
       return new Response(
         JSON.stringify({ ok: false, error: 'Invalid subscriptionId format' }),
@@ -88,27 +117,57 @@ export async function onRequest(context: any) {
       )
     }
 
+    // ✅ Récupérer l'abonnement depuis KV
+    let subscription: any = null
+    try {
+      const stored = await env.NOTIFICATIONS_SUBSCRIPTIONS.get(subscriptionId, 'json')
+      if (stored) {
+        subscription = stored
+      }
+    } catch (err) {
+      console.error('[WebPush] KV get failed:', err)
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: 'Failed to retrieve subscription',
+          code: 'STORAGE_ERROR',
+        }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // ✅ Vérifier abonnement existe
+    if (!subscription) {
+      // Idempotence : déjà supprimé = succès
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          alreadyDeleted: true,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // ✅ SÉCURITÉ : Vérifier la preuve de révocation (HMAC du secret)
+    const secretHash = await hashRevocationSecret(revocationSecret)
+    if (secretHash !== subscription.revocationSecretHash) {
+      console.warn('[WebPush] Invalid revocation secret provided for:', subscriptionId)
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: 'Invalid revocation secret',
+          code: 'UNAUTHORIZED',
+        }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
     // ✅ Supprimer de KV
     try {
-      // Vérifier que la clé existe (protection contre suppressions arbitraires)
-      const existing = await env.NOTIFICATIONS_SUBSCRIPTIONS.get(subscriptionId)
-      if (!existing) {
-        // ✅ Idempotence : déjà supprimé = succès
-        return new Response(
-          JSON.stringify({
-            ok: true,
-            alreadyDeleted: true,
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
-        )
-      }
-
       // Supprimer par subscriptionId
       await env.NOTIFICATIONS_SUBSCRIPTIONS.delete(subscriptionId)
 
-      // Trouver et supprimer aussi par endpoint hash (cleanup lookup key)
-      // Parse existing to get endpoint
-      const subscription = JSON.parse(existing)
+      // Supprimer aussi par endpoint hash (cleanup lookup key)
       if (subscription.endpoint) {
         const endpointHash = await hashEndpoint(subscription.endpoint)
         const lookupKey = `endpoint:${endpointHash}`
@@ -116,7 +175,7 @@ export async function onRequest(context: any) {
           await env.NOTIFICATIONS_SUBSCRIPTIONS.delete(lookupKey)
         } catch (err) {
           console.warn('[WebPush] Failed to delete lookup key:', err)
-          // Non-critique, continuer
+          // Non-critique : lookup key orphelin, sera remplacé par prochain subscribe
         }
       }
     } catch (err) {

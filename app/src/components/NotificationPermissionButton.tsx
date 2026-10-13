@@ -90,9 +90,10 @@ export function NotificationPermissionButton({ vapidPublicKey }: Props) {
     // S'abonner
     const response = await subscribeToPushNotifications(vapidPublicKey)
 
-    if (response.ok && response.subscriptionId) {
-      // ✅ SAUVEGARDER subscriptionId (CRITIQUE)
+    if (response.ok && response.subscriptionId && response.revocationSecret) {
+      // ✅ SAUVEGARDER subscriptionId + revocationSecret (CRITIQUE)
       localStorage.setItem('lma-subscription-id', response.subscriptionId)
+      localStorage.setItem('lma-revocation-secret', response.revocationSecret)
       setSubscriptionState('subscribed')
       setErrorMessage('')
     } else {
@@ -111,6 +112,7 @@ export function NotificationPermissionButton({ vapidPublicKey }: Props) {
 
     if (!subscriptionId) {
       setSubscriptionState('idle')
+      localStorage.removeItem('lma-revocation-secret')
       return
     }
 
@@ -119,6 +121,7 @@ export function NotificationPermissionButton({ vapidPublicKey }: Props) {
     if (response.ok) {
       setSubscriptionState('idle')
       localStorage.removeItem('lma-subscription-id')
+      localStorage.removeItem('lma-revocation-secret')  // ✅ Supprimer aussi le secret
       setErrorMessage('')
     } else {
       setSubscriptionState('error')

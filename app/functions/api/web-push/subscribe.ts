@@ -5,10 +5,13 @@
  * 
  * SÉCURITÉ :
  * - Validation stricte des données
+ * - HTTPS obligatoire
+ * - Domaines whitelist validés exactement
  * - Idempotence (même endpoint = réutiliser ID existant)
- * - Rate limiting (max 10 req/min par IP)
- * - Pas de journalisation des clés de chiffrement
- * - Stockage KV OBLIGATOIRE (pas de faux succès)
+ * - Secret de révocation généré et retourné au navigateur seul
+ * - Condensat du secret stocké en KV
+ * - Rate limiting implémenté
+ * - Stockage KV OBLIGATOIRE
  */
 
 /**
@@ -21,19 +24,50 @@ async function hashEndpoint(endpoint: string): Promise<string> {
   const hashBuffer = await crypto.subtle.digest('SHA-256', data)
   const hashArray = Array.from(new Uint8Array(hashBuffer))
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-  return hashHex.substring(0, 32) // Limiter à 32 chars
+  return hashHex.substring(0, 32)
+}
+
+/**
+ * Générer un secret de révocation aléatoire (pour le navigateur)
+ */
+function generateRevocationSecret(): string {
+  const array = new Uint8Array(32)
+  crypto.getRandomValues(array)
+  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Hasher le secret de révocation (pour le serveur)
+ */
+async function hashRevocationSecret(secret: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(secret)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  return hashHex.substring(0, 32)
 }
 
 export async function onRequest(context: any) {
   const { request, env } = context
 
-  // ✅ CORS préflight
+  // ✅ CORS préflight (restreint aux domaines autorisés)
   if (request.method === 'OPTIONS') {
+    const origin = request.headers.get('Origin') || ''
+    const allowedOrigins = [
+      'https://lords-academy.pages.dev',
+      'https://lords-mobile-academy.pages.dev',
+      'http://localhost:5173',
+      'http://localhost:3000',
+    ]
+    const isAllowedOrigin = allowedOrigins.some(allowed => origin === allowed)
+
     return new Response(null, {
       headers: {
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': isAllowedOrigin ? origin : 'null',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Max-Age': '86400',
       },
     })
   }
@@ -92,18 +126,25 @@ export async function onRequest(context: any) {
       )
     }
 
-    // ✅ Valider domaine endpoint (push service connus)
+    // ✅ Valider HTTPS obligatoire
     const endpointURL = new URL(endpoint)
+    if (endpointURL.protocol !== 'https:') {
+      return new Response(
+        JSON.stringify({ ok: false, error: 'Endpoint must use HTTPS' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // ✅ Valider domaine endpoint (push service connus) — STRICT MATCH
     const allowedDomains = [
-      'fcm.googleapis.com', // Firebase Cloud Messaging (Chrome)
-      'updates.push.services.mozilla.com', // Mozilla (Firefox)
-      'updates.push.services.mozilla.com', // Firefox alternative
-      'wns2-dm2p.notify.windows.com', // Microsoft Edge
-      'notify.apple.com', // Apple push (macOS/iOS)
+      'fcm.googleapis.com',
+      'updates.push.services.mozilla.com',
+      'wns2-dm2p.notify.windows.com',
+      'notify.apple.com',
     ]
 
     const isAllowedDomain = allowedDomains.some((domain) =>
-      endpointURL.hostname.includes(domain)
+      endpointURL.hostname === domain  // ✅ Exact match, not includes
     )
 
     if (!isAllowedDomain) {
@@ -138,17 +179,21 @@ export async function onRequest(context: any) {
         existingSubscription = existing
       }
     } catch (err) {
-      // Continuer si lookup échoue
       console.warn('[WebPush] KV lookup failed (continue):', err)
     }
 
     let subscriptionId = existingSubscription?.id
+    let revocationSecret = existingSubscription?.revocationSecret
     let isNewSubscription = !existingSubscription
 
-    // ✅ Si nouvel abonnement, générer ID
+    // ✅ Si nouvel abonnement, générer ID + secret
     if (isNewSubscription) {
       subscriptionId = `sub-${crypto.randomUUID()}`
+      revocationSecret = generateRevocationSecret()
     }
+
+    // ✅ Hasher le secret pour stockage
+    const revocationSecretHash = await hashRevocationSecret(revocationSecret)
 
     // ✅ Construire payload
     const subscriptionPayload = {
@@ -156,6 +201,7 @@ export async function onRequest(context: any) {
       endpoint,
       p256dh,
       auth,
+      revocationSecretHash,  // ✅ Hash uniquement, jamais le secret brut
       createdAt: existingSubscription?.createdAt || Date.now(),
       updatedAt: Date.now(),
       userAgent: request.headers.get('user-agent') || 'unknown',
@@ -167,7 +213,7 @@ export async function onRequest(context: any) {
       await env.NOTIFICATIONS_SUBSCRIPTIONS.put(
         subscriptionId,
         JSON.stringify(subscriptionPayload),
-        { expirationTtl: 90 * 24 * 60 * 60 } // 90 jours
+        { expirationTtl: 90 * 24 * 60 * 60 }
       )
 
       // Store by endpoint hash (lookup for idempotence)
@@ -188,11 +234,12 @@ export async function onRequest(context: any) {
       )
     }
 
-    // ✅ Succès
+    // ✅ Succès — retourner SEULEMENT au navigateur le revocationSecret
     return new Response(
       JSON.stringify({
         ok: true,
         subscriptionId,
+        revocationSecret,  // ✅ SEULEMENT au navigateur, jamais stocké en clair
         isNewSubscription,
       }),
       { status: isNewSubscription ? 201 : 200, headers: { 'Content-Type': 'application/json' } }
