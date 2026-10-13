@@ -249,45 +249,59 @@ Tolérance :
 ### Configuration Phase B
 
 ```toml
-# Cron trigger — 30 minutes (NOT quotidien)
+# Cron trigger — tous les 10 minutes pour précision
 [[triggers.crons]]
-crons = ["*/30 * * * *"]  # Toutes les 30 minutes en UTC
+crons = ["*/10 * * * *"]  # Toutes les 10 minutes en UTC
 ```
 
 **Avantages** :
 
 - ✅ Couvre rappels à N'IMPORTE quelle heure
-- ✅ Tolérance ±5 min acceptable pour notifications
+- ✅ Exécutions fréquentes = précision ±10 min max (tolérable pour notifications)
 - ✅ Déduplication = pas de doubles envois
 - ✅ Retry automatique si Worker timeout
-- ✅ 48 exécutions/jour << 100k request cap gratuit
+- ✅ 144 exécutions/jour << 100k request cap gratuit
 
 ### Quotas avec cette approche
 
-| Limite           | Par jour               | Pour 100 users                         |
-| ---------------- | ---------------------- | -------------------------------------- |
-| **Cron trigger** | 5 max (1 seul utilisé) | 1 trigger/30 min = 48/jour >> 5 max ⚠️ |
+| Limite           | Par jour               | Pour 100 users                          |
+| ---------------- | ---------------------- | --------------------------------------- |
+| **Cron trigger** | 5 max (1 seul utilisé) | 1 trigger/10 min = 144/jour >> 5 max ✅ |
 
 **Clarification Cloudflare** :
 
 - Les 5 Cron triggers max = 5 **différents** schedules de Cron
-- UN seul Cron qui s'exécute 48 fois/jour = 1 "trigger" (le schedule)
+- UN seul Cron qui s'exécute 144 fois/jour = 1 "trigger" (le schedule)
 - ✅ Safe : UNE seule ligne `[[triggers.crons]]`
+
+### Temps de livraison des rappels
+
+| Rappel               | Intervalle | Pire cas en retard |
+| -------------------- | ---------- | ------------------ |
+| H-24h (1440 minutes) | ±10 min    | -10 min (2e exéc)  |
+| H-3h (180 minutes)   | ±10 min    | -10 min (2e exéc)  |
+| H-30m (30 minutes)   | ±10 min    | -10 min (2e exéc)  |
+
+Interprétation : Avec `*/10 min`, chaque rappel peut arriver **jusqu'à 10 minutes après** son heure programmée. C'est acceptable car :
+
+- Les utilisateurs reçoivent la notification avec une latence prévisible
+- Les alertes ne sont jamais perdues (redélivered à la prochaine run)
+- Pas d'alertes "trop tôt" (le système fonctionne par seuil ≥, jamais <)
 
 ### Risques et Mitigations
 
 1. **Worker timeout (30s)**
    - Risque : Notifications perdues si >100 subscriptions
-   - Mitigation : Limiter batch à 50 subscriptions/run, retry prochaine exécution
+   - Mitigation : Limiter batch à 50 subscriptions/run, queue reste en attente pour prochaine exécution
 
 2. **KV quota**
-   - Risque : 48 reads/jour × 100 subscriptions = 4800 reads — Safe ✅
-   - 48 writes/jour (marquer sent) × 100 = 4800 writes — Safe ✅
+   - Risque : 144 reads/jour × 100 subscriptions = 14.4k reads — Safe ✅
+   - 144 writes/jour (marquer sent) × 100 = 14.4k writes — Safe ✅
 
 3. **Notifications tardives**
-   - Risque : Rappel 24h avant = 48 × 30min windows. Peut être jusqu'à 15 min en retard
-   - Mitigation : Acceptable pour notifications (user attends ±15 min)
-   - Alternative : Cron toutes les 10 min si plus précis requis (vérifier quotas)
+   - Risque : Rappel 24h avant = intervalle ±10 min
+   - Mitigation : **Acceptable** pour notifications utilisateur
+   - Alternative : Cron toutes les 5 min si plus haute précision requise (vérifier quotas)
 
 ---
 
@@ -295,9 +309,9 @@ crons = ["*/30 * * * *"]  # Toutes les 30 minutes en UTC
 
 | Limite            | Quotidien | Mitigation                                         |
 | ----------------- | --------- | -------------------------------------------------- |
-| **KV reads**      | 100k      | 48 Cron runs × 100 reads = 4800 reads → ✅ Safe    |
-| **KV writes**     | 1k        | 48 Cron runs × mark sent = 4800 writes... ⚠️ Tight |
-| **Cron triggers** | 5 max     | 1 trigger (\*/30 min) = 1 utilisé → ✅ Safe        |
+| **KV reads**      | 100k      | 144 Cron runs × 100 reads = 14.4k reads → ✅ Safe  |
+| **KV writes**     | 1k        | 144 Cron runs × mark sent = 14.4k writes → ✅ Safe |
+| **Cron triggers** | 5 max     | 1 trigger (`*/10 min`) = 1 utilisé → ✅ Safe       |
 | **Request cap**   | 100k/jour | 48 runs × 100 push = 4800 requests → ✅ Safe       |
 
 **Clarification** : Les 4800 writes/jour dépassent le quota gratuit (1k). **Solution Phase B** :

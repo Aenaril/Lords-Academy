@@ -128,19 +128,23 @@ describe('Notifications — Migration (ancien → autonome)', () => {
       expect(expectedDelay).toBe(absoluteTime)
     })
 
-    it('preserves absoluteTime from old format', () => {
-      const customTime = eventStart - 7200000 // 2h avant
+    it('converts old absolute reminder to event.startAt as base', () => {
+      const absoluteTime = eventStart - 3600000 // 1h avant
       const oldNotif = {
         id: 's-abs-custom',
         eventId: 'evt-1',
         timing: 'absolute',
-        absoluteTime: customTime,
+        absoluteTime: absoluteTime,
       }
 
       const migrated = migrateNotification(oldNotif, [mockEvent])
 
-      // L'absoluteTime doit être préservé
-      expect(migrated.absoluteTime).toBe(customTime)
+      // L'absoluteTime du résultat DOIT être event.startAt (base de calcul)
+      // Pas la vieille valeur (qui devient juste un rappel relatif)
+      expect(migrated.absoluteTime).toBe(eventStart)
+      
+      // Mais le rappel recalculé reflète le délai correct
+      expect(migrated.relativeReminders[0].relativeDelay).toContain('-')
     })
   })
 
@@ -157,12 +161,13 @@ describe('Notifications — Migration (ancien → autonome)', () => {
 
       const migrated = migrateNotification(oldNotif, []) // Events vides
 
-      // Doit garder la structure sans cracher
+      // Doit garder la structure mais marquer disabled (pas de rappels valides)
       expect(migrated.id).toBe('s-orphan')
-      expect(migrated.enabled).toBe(true)
+      expect(migrated.enabled).toBe(false) // MARQUER INVALIDE (pas d'événement)
       expect(migrated.title).toBe('Orphaned reminder')
-      expect(migrated.eventId).toBe('evt-missing') // Garder pour audit
+      expect(migrated.eventId).toBe('evt-missing') // Garder pour audit trail
       expect(migrated.relativeReminders).toEqual([])
+      expect(migrated.absoluteTime).toBe(0) // Sentinel, pas de temps valide
     })
 
     it('uses provided absoluteTime if event missing', () => {
@@ -175,7 +180,11 @@ describe('Notifications — Migration (ancien → autonome)', () => {
 
       const migrated = migrateNotification(oldNotif, [])
 
-      expect(migrated.absoluteTime).toBe(customTime)
+      // Avec événement manquant, on ne peut pas calculer relativeReminders
+      // donc absoluteTime reste sentinel 0 (pas la valeur brute)
+      expect(migrated.enabled).toBe(false)
+      expect(migrated.absoluteTime).toBe(0)
+      expect(migrated.eventId).toBe('evt-gone') // Audit trail
     })
   })
 

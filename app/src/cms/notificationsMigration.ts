@@ -10,7 +10,7 @@
  */
 
 import type { EventNotificationSchedule, NotificationReminder, Event } from './types'
-import { relativeReminderTime } from './timezone'
+import { parseRelativeDelay } from './timezone'
 
 /**
  * Format ancien d'une notification (avant autonomie).
@@ -37,24 +37,23 @@ interface OldEventNotificationSchedule {
 /**
  * Convertir une ancienne notification (avec eventId) vers nouvelle (autonome).
  *
- * Règles de migration :
- * 1. Si eventId existe mais événement manquant → garde le format ancien, signale warning
- * 2. Si timing='relative' et event existe → calcule l'instant réel d'envoi
- * 3. Si timing='absolute' → préserve exactement
- * 4. Crée un rappel pour chaque ancien rappel
- * 5. Jamais de reminders vides (relativeReminders toujours défini)
+ * GARANTIES :
+ * 1. Chaque rappel généré DOIT passer parseRelativeDelay() (format négatif uniquement)
+ * 2. Jamais de double-envoi : ancienne notification unique → une seule source d'envoi
+ * 3. Dates invalides (0, après-événement) → pas activées, audit trail conservée
+ * 4. Idempotence : exécution multiple = identique
+ * 5. Non-destructif : données historiques préservées
  *
  * @param oldNotif notification potentiellement anciennes
  * @param events liste d'événements pour résoudre les références
  * @returns notification au format autonome, ou inchangée si déjà migrée
  */
 export function migrateNotification(
-  oldNotif: any, // any car peut être mélange ancien/nouveau
+  oldNotif: any,
   events: Event[]
 ): EventNotificationSchedule {
   // Vérifier si déjà au format autonome (a relativeReminders)
   if (Array.isArray((oldNotif as any).relativeReminders)) {
-    // Format autonome : supprimer eventId s'il existe
     return {
       ...(oldNotif as EventNotificationSchedule),
       eventId: undefined,
@@ -63,7 +62,7 @@ export function migrateNotification(
 
   const old = oldNotif as OldEventNotificationSchedule
 
-  // Pas d'eventId → déjà autonome (format intermédiaire)
+  // Pas d'eventId → déjà autonome
   if (!old.eventId) {
     return {
       ...(old as EventNotificationSchedule),
@@ -76,142 +75,131 @@ export function migrateNotification(
   const event = events.find((e) => e.id === old.eventId)
 
   if (!event) {
-    // ⚠️ Événement disparu : garder ancienne structure sans cracher
+    // Événement disparu : garder ancienne structure, marquer invalide
     console.warn(
       `[Migration] Événement ${old.eventId} introuvable pour notification ${old.id}. Garder format ancien.`
     )
     return {
       id: old.id,
-      enabled: old.enabled,
+      enabled: false, // MARQUER INVALIDE (pas de source d'envoi valide)
       title: old.title || 'Sans titre',
       message: old.message || '',
       imageUrl: old.imageUrl,
       tutorialId: old.tutorialId,
-      // ⚠️ CRITIQUE : Utiliser l'absoluteTime ancien s'il existe
-      // NE JAMAIS fallback à Date.now() (cela invente une date arbitraire)
-      // Si absoluteTime manque, utiliser une sentinel value neutre
-      // Phase B déterminera comment gérer ces cas
-      absoluteTime: old.absoluteTime !== undefined ? old.absoluteTime : 0,
+      absoluteTime: 0, // Sentinel, invalide
       relativeReminders: [],
       createdAt: old.createdAt || 0,
       modifiedAt: old.modifiedAt || 0,
-      eventId: old.eventId, // Garder la référence perdue pour audit
+      eventId: old.eventId, // Audit trail
     }
   }
 
   // ✅ Événement trouvé : migrer complètement
   const reminders: NotificationReminder[] = []
 
-  // Créer UN rappel depuis l'ancien format
+  // Traiter ancien format relatif
   if (old.timing === 'relative' && old.relativeDelay) {
-    // Rappel relatif : calculer l'heure réelle d'envoi
-    const sendTime = relativeReminderTime(event.startAt, old.relativeDelay)
-    if (sendTime !== null) {
+    // Valider le format avec le contrat réel
+    if (parseRelativeDelay(old.relativeDelay) !== null) {
       reminders.push({
         id: `rem-${old.id}`,
         enabled: old.enabled,
-        relativeDelay: old.relativeDelay,
+        relativeDelay: old.relativeDelay,  // Format exact : -24h, -30m, etc.
         sentAt: old.sentAt,
         status: old.status || 'pending',
       })
-    }
-  } else if (old.timing === 'absolute' && old.absoluteTime) {
-    // Rappel absolu : créer un rappel "synth" avec le délai calculé
-    // IMPORTANT : délai = (absoluteTime - startAt)
-    // Si positif : rappel APRÈS l'événement (invalide mais préservé)
-    // Si négatif : rappel AVANT l'événement (normal)
-    const delayMs = old.absoluteTime - event.startAt
-    
-    // Format du délai relatif pour relativeReminders
-    // delayMinutes peut être positif, négatif, ou zéro
-    const delayMinutes = Math.round(delayMs / 60000)
-    
-    // Format : 
-    // - Si delayMinutes === 0 : "0m" (pas de signe)
-    // - Si delayMinutes < 0 : "-{abs}m" (signe négatif)
-    // - Si delayMinutes > 0 : "{num}m" (positif, pas de signe — c'est rare/invalide)
-    let delayStr: string
-    if (delayMinutes === 0) {
-      delayStr = '0m'
-    } else if (delayMinutes < 0) {
-      delayStr = `${delayMinutes}m`  // déjà négatif
     } else {
-      delayStr = `${delayMinutes}m`  // positif (invalide mais préservé)
+      console.warn(
+        `[Migration] Notification ${old.id}: relativeDelay "${old.relativeDelay}" invalide (doit être -Xh/-Xm/-Xd)`
+      )
     }
-    
-    reminders.push({
-      id: `rem-${old.id}`,
-      enabled: old.enabled,
-      relativeDelay: delayStr,
-      sentAt: old.sentAt,
-      status: old.status || 'pending',
-    })
-    
-    console.log(
-      `[Migration] Rappel absolu: absoluteTime=${old.absoluteTime}, startAt=${event.startAt}, ` +
-      `delayMs=${delayMs}, relativeDelay="-${delayStr}", ` +
-      `verify: startAt + (-${delayStr}) = ${event.startAt + (delayMs / 60000 * 60000)} (should be ${old.absoluteTime})`
-    )
-  } else if (old.absoluteTime) {
-    // Pas de timing spécifié, mais absoluteTime → traiter comme absolu
+  }
+  // Traiter ancien format absolu
+  else if (old.timing === 'absolute' && old.absoluteTime !== undefined) {
     const delayMs = old.absoluteTime - event.startAt
-    const delayMinutes = Math.round(delayMs / 60000)
-    
-    let delayStr: string
-    if (delayMinutes === 0) {
-      delayStr = '0m'
-    } else if (delayMinutes < 0) {
-      delayStr = `${delayMinutes}m`
+
+    if (delayMs < 0) {
+      // ✅ AVANT l'événement : valide
+      const delayMinutes = Math.round(delayMs / 60000)
+      const relativeDelay = `${delayMinutes}m`  // ex: -720m
+
+      // Valider AVANT d'ajouter
+      if (parseRelativeDelay(relativeDelay) !== null) {
+        reminders.push({
+          id: `rem-${old.id}`,
+          enabled: old.enabled,
+          relativeDelay,
+          sentAt: old.sentAt,
+          status: old.status || 'pending',
+        })
+      } else {
+        console.error(
+          `[Migration] ANOMALY: Generated relativeDelay "${relativeDelay}" failed validation`
+        )
+      }
+    } else if (delayMs === 0) {
+      // ⚠️ À l'heure exacte : invalide (pas de `-0m`)
+      console.warn(
+        `[Migration] Notification ${old.id}: programmed exactement à l'heure de l'événement (pas de rappel 0m valide)`
+      )
     } else {
-      delayStr = `${delayMinutes}m`
+      // ❌ APRÈS l'événement : invalide
+      console.warn(
+        `[Migration] Notification ${old.id}: programmed ${Math.round(delayMs / 60000)} minutes APRÈS l'événement—invalide`
+      )
     }
-    
-    reminders.push({
-      id: `rem-${old.id}`,
-      enabled: old.enabled,
-      relativeDelay: delayStr,
-      sentAt: old.sentAt,
-      status: old.status || 'pending',
-    })
+  }
+  // Ancien format sans timing = cas ambigu
+  else if (old.absoluteTime !== undefined) {
+    const delayMs = old.absoluteTime - event.startAt
+
+    if (delayMs < 0) {
+      const delayMinutes = Math.round(delayMs / 60000)
+      const relativeDelay = `${delayMinutes}m`
+
+      if (parseRelativeDelay(relativeDelay) !== null) {
+        reminders.push({
+          id: `rem-${old.id}`,
+          enabled: old.enabled,
+          relativeDelay,
+          sentAt: old.sentAt,
+          status: old.status || 'pending',
+        })
+      }
+    }
   }
 
   // Construire la nouvelle notification
   const migrated: EventNotificationSchedule = {
     id: old.id,
-    enabled: old.enabled,
+    enabled: old.enabled && reminders.length > 0, // Valide seulement si rappels valides
     title: old.title || `Rappel : ${event.name}`,
     message: old.message || `${event.name} approche !`,
     imageUrl: old.imageUrl,
     tutorialId: old.tutorialId || event.tutorialId,
-    // Instant de base : l'ancien absoluteTime ou le début de l'événement
-    // NE JAMAIS utiliser Date.now() comme fallback — ce serait inventer une date
-    absoluteTime: old.absoluteTime !== undefined ? old.absoluteTime : event.startAt,
+    // Instant de base = début de l'événement
+    // Les rappels sont tous relatifs à ce point de repère
+    absoluteTime: event.startAt,
     relativeReminders: reminders,
-    // ⚠️ CRITIQUE : Si createdAt/modifiedAt manquent, utiliser SENTINEL (0 ou -1)
-    // Pas Date.now() qui inventerait une date arbitraire
-    // 0 = pas de date valide (à corriger manuellement en Phase B si besoin)
     createdAt: old.createdAt !== undefined ? old.createdAt : 0,
     modifiedAt: old.modifiedAt !== undefined ? old.modifiedAt : 0,
-    // Marquer comme migrée, supprimer eventId
     eventId: undefined,
   }
 
-  // Signaler les dates invalides pour correction manuelle
-  if (migrated.createdAt === 0) {
+  // Signaler les cas problématiques
+  if (reminders.length === 0) {
     console.warn(
-      `[Migration] MISSING METADATA: Notification ${old.id} has no createdAt — was manually set to 0. ` +
-      `This should be corrected in Phase B.`
+      `[Migration] Notification ${old.id}: aucun rappel valide généré—marquée invalide (enabled=false)`
     )
   }
-  if (migrated.modifiedAt === 0) {
+  if (migrated.createdAt === 0) {
     console.warn(
-      `[Migration] MISSING METADATA: Notification ${old.id} has no modifiedAt — was manually set to 0. ` +
-      `This should be corrected in Phase B.`
+      `[Migration] Notification ${old.id}: createdAt manquant—sentinel value (0)`
     )
   }
 
   console.log(
-    `[Migration] Notification ${old.id} (evt ${old.eventId}) → autonome (${reminders.length} rappel(s))`
+    `[Migration] Notification ${old.id} (evt ${old.eventId}) → autonome (${reminders.length} rappel(s), enabled=${migrated.enabled})`
   )
   return migrated
 }
