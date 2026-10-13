@@ -106,8 +106,12 @@ export default function AdminBarWrapper({ onSelectTutorial }: { onSelectTutorial
 
   return (
     <>
+      {/* ✅ PRODUCTION: Afficher UNIQUEMENT FloatingAdminButton si pas authentifié */}
+      {/* En production, AdminBar est masquée jusqu'à connexion */}
       <FloatingAdminButton />
-      <AdminBar onSelectTutorial={onSelectTutorial} />
+      
+      {/* ✅ AdminBar visible seulement si éditeur actif (après authentification) */}
+      {isAuthenticated && <AdminBar onSelectTutorial={onSelectTutorial} />}
 
       {/* DÉVELOPPEMENT UNIQUEMENT : modale d'accueil avec choix */}
       {isDev && showAdminModeModal && (

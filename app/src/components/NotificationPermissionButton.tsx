@@ -132,15 +132,22 @@ export function NotificationPermissionButton({ vapidPublicKey }: Props) {
   // ✅ Rendu selon l'état
   if (isBrowserUnsupported) {
     return (
-      <div style={{ padding: '1rem', backgroundColor: '#f5f5f0' }}>
-        <p style={{ margin: 0, fontSize: '0.9rem', color: '#666' }}>
-          ⓘ Notifications non disponibles sur votre appareil ou navigateur.
-          <br />
-          <small>
-            Sur iPhone/iPad: Web Push requiert Safari 16.1+ avec l'app installée sur l'écran d'accueil.
-            Sur macOS Safari: Web Push est supporté.
-          </small>
+      <div style={{ 
+        padding: '1rem', 
+        backgroundColor: '#f5f5f0', 
+        borderRadius: '4px',
+        border: '1px solid #ddd',
+        fontSize: '0.9rem',
+        color: '#333'
+      }}>
+        <p style={{ margin: 0, marginBottom: '0.5rem', fontWeight: 'bold' }}>
+          ⓘ Notifications indisponibles
         </p>
+        <small style={{ display: 'block', lineHeight: '1.4' }}>
+          <strong>iPhone/iPad:</strong> Nécessite Safari 16.1+ avec l'app sur l'écran d'accueil.
+          <br />
+          <strong>macOS Safari:</strong> Supporté nativement.
+        </small>
       </div>
     )
   }
@@ -168,9 +175,25 @@ export function NotificationPermissionButton({ vapidPublicKey }: Props) {
     const hasSecret = localStorage.getItem('lma-revocation-secret')
     if (!hasSecret) {
       // localStorage corrompu = pas vraiment abonné
-      setSubscriptionState('error')
-      setErrorMessage('État local corrompu (secret manquant)')
-      return
+      // NE PAS faire setState ici (pendant le rendu) !
+      // La corruption sera détectée au prochain effect
+      return (
+        <button
+          onClick={handleSubscribe}
+          style={{
+            padding: '0.5rem 1rem',
+            backgroundColor: '#D84D00',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '0.95rem',
+            fontWeight: 'bold',
+          }}
+        >
+          🔔 Réactiver les notifications
+        </button>
+      )
     }
 
     return (
