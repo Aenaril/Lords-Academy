@@ -1,42 +1,29 @@
 /**
- * Module CMS Notifications — Programmation des rappels d'événements
+ * Module CMS Notifications — Programmation autonome des rappels
  *
- * Pour CHAQUE événement : jusqu'à 3 rappels indépendants.
- * Chaque rappel :
- * - activation/désactivation
- * - timing relatif (-24h/-3h/-30m/…) OU absolu (date/heure belge)
- * - titre + message
- * - image facultative
- * - destination (tutoriel publié)
- * - statut
- *
- * Règles :
- * - jamais plus de 3 rappels par événement
- * - un rappel ne peut pas être programmé APRÈS le début de l'événement
- * - quand la date d'un événement change, les rappels relatifs sont recalculés
- *   automatiquement (ils dépendent de startAt) ; les rappels absolus sont
- *   vérifiés et signalés s'ils tombent après le nouveau début
- *
- * ENVOI RÉEL : désactivé. L'infrastructure Web Push (VAPID + Worker planifié)
- * n'est pas configurée. On affiche explicitement « Envoi push non activé » et
- * on ne simule JAMAIS un envoi réussi.
- *
- * Persistance : programmations ET événements côté serveur (/api/cms-storage).
+ * À partir de l'ÉTAPE 3 :
+ * - Les notifications sont AUTONOMES (plus dépendantes des Événements)
+ * - Chaque notification a un titre, un message, une image
+ * - Jusqu'à 3 rappels indépendants par notification (relatifs à un instant absolu)
+ * - L'instant absolu est défini en heure belge (Europe/Brussels timezone)
+ * - Pas de lien obligatoire à un événement
+ * 
+ * Persistance : côté serveur (/api/cms-storage)
+ * Envoi réel : DÉSACTIVÉ (Web Push non configuré)
  */
 
 import { useState, useEffect, useRef } from 'react'
-import type { EventNotificationSchedule, Event } from './types'
+import type { EventNotificationSchedule, NotificationReminder } from './types'
 import {
-  loadEvents as loadEventsServer,
   loadNotificationSchedules as loadSchedulesServer,
   saveNotificationSchedules as saveSchedulesServer,
+  loadEvents,
   CmsStorageError,
 } from './cmsStorageClient'
 import {
   utcToDatetimeLocalValue,
   datetimeLocalValueToUtc,
   formatBrussels,
-  relativeReminderTime,
 } from './timezone'
 import { usePublishedTutorials } from './usePublishedTutorials'
 import './NotificationsModule.css'
@@ -45,8 +32,8 @@ interface NotificationsModuleProps {
   isAuthenticated?: boolean
 }
 
-const LS_KEY = 'cms:push:schedules'
-const MAX_REMINDERS_PER_EVENT = 3
+const LS_KEY = 'cms:notifications'
+const MAX_REMINDERS_PER_NOTIFICATION = 3
 
 const RELATIVE_OPTIONS = [
   { value: '-24h', label: '24 heures avant' },
@@ -58,35 +45,65 @@ const RELATIVE_OPTIONS = [
 ]
 
 export default function NotificationsModule({ isAuthenticated = false }: NotificationsModuleProps) {
-  const [schedules, setSchedules] = useState<EventNotificationSchedule[]>([])
-  const [events, setEvents] = useState<Event[]>([])
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
+  const [notifications, setNotifications] = useState<EventNotificationSchedule[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>(
     'idle'
   )
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const publishedTutorials = usePublishedTutorials()
 
-  // Charger événements + programmations
+  // Charger programmations
   useEffect(() => {
-    const savedScheds = localStorage.getItem(LS_KEY)
-    if (savedScheds) {
+    const savedNotifs = localStorage.getItem(LS_KEY)
+    if (savedNotifs) {
       try {
-        setSchedules(JSON.parse(savedScheds))
+        setNotifications(JSON.parse(savedNotifs))
       } catch (e) {
-        console.error('Erreur parsing programmations (cache local):', e)
+        console.error('Erreur parsing notifications (cache local):', e)
       }
     }
 
     if (isAuthenticated) {
       setSyncStatus('loading')
-      Promise.all([loadEventsServer(), loadSchedulesServer()])
-        .then(([serverEvents, serverScheds]) => {
-          setEvents(serverEvents)
-          setSchedules(serverScheds)
-          localStorage.setItem(LS_KEY, JSON.stringify(serverScheds))
-          if (serverEvents.length > 0 && !selectedEventId) {
-            setSelectedEventId(serverEvents[0].id)
+      Promise.all([loadSchedulesServer(), loadEvents()])
+        .then(([serverNotifs, serverEvents]) => {
+          // Migration : convertir les anciennes notifications avec eventId
+          // en notifications autonomes
+          const migratedNotifs = serverNotifs.map((notif) => {
+            // Si la notification a eventId (ancien format), on la convertit
+            if (notif.eventId) {
+              const event = serverEvents.find((e) => e.id === notif.eventId)
+              if (event) {
+                // Convertir le format ancien vers autonome
+                const migratedNotif: EventNotificationSchedule = {
+                  id: notif.id,
+                  enabled: notif.enabled,
+                  title: notif.title || `Rappel : ${event.name}`,
+                  message: notif.message || `${event.name} approche !`,
+                  imageUrl: notif.imageUrl,
+                  tutorialId: notif.tutorialId || event.tutorialId,
+                  absoluteTime: notif.absoluteTime || event.startAt,
+                  // Convertir les anciens rappels relatifs en nouveau format
+                  relativeReminders: [], // TODO: si besoin, convertir les anciens reminders
+                  createdAt: notif.createdAt || Date.now(),
+                  modifiedAt: notif.modifiedAt || Date.now(),
+                  eventId: notif.eventId, // Garder temporairement pour debug
+                }
+                return migratedNotif
+              }
+            }
+            // Si déjà au format autonome, nettoyer eventId s'il existe
+            return {
+              ...notif,
+              eventId: undefined, // Supprimer la dépendance aux événements
+            }
+          })
+
+          setNotifications(migratedNotifs)
+          localStorage.setItem(LS_KEY, JSON.stringify(migratedNotifs))
+          if (migratedNotifs.length > 0 && !selectedId) {
+            setSelectedId(migratedNotifs[0].id)
           }
           setSyncStatus('idle')
         })
@@ -102,8 +119,8 @@ export default function NotificationsModule({ isAuthenticated = false }: Notific
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated])
 
-  const persistSchedules = (items: EventNotificationSchedule[]) => {
-    setSchedules(items)
+  const persistNotifications = (items: EventNotificationSchedule[]) => {
+    setNotifications(items)
     localStorage.setItem(LS_KEY, JSON.stringify(items))
 
     if (!isAuthenticated) return
@@ -116,319 +133,305 @@ export default function NotificationsModule({ isAuthenticated = false }: Notific
           setTimeout(() => setSyncStatus('idle'), 2000)
         })
         .catch((err) => {
-          console.error('Erreur sauvegarde programmations serveur:', err)
+          console.error('Erreur sauvegarde notifications serveur:', err)
           setSyncStatus('error')
         })
     }, 1500)
   }
 
-  const selectedEvent = events.find((e) => e.id === selectedEventId) || null
-  const eventSchedules = schedules.filter((s) => s.eventId === selectedEventId)
+  const selected = notifications.find((n) => n.id === selectedId) || null
 
-  // Instant d'envoi effectif (UTC) d'un rappel, selon son timing
-  const reminderSendTime = (
-    sched: EventNotificationSchedule,
-    event: Event | null
-  ): number | null => {
-    if (sched.timing === 'absolute') return sched.absoluteTime ?? null
-    if (!event) return null
-    return sched.relativeDelay ? relativeReminderTime(event.startAt, sched.relativeDelay) : null
+  const createNotification = (): EventNotificationSchedule => {
+    const now = Date.now()
+    return {
+      id: `notif-${now}`,
+      enabled: true,
+      title: 'Nouvelle notification',
+      message: 'Contenu du message',
+      absoluteTime: now,
+      relativeReminders: [],
+      createdAt: now,
+      modifiedAt: now,
+    }
   }
 
-  // Un rappel est-il valide (programmé AVANT le début de l'événement) ?
-  const isReminderValid = (sched: EventNotificationSchedule, event: Event | null): boolean => {
-    const t = reminderSendTime(sched, event)
-    if (t === null || !event) return false
-    return t < event.startAt
+  const addNotification = () => {
+    const notif = createNotification()
+    const updated = [...notifications, notif]
+    setSelectedId(notif.id)
+    persistNotifications(updated)
+  }
+
+  const updateNotification = (id: string, changes: Partial<EventNotificationSchedule>) => {
+    const updated = notifications.map((n) =>
+      n.id === id ? { ...n, ...changes, modifiedAt: Date.now() } : n
+    )
+    persistNotifications(updated)
+  }
+
+  const deleteNotification = (id: string) => {
+    if (!confirm('Supprimer définitivement cette notification ?')) return
+    const updated = notifications.filter((n) => n.id !== id)
+    setSelectedId(null)
+    persistNotifications(updated)
   }
 
   const addReminder = () => {
-    if (!selectedEvent) return
-    if (eventSchedules.length >= MAX_REMINDERS_PER_EVENT) return
+    if (!selected) return
+    if (selected.relativeReminders.length >= MAX_REMINDERS_PER_NOTIFICATION) return
 
-    // Choisir un délai relatif non encore utilisé par défaut
-    const usedDelays = new Set(eventSchedules.map((s) => s.relativeDelay))
-    const defaultDelay =
-      RELATIVE_OPTIONS.find((o) => !usedDelays.has(o.value))?.value ?? '-3h'
-
-    const newSched: EventNotificationSchedule = {
-      id: `sched-${Date.now()}`,
-      eventId: selectedEvent.id,
+    // Défaut : '-3h'
+    const newReminder: NotificationReminder = {
+      id: `rem-${Date.now()}`,
       enabled: true,
-      title: `Rappel : ${selectedEvent.name}`,
-      message: `${selectedEvent.name} approche !`,
-      timing: 'relative',
-      relativeDelay: defaultDelay,
+      relativeDelay: '-3h',
       status: 'pending',
     }
-    persistSchedules([...schedules, newSched])
+    updateNotification(selected.id, {
+      relativeReminders: [...selected.relativeReminders, newReminder],
+    })
   }
 
-  const updateReminder = (id: string, changes: Partial<EventNotificationSchedule>) => {
-    persistSchedules(schedules.map((s) => (s.id === id ? { ...s, ...changes } : s)))
+  const updateReminder = (reminderId: string, changes: Partial<NotificationReminder>) => {
+    if (!selected) return
+    const updated = selected.relativeReminders.map((r) =>
+      r.id === reminderId ? { ...r, ...changes } : r
+    )
+    updateNotification(selected.id, { relativeReminders: updated })
   }
 
-  const deleteReminder = (id: string) => {
-    persistSchedules(schedules.filter((s) => s.id !== id))
+  const deleteReminder = (reminderId: string) => {
+    if (!selected) return
+    const updated = selected.relativeReminders.filter((r) => r.id !== reminderId)
+    updateNotification(selected.id, { relativeReminders: updated })
   }
 
   return (
     <div className="cms-module">
       <div className="cms-module__header">
         <h1>🔔 Notifications</h1>
-        <p>Programmez jusqu'à 3 rappels par événement (heure belge)</p>
+        <p>Programmez des notifications autonomes avec jusqu'à 3 rappels (heure belge)</p>
       </div>
 
       {/* Bandeau honnête : envoi push non activé */}
       <div className="push-disabled-banner">
-        ⚠️ <strong>Envoi push non activé.</strong> Les programmations sont
+        ⚠️ <strong>Envoi push non activé.</strong> Les notifications sont
         enregistrées côté serveur, mais aucun envoi réel n'est effectué tant que
         l'infrastructure Web Push (clés VAPID + Worker planifié) n'est pas
         configurée. Aucun envoi n'est simulé.
       </div>
 
-      {events.length === 0 ? (
-        <div className="empty-state" style={{ marginTop: '1.5rem' }}>
-          <p>Aucun événement disponible.</p>
-          <p className="hint">
-            Créez d'abord des événements dans le module <strong>📅 Événements</strong>.
-          </p>
+      <div className="notifications-container">
+        <div className="notifications-list-section">
+          <div className="list-header">
+            <h3>Notifications</h3>
+            <span className="count">{notifications.length}</span>
+          </div>
+
+          {notifications.length === 0 ? (
+            <p className="empty-state">Aucune notification. Créez-en une.</p>
+          ) : (
+            <div className="notifications-list">
+              {notifications.map((notif) => (
+                <button
+                  key={notif.id}
+                  className={`notif-item ${selectedId === notif.id ? 'active' : ''}`}
+                  onClick={() => setSelectedId(notif.id)}
+                >
+                  <div className="item-header">
+                    <p className="item-title">{notif.title}</p>
+                    <span className={`item-status ${notif.enabled ? 'status-active' : 'status-inactive'}`}>
+                      {notif.enabled ? '✓ Active' : '○ Inactive'}
+                    </span>
+                  </div>
+                  <p className="item-date">
+                    {formatBrussels(notif.absoluteTime)} · {notif.relativeReminders.length}/{MAX_REMINDERS_PER_NOTIFICATION} rappels
+                  </p>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <button className="cms-btn" onClick={addNotification}>
+            ➕ Nouvelle notification
+          </button>
+
+          {isAuthenticated && (
+            <p className="cms-sync-status" style={{ marginTop: 8, fontSize: '0.8em', opacity: 0.75 }}>
+              {syncStatus === 'loading' && '⏳ Chargement depuis le serveur…'}
+              {syncStatus === 'saving' && '💾 Enregistrement serveur…'}
+              {syncStatus === 'saved' && '✓ Enregistré sur le serveur'}
+              {syncStatus === 'error' && '⚠️ Erreur de synchronisation'}
+              {syncStatus === 'idle' && '☁️ Notifications synchronisées'}
+            </p>
+          )}
           {!isAuthenticated && (
-            <p style={{ color: '#ff9800' }}>
-              ℹ️ Connectez-vous pour charger vos événements depuis le serveur.
+            <p style={{ marginTop: 12, color: '#ff9800', fontSize: '0.9em' }}>
+              ℹ️ Connectez-vous pour enregistrer les notifications sur le serveur
             </p>
           )}
         </div>
-      ) : (
-        <div className="notifications-container">
-          {/* Colonne événements */}
-          <div className="events-column">
-            <h3>Événements</h3>
-            <div className="events-mini-list">
-              {events.map((evt) => {
-                const count = schedules.filter((s) => s.eventId === evt.id).length
-                return (
-                  <button
-                    key={evt.id}
-                    className={`event-mini ${selectedEventId === evt.id ? 'active' : ''}`}
-                    onClick={() => setSelectedEventId(evt.id)}
-                  >
-                    <span className="event-mini__name">{evt.name}</span>
-                    <span className="event-mini__meta">
-                      {formatBrussels(evt.startAt)} · {count}/{MAX_REMINDERS_PER_EVENT} rappels
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
 
-            {isAuthenticated && (
-              <p className="cms-sync-status" style={{ marginTop: 8, fontSize: '0.8em', opacity: 0.75 }}>
-                {syncStatus === 'loading' && '⏳ Chargement…'}
-                {syncStatus === 'saving' && '💾 Enregistrement serveur…'}
-                {syncStatus === 'saved' && '✓ Enregistré sur le serveur'}
-                {syncStatus === 'error' && '⚠️ Erreur de synchronisation'}
-                {syncStatus === 'idle' && '☁️ Programmations synchronisées'}
-              </p>
-            )}
-          </div>
+        {selected && (
+          <div className="notification-editor">
+            <h3>Édition — {selected.title}</h3>
 
-          {/* Colonne rappels de l'événement sélectionné */}
-          <div className="reminders-column">
-            {selectedEvent ? (
-              <>
-                <div className="reminders-header">
-                  <h3>Rappels — {selectedEvent.name}</h3>
-                  <p className="reminders-event-date">
-                    Début : {formatBrussels(selectedEvent.startAt)}
-                  </p>
-                  {selectedEvent.status === 'cancelled' && (
-                    <p className="status-warning">
-                      ⚠️ Événement annulé — les rappels resteront inactifs.
-                    </p>
-                  )}
-                </div>
+            <div className="cms-form">
+              <div className="cms-form__group">
+                <label className="cms-form__label">Titre</label>
+                <input
+                  type="text"
+                  value={selected.title}
+                  onChange={(e) => updateNotification(selected.id, { title: e.target.value })}
+                  className="cms-form__input"
+                />
+              </div>
 
-                {eventSchedules.length === 0 ? (
-                  <p className="empty-state">Aucun rappel pour cet événement.</p>
+              <div className="cms-form__group">
+                <label className="cms-form__label">Message</label>
+                <textarea
+                  value={selected.message}
+                  onChange={(e) => updateNotification(selected.id, { message: e.target.value })}
+                  className="cms-form__textarea"
+                />
+              </div>
+
+              <div className="cms-form__group">
+                <label className="cms-form__label">Image (facultative)</label>
+                <input
+                  type="text"
+                  value={selected.imageUrl || ''}
+                  onChange={(e) => updateNotification(selected.id, { imageUrl: e.target.value })}
+                  className="cms-form__input"
+                  placeholder="https://..."
+                />
+              </div>
+
+              <div className="cms-form__group">
+                <label className="cms-form__label">Tutoriel de destination (facultatif)</label>
+                <select
+                  value={selected.tutorialId || ''}
+                  onChange={(e) => updateNotification(selected.id, { tutorialId: e.target.value })}
+                  className="cms-form__select"
+                >
+                  <option value="">— Aucun tutoriel —</option>
+                  {publishedTutorials.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="cms-form__group">
+                <label className="cms-form__label">
+                  Date/heure d'envoi (heure belge) — Instant de base pour les rappels
+                </label>
+                <input
+                  type="datetime-local"
+                  value={utcToDatetimeLocalValue(selected.absoluteTime)}
+                  onChange={(e) => {
+                    const utc = datetimeLocalValueToUtc(e.target.value)
+                    if (utc !== undefined) updateNotification(selected.id, { absoluteTime: utc })
+                  }}
+                  className="cms-form__input"
+                />
+                <small style={{ opacity: 0.7 }}>{formatBrussels(selected.absoluteTime)}</small>
+              </div>
+
+              <div className="cms-form__group">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={selected.enabled}
+                    onChange={(e) => updateNotification(selected.id, { enabled: e.target.checked })}
+                  />
+                  <span style={{ marginLeft: '0.5rem' }}>Notification active</span>
+                </label>
+              </div>
+
+              {/* Rappels relatifs */}
+              <div className="reminders-section">
+                <h4>Rappels relatifs à l'instant de base</h4>
+                <p className="hint">
+                  Jusqu'à {MAX_REMINDERS_PER_NOTIFICATION} rappels. Chacun déclenche un envoi X heures/minutes avant l'instant de base.
+                </p>
+
+                {selected.relativeReminders.length === 0 ? (
+                  <p className="empty-state">Aucun rappel.</p>
                 ) : (
                   <div className="reminders-list">
-                    {eventSchedules.map((sched) => {
-                      const sendTime = reminderSendTime(sched, selectedEvent)
-                      const valid = isReminderValid(sched, selectedEvent)
-                      return (
-                        <div key={sched.id} className="reminder-card">
-                          <div className="reminder-card__top">
-                            <label className="checkbox-label">
-                              <input
-                                type="checkbox"
-                                checked={sched.enabled}
-                                onChange={(e) =>
-                                  updateReminder(sched.id, { enabled: e.target.checked })
-                                }
-                              />
-                              <span>Actif</span>
-                            </label>
-                            <button
-                              className="reminder-card__delete"
-                              onClick={() => deleteReminder(sched.id)}
-                              title="Supprimer ce rappel"
-                            >
-                              🗑️
-                            </button>
-                          </div>
-
-                          <div className="cms-form__group">
-                            <label className="cms-form__label">Titre</label>
+                    {selected.relativeReminders.map((reminder) => (
+                      <div key={reminder.id} className="reminder-card">
+                        <div className="reminder-card__top">
+                          <label className="checkbox-label">
                             <input
-                              type="text"
-                              value={sched.title}
-                              onChange={(e) => updateReminder(sched.id, { title: e.target.value })}
-                              className="cms-form__input"
+                              type="checkbox"
+                              checked={reminder.enabled}
+                              onChange={(e) =>
+                                updateReminder(reminder.id, { enabled: e.target.checked })
+                              }
                             />
-                          </div>
-
-                          <div className="cms-form__group">
-                            <label className="cms-form__label">Message</label>
-                            <textarea
-                              value={sched.message}
-                              onChange={(e) =>
-                                updateReminder(sched.id, { message: e.target.value })
-                              }
-                              className="cms-form__textarea"
-                            />
-                          </div>
-
-                          <div className="cms-form__group">
-                            <label className="cms-form__label">Image (facultative)</label>
-                            <input
-                              type="text"
-                              value={sched.imageUrl || ''}
-                              onChange={(e) =>
-                                updateReminder(sched.id, { imageUrl: e.target.value })
-                              }
-                              className="cms-form__input"
-                              placeholder="https://..."
-                            />
-                          </div>
-
-                          <div className="cms-form__group">
-                            <label className="cms-form__label">Destination (tutoriel)</label>
-                            <select
-                              value={sched.tutorialId || selectedEvent.tutorialId || ''}
-                              onChange={(e) =>
-                                updateReminder(sched.id, { tutorialId: e.target.value })
-                              }
-                              className="cms-form__select"
-                            >
-                              <option value="">— Tutoriel de l'événement —</option>
-                              {publishedTutorials.map((t) => (
-                                <option key={t.id} value={t.id}>
-                                  {t.title}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="cms-form__group">
-                            <label className="cms-form__label">Déclenchement</label>
-                            <select
-                              value={sched.timing}
-                              onChange={(e) =>
-                                updateReminder(sched.id, {
-                                  timing: e.target.value as 'relative' | 'absolute',
-                                })
-                              }
-                              className="cms-form__select"
-                            >
-                              <option value="relative">Relatif à l'événement</option>
-                              <option value="absolute">Date/heure fixe</option>
-                            </select>
-                          </div>
-
-                          {sched.timing === 'relative' ? (
-                            <div className="cms-form__group">
-                              <label className="cms-form__label">Délai avant l'événement</label>
-                              <select
-                                value={sched.relativeDelay || ''}
-                                onChange={(e) =>
-                                  updateReminder(sched.id, { relativeDelay: e.target.value })
-                                }
-                                className="cms-form__select"
-                              >
-                                {RELATIVE_OPTIONS.map((o) => (
-                                  <option key={o.value} value={o.value}>
-                                    {o.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          ) : (
-                            <div className="cms-form__group">
-                              <label className="cms-form__label">Heure d'envoi (heure belge)</label>
-                              <input
-                                type="datetime-local"
-                                value={utcToDatetimeLocalValue(sched.absoluteTime)}
-                                onChange={(e) =>
-                                  updateReminder(sched.id, {
-                                    absoluteTime: datetimeLocalValueToUtc(e.target.value),
-                                  })
-                                }
-                                className="cms-form__input"
-                              />
-                            </div>
-                          )}
-
-                          {/* Instant d'envoi calculé + validation */}
-                          <div className="reminder-card__computed">
-                            {sendTime !== null ? (
-                              <>
-                                <span>Envoi prévu : {formatBrussels(sendTime)}</span>
-                                {!valid && (
-                                  <span className="status-error">
-                                    ⚠️ Ce rappel tombe après le début de l'événement — il
-                                    ne sera pas programmé.
-                                  </span>
-                                )}
-                              </>
-                            ) : (
-                              <span className="status-warning">Instant d'envoi indéterminé</span>
-                            )}
-                            <span className="reminder-card__status">
-                              Statut :{' '}
-                              {sched.status === 'pending' && 'En attente (envoi non activé)'}
-                              {sched.status === 'sent' && 'Envoyé'}
-                              {sched.status === 'failed' && 'Échec'}
-                            </span>
-                          </div>
+                            <span>Rappel actif</span>
+                          </label>
+                          <button
+                            className="reminder-card__delete"
+                            onClick={() => deleteReminder(reminder.id)}
+                            title="Supprimer ce rappel"
+                          >
+                            🗑️
+                          </button>
                         </div>
-                      )
-                    })}
+
+                        <div className="cms-form__group">
+                          <label className="cms-form__label">Délai avant l'instant de base</label>
+                          <select
+                            value={reminder.relativeDelay || ''}
+                            onChange={(e) =>
+                              updateReminder(reminder.id, { relativeDelay: e.target.value })
+                            }
+                            className="cms-form__select"
+                          >
+                            {RELATIVE_OPTIONS.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="reminder-card__status">
+                          Statut :{' '}
+                          {reminder.status === 'pending' && 'En attente (envoi non activé)'}
+                          {reminder.status === 'sent' && 'Envoyé'}
+                          {reminder.status === 'failed' && 'Échec'}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
 
-                {eventSchedules.length < MAX_REMINDERS_PER_EVENT ? (
+                {selected.relativeReminders.length < MAX_REMINDERS_PER_NOTIFICATION ? (
                   <button className="cms-btn" onClick={addReminder}>
-                    ➕ Ajouter un rappel ({eventSchedules.length}/{MAX_REMINDERS_PER_EVENT})
+                    ➕ Ajouter un rappel ({selected.relativeReminders.length}/{MAX_REMINDERS_PER_NOTIFICATION})
                   </button>
                 ) : (
                   <p className="hint">
-                    Maximum de {MAX_REMINDERS_PER_EVENT} rappels atteint pour cet événement.
+                    Maximum de {MAX_REMINDERS_PER_NOTIFICATION} rappels atteint pour cette notification.
                   </p>
                 )}
+              </div>
 
-                {!isAuthenticated && (
-                  <p style={{ marginTop: 12, color: '#ff9800', fontSize: '0.9em' }}>
-                    ℹ️ Connectez-vous pour enregistrer les rappels sur le serveur.
-                  </p>
-                )}
-              </>
-            ) : (
-              <p className="empty-state">Sélectionnez un événement.</p>
-            )}
+              <button
+                className="cms-btn--danger cms-btn"
+                onClick={() => deleteNotification(selected.id)}
+              >
+                🗑️ Supprimer la notification
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

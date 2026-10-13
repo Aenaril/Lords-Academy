@@ -322,19 +322,21 @@ describe('cms-storage helpers (round-trip)', () => {
   it('notifications: save and load', async () => {
     const schedules: EventNotificationSchedule[] = [
       {
-        id: 's1',
-        eventId: 'e1',
+        id: 'notif-1',
         enabled: true,
-        title: 'Rappel',
-        message: 'msg',
-        timing: 'relative',
-        relativeDelay: '-24h',
-        status: 'pending',
+        title: 'Tournament Reminder',
+        message: 'Dont miss it!',
+        absoluteTime: Date.now(),
+        relativeReminders: [
+          { id: 'rem-1', enabled: true, relativeDelay: '-24h', status: 'pending' },
+        ],
+        createdAt: Date.now(),
+        modifiedAt: Date.now(),
       },
     ]
     await saveNotificationSchedules(store, schedules)
     const loaded = await loadNotificationSchedules(store)
     expect(loaded.length).toBe(1)
-    expect(loaded[0].relativeDelay).toBe('-24h')
+    expect(loaded[0].relativeReminders[0].relativeDelay).toBe('-24h')
   })
 })

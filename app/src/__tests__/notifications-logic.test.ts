@@ -1,116 +1,113 @@
 /**
- * Tests de la logique métier des rappels de notifications
+ * Tests de la logique métier des rappels de notifications autonomes
  *
+ * À partir de l'ÉTAPE 3 : notifications autonomes (plus d'événements)
  * Vérifie les règles indépendamment de l'UI :
- * - instant d'envoi relatif/absolu
- * - validité (avant le début de l'événement)
- * - recalcul quand la date de l'événement change (rappels relatifs)
- * - plafond de 3 rappels par événement
+ * - instant d'envoi calculé (absolu + rappels relatifs)
+ * - validité des rappels
+ * - plafond de 3 rappels par notification
  */
 
 import { describe, it, expect } from 'vitest'
 import { brusselsToUtc, relativeReminderTime } from '../cms/timezone'
 import type { EventNotificationSchedule } from '../cms/types'
 
-// Réplique de la logique du module (gardée synchronisée volontairement simple)
+// Calcule l'instant d'envoi réel pour un rappel relatif
 function reminderSendTime(
-  sched: EventNotificationSchedule,
-  eventStartUtc: number | null
+  notif: EventNotificationSchedule,
+  relativeDelay: string
 ): number | null {
-  if (sched.timing === 'absolute') return sched.absoluteTime ?? null
-  if (eventStartUtc === null) return null
-  return sched.relativeDelay ? relativeReminderTime(eventStartUtc, sched.relativeDelay) : null
+  try {
+    return relativeReminderTime(notif.absoluteTime, relativeDelay)
+  } catch {
+    return null
+  }
 }
 
-function isReminderValid(
-  sched: EventNotificationSchedule,
-  eventStartUtc: number | null
-): boolean {
-  const t = reminderSendTime(sched, eventStartUtc)
-  if (t === null || eventStartUtc === null) return false
-  return t < eventStartUtc
-}
-
-function makeReminder(partial: Partial<EventNotificationSchedule>): EventNotificationSchedule {
+function makeNotification(
+  partial: Partial<EventNotificationSchedule>
+): EventNotificationSchedule {
   return {
-    id: 's1',
-    eventId: 'e1',
+    id: 'notif-1',
     enabled: true,
-    title: 'Rappel',
-    message: 'msg',
-    timing: 'relative',
-    relativeDelay: '-24h',
-    status: 'pending',
+    title: 'Notification de test',
+    message: 'Message de test',
+    absoluteTime: brusselsToUtc(2026, 10, 24, 20, 0),
+    relativeReminders: [],
+    createdAt: Date.now(),
+    modifiedAt: Date.now(),
     ...partial,
   }
 }
 
-describe('Notifications — logique des rappels', () => {
-  const eventStart = brusselsToUtc(2026, 10, 24, 20, 0) // 24 oct 2026 20:00 Brussels
+describe('Notifications autonomes — logique des rappels', () => {
+  const baseTime = brusselsToUtc(2026, 10, 24, 20, 0) // 24 oct 2026 20:00 Brussels
 
   it('computes relative reminder send time correctly', () => {
-    const h24 = makeReminder({ timing: 'relative', relativeDelay: '-24h' })
-    const t = reminderSendTime(h24, eventStart)
+    const notif = makeNotification({ absoluteTime: baseTime })
+    const sendTime = reminderSendTime(notif, '-24h')
     // 23 oct 20:00 Brussels
-    expect(t).toBe(brusselsToUtc(2026, 10, 23, 20, 0))
+    expect(sendTime).toBe(brusselsToUtc(2026, 10, 23, 20, 0))
   })
 
-  it('relative reminders are valid (before event start)', () => {
+  it('supports multiple relative delays', () => {
+    const notif = makeNotification({ absoluteTime: baseTime })
     for (const delay of ['-24h', '-3h', '-30m']) {
-      const r = makeReminder({ relativeDelay: delay })
-      expect(isReminderValid(r, eventStart)).toBe(true)
+      const t = reminderSendTime(notif, delay)
+      expect(t).not.toBeNull()
+      expect(t!).toBeLessThan(baseTime)
     }
   })
 
-  it('absolute reminder before start is valid', () => {
-    const r = makeReminder({
-      timing: 'absolute',
-      absoluteTime: brusselsToUtc(2026, 10, 24, 18, 0), // 2h avant
-    })
-    expect(isReminderValid(r, eventStart)).toBe(true)
-  })
+  it('recalculates reminder times when base time changes', () => {
+    const delayR = '-3h'
 
-  it('absolute reminder at/after start is invalid', () => {
-    const atStart = makeReminder({ timing: 'absolute', absoluteTime: eventStart })
-    expect(isReminderValid(atStart, eventStart)).toBe(false)
+    const notif1 = makeNotification({ absoluteTime: baseTime })
+    const t1 = reminderSendTime(notif1, delayR)
 
-    const afterStart = makeReminder({
-      timing: 'absolute',
-      absoluteTime: brusselsToUtc(2026, 10, 24, 21, 0),
-    })
-    expect(isReminderValid(afterStart, eventStart)).toBe(false)
-  })
+    const newBaseTime = brusselsToUtc(2026, 11, 1, 20, 0)
+    const notif2 = makeNotification({ absoluteTime: newBaseTime })
+    const t2 = reminderSendTime(notif2, delayR)
 
-  it('recomputes relative reminder when the event date changes', () => {
-    const r = makeReminder({ timing: 'relative', relativeDelay: '-3h' })
-
-    // Date initiale : envoi 24 oct 17:00
-    const t1 = reminderSendTime(r, eventStart)
-    expect(t1).toBe(brusselsToUtc(2026, 10, 24, 17, 0))
-
-    // L'événement est déplacé au 1er nov 2026 20:00 (heure d'HIVER, CET)
-    const newStart = brusselsToUtc(2026, 11, 1, 20, 0)
-    const t2 = reminderSendTime(r, newStart)
-    // Envoi recalculé : 1 nov 17:00 (relatif, suit automatiquement)
-    expect(t2).toBe(brusselsToUtc(2026, 11, 1, 17, 0))
+    // Les deux instants sont différents (new base time)
+    expect(t1).not.toBeNull()
+    expect(t2).not.toBeNull()
     expect(t2).not.toBe(t1)
+    // Mais la différence est toujours 3h
+    expect(newBaseTime - t2!).toBe(baseTime - t1!)
   })
 
-  it('enforces a maximum of 3 reminders per event', () => {
-    const schedules: EventNotificationSchedule[] = [
-      makeReminder({ id: 's1', relativeDelay: '-24h' }),
-      makeReminder({ id: 's2', relativeDelay: '-3h' }),
-      makeReminder({ id: 's3', relativeDelay: '-30m' }),
+  it('enforces a maximum of 3 reminders per notification', () => {
+    const reminders = [
+      { id: 'r1', enabled: true, relativeDelay: '-24h', status: 'pending' as const },
+      { id: 'r2', enabled: true, relativeDelay: '-3h', status: 'pending' as const },
+      { id: 'r3', enabled: true, relativeDelay: '-30m', status: 'pending' as const },
     ]
-    const forEvent = schedules.filter((s) => s.eventId === 'e1')
-    expect(forEvent.length).toBe(3)
-    const canAdd = forEvent.length < 3
-    expect(canAdd).toBe(false)
+    const notif = makeNotification({ relativeReminders: reminders })
+    expect(notif.relativeReminders.length).toBe(3)
+    const canAddMore = notif.relativeReminders.length < 3
+    expect(canAddMore).toBe(false)
   })
 
-  it('returns null send time when event is missing for relative reminder', () => {
-    const r = makeReminder({ timing: 'relative', relativeDelay: '-24h' })
-    expect(reminderSendTime(r, null)).toBeNull()
-    expect(isReminderValid(r, null)).toBe(false)
+  it('supports enabled/disabled status per reminder', () => {
+    const reminders = [
+      { id: 'r1', enabled: true, relativeDelay: '-24h', status: 'pending' as const },
+      { id: 'r2', enabled: false, relativeDelay: '-3h', status: 'pending' as const },
+    ]
+    const notif = makeNotification({ relativeReminders: reminders })
+    const activeCount = notif.relativeReminders.filter((r) => r.enabled).length
+    expect(activeCount).toBe(1)
+  })
+
+  it('tracks notification status (pending/sent/failed)', () => {
+    const reminders = [
+      { id: 'r1', enabled: true, relativeDelay: '-24h', status: 'pending' as const },
+      { id: 'r2', enabled: true, relativeDelay: '-3h', status: 'sent' as const },
+      { id: 'r3', enabled: true, relativeDelay: '-30m', status: 'failed' as const },
+    ]
+    const notif = makeNotification({ relativeReminders: reminders })
+    expect(notif.relativeReminders[0].status).toBe('pending')
+    expect(notif.relativeReminders[1].status).toBe('sent')
+    expect(notif.relativeReminders[2].status).toBe('failed')
   })
 })

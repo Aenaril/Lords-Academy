@@ -254,83 +254,58 @@ describe('CMS Mock Tests', () => {
 
   describe('Notification Schedule Construction', () => {
     it('should create valid notification schedules', () => {
-      const eventId = 'evt-1'
-      const eventStart = Date.now() + 86400000 // +1 day
+      const now = Date.now()
+      const eventStart = now + 86400000 // +1 day
 
-      const schedules: EventNotificationSchedule[] = [
-        // Relative : -24h
-        {
-          id: 'sched-1',
-          eventId,
-          enabled: true,
-          title: 'Tournament in 24 hours',
-          message: 'Dont miss it!',
-          timing: 'relative',
-          relativeDelay: '-24h',
-          status: 'pending',
-        },
-        // Relative : -3h
-        {
-          id: 'sched-2',
-          eventId,
-          enabled: true,
-          title: 'Tournament in 3 hours',
-          message: 'Get ready!',
-          timing: 'relative',
-          relativeDelay: '-3h',
-          status: 'pending',
-        },
-        // Absolute : exact time
-        {
-          id: 'sched-3',
-          eventId,
-          enabled: true,
-          title: 'Tournament starts now',
-          message: 'Go!',
-          timing: 'absolute',
-          absoluteTime: eventStart,
-          status: 'pending',
-        },
+      const reminders = [
+        { id: 'rem-1', enabled: true, relativeDelay: '-24h', status: 'pending' as const },
+        { id: 'rem-2', enabled: true, relativeDelay: '-3h', status: 'pending' as const },
+        { id: 'rem-3', enabled: true, relativeDelay: '-30m', status: 'pending' as const },
       ]
 
-      expect(schedules.length).toBe(3)
-      expect(schedules[0].timing).toBe('relative')
-      expect(schedules[2].timing).toBe('absolute')
-
-      // Vérifier qu'aucun rappel n'est après le début (exemple de validation)
-      const allSchedulesBeforeEvent = schedules.every((s) => {
-        if (s.timing === 'absolute') {
-          return s.absoluteTime! <= eventStart
-        }
-        // Les delays relatifs sont toujours OK (interprétés par le backend)
-        return true
-      })
-
-      expect(allSchedulesBeforeEvent).toBe(true)
-    })
-
-    it('should not allow more than 3 schedules per event', () => {
-      const schedules: EventNotificationSchedule[] = []
-
-      // Créer 3 schedules
-      for (let i = 0; i < 3; i++) {
-        schedules.push({
-          id: `sched-${i}`,
-          eventId: 'evt-1',
-          enabled: true,
-          title: `Reminder ${i}`,
-          message: `Message ${i}`,
-          timing: 'relative',
-          relativeDelay: `${-(i + 1)}h`,
-          status: 'pending',
-        })
+      const notif: EventNotificationSchedule = {
+        id: 'notif-1',
+        enabled: true,
+        title: 'Tournament Reminder',
+        message: 'Great tournament coming up!',
+        absoluteTime: eventStart,
+        relativeReminders: reminders,
+        createdAt: now,
+        modifiedAt: now,
       }
 
-      expect(schedules.length).toBe(3)
+      expect(notif.relativeReminders.length).toBe(3)
+      expect(notif.relativeReminders[0].relativeDelay).toBe('-24h')
+      expect(notif.relativeReminders[2].relativeDelay).toBe('-30m')
+
+      // Vérifier que chaque rappel est relatif à absoluteTime
+      const allValid = notif.relativeReminders.every((r) => r.relativeDelay)
+      expect(allValid).toBe(true)
+    })
+
+    it('should not allow more than 3 reminders per notification', () => {
+      const reminders = [
+        { id: 'rem-1', enabled: true, relativeDelay: '-24h', status: 'pending' as const },
+        { id: 'rem-2', enabled: true, relativeDelay: '-3h', status: 'pending' as const },
+        { id: 'rem-3', enabled: true, relativeDelay: '-30m', status: 'pending' as const },
+      ]
+
+      const notif: EventNotificationSchedule = {
+        id: 'notif-1',
+        enabled: true,
+        title: 'Test Notification',
+        message: 'Test Message',
+        absoluteTime: Date.now(),
+        relativeReminders: reminders,
+        createdAt: Date.now(),
+        modifiedAt: Date.now(),
+      }
+
+      expect(notif.relativeReminders.length).toBe(3)
 
       // Essayer d'en ajouter une 4ème (validation attendue)
-      const maxSchedules = 3
-      const canAddMore = schedules.length < maxSchedules
+      const maxReminders = 3
+      const canAddMore = notif.relativeReminders.length < maxReminders
 
       expect(canAddMore).toBe(false)
     })
