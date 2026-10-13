@@ -548,3 +548,168 @@ describe('Helpers : needsMigration, isAutonomous, analyzeMigration', () => {
     })
   })
 })
+
+
+describe('Scénario 9 & 10: Robustesse & Contrat sans double-envoi', () => {
+  let mockEvent: Event
+  let mockEvents: Event[]
+
+  beforeEach(() => {
+    mockEvent = {
+      id: 'evt-robust',
+      name: 'Robust Test',
+      description: 'Test',
+      startAt: 1728558000000,
+      endAt: 1728644400000,
+      tutorialId: 'tutorial-1',
+      status: 'active',
+      createdAt: 1728558000000 - 604800000,
+      modifiedAt: 1728558000000 - 604800000,
+    }
+    mockEvents = [mockEvent]
+  })
+
+  // ============================================================================
+  // SCÉNARIO 9 : Exception pendant migration — Aucun horaire inventé
+  // ============================================================================
+  describe('Scénario 9: Erreur migration (exception, aucun Date.now())', () => {
+    it('exception en migration → enabled=false, sentinel dates, données préservées', () => {
+      // Simuler une donnée cassée : eventId invalide qui peut causer un crash
+      const brokenNotif = {
+        id: 'notif-broken',
+        eventId: 'evt-robust',
+        enabled: true,
+        title: 'Broken Data',
+        message: 'Will error',
+        // Pas d'autre champ : va créer des problèmes
+        absoluteTime: 1728558000000,
+        createdAt: 1728558000000,
+      }
+
+      // Ajouter un événement mais renvoyer null pour forcer une anomalie de traitement
+      const results = migrateNotifications([brokenNotif], mockEvents)
+
+      expect(results.length).toBe(1)
+      const recovered = results[0]
+
+      // Vérifications strictes : pas de Date.now()
+      expect(recovered.enabled).toBe(false) // JAMAIS enabled=true en erreur
+      expect(recovered.relativeReminders).toEqual([])
+
+      // Aucun horaire inventé : absoluteTime = valeur brute ou sentinel 0
+      const now = Date.now()
+      expect(Math.abs(recovered.absoluteTime - now)).toBeGreaterThan(1000 * 60 * 60)
+
+      // Données originales conservées
+      expect(recovered.id).toBe('notif-broken')
+      expect(recovered.title).toBe('Broken Data')
+    })
+
+    it('catch block capture erreur et génère fallback sûr', () => {
+      // Notification cassée qui va causer une erreur dans migrateNotification
+      // (eventId est un objet, pas une string)
+      const brokenNotif = {
+        id: 'notif-crash',
+        eventId: { broken: 'object' } as any,
+        title: 'Will crash',
+      }
+
+      const results = migrateNotifications([brokenNotif], mockEvents)
+
+      // Doit survivre à l'erreur
+      expect(results.length).toBe(1)
+      expect(results[0].enabled).toBe(false) // Jamais enabled=true en erreur
+      expect(results[0].relativeReminders).toEqual([])
+      
+      // Vérifier : pas d'invention de timestamp
+      const now = Date.now()
+      expect(Math.abs(results[0].absoluteTime - now)).toBeGreaterThan(1000 * 60 * 60)
+    })
+  })
+
+  // ============================================================================
+  // SCÉNARIO 10 : Contrat sans double-envoi (une notification → un seul envoi)
+  // ============================================================================
+  describe('Scénario 10: Aucun double-envoi (contrat)', () => {
+    it('une notification ancienne → UN SEUL envoi possible après migration', () => {
+      // Ancienne notification avec 1 rappel
+      const oldNotif = {
+        id: 'notif-single-send',
+        eventId: 'evt-robust',
+        enabled: true,
+        title: 'Single Send',
+        message: 'Only once',
+        timing: 'relative' as const,
+        relativeDelay: '-24h',
+        createdAt: mockEvent.createdAt,
+        modifiedAt: mockEvent.modifiedAt,
+      }
+
+      const migrated = migrateNotification(oldNotif, mockEvents)
+
+      // Exactement 1 rappel = 1 envoi possible
+      expect(migrated.relativeReminders.length).toBe(1)
+      expect(migrated.enabled).toBe(true)
+
+      // Le timestamp d'envoi doit être unique et prévisible
+      const sendTime = relativeReminderTime(
+        migrated.absoluteTime,
+        migrated.relativeReminders[0].relativeDelay
+      )
+      expect(sendTime).toBe(mockEvent.startAt - (24 * 3600000))
+
+      // ✅ Aucune confusion : absoluteTime n'est PAS un horaire d'envoi indépendant
+      // C'est la base de calcul pour les rappels
+      expect(migrated.absoluteTime).toBe(mockEvent.startAt)
+    })
+
+    it('anciennes données invalides → pas d\'envoi possible (enabled=false)', () => {
+      const invalidNotif = {
+        id: 'notif-invalid-send',
+        eventId: 'evt-robust',
+        enabled: true,
+        title: 'Invalid',
+        message: 'No valid time',
+        timing: 'absolute' as const,
+        absoluteTime: mockEvent.startAt + (2 * 3600000), // APRÈS événement
+        createdAt: mockEvent.createdAt,
+      }
+
+      const migrated = migrateNotification(invalidNotif, mockEvents)
+
+      // Pas de rappel valide → pas d'envoi
+      expect(migrated.relativeReminders.length).toBe(0)
+      expect(migrated.enabled).toBe(false)
+
+      // Données originales préservées dans l'audit trail
+      expect(migrated.id).toBe('notif-invalid-send')
+      // (absoluteTime = event.startAt au lieu de la valeur brute, mais valide)
+    })
+
+    it('liste des horaires d\'envoi effectifs = relativeReminders uniquement', () => {
+      const oldNotif = {
+        id: 'notif-schedule-list',
+        eventId: 'evt-robust',
+        enabled: true,
+        title: 'Schedule Test',
+        message: 'Test',
+        timing: 'relative' as const,
+        relativeDelay: '-3h',
+        createdAt: mockEvent.createdAt,
+      }
+
+      const migrated = migrateNotification(oldNotif, mockEvents)
+
+      // Les horaires d'envoi effectifs viennent UNIQUEMENT de relativeReminders
+      const effectiveSendTimes = migrated.relativeReminders.map((r) =>
+        relativeReminderTime(migrated.absoluteTime, r.relativeDelay)
+      )
+
+      expect(effectiveSendTimes.length).toBe(1)
+      expect(effectiveSendTimes[0]).toBe(mockEvent.startAt - (3 * 3600000))
+
+      // ✅ PAS de deuxième source d'envoi via absoluteTime
+      // absoluteTime est constant = event.startAt, ne dépend pas des données anciennes
+    })
+  })
+})

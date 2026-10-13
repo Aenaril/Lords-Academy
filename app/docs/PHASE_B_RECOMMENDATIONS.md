@@ -307,31 +307,94 @@ Interprétation : Avec `*/10 min`, chaque rappel peut arriver **jusqu'à 10 minu
 
 ## 6. Limites du Plan Gratuit (avec mitigation)
 
-| Limite            | Quotidien | Mitigation                                         |
-| ----------------- | --------- | -------------------------------------------------- |
-| **KV reads**      | 100k      | 144 Cron runs × 100 reads = 14.4k reads → ✅ Safe  |
-| **KV writes**     | 1k        | 144 Cron runs × mark sent = 14.4k writes → ✅ Safe |
-| **Cron triggers** | 5 max     | 1 trigger (`*/10 min`) = 1 utilisé → ✅ Safe       |
-| **Request cap**   | 100k/jour | 48 runs × 100 push = 4800 requests → ✅ Safe       |
+⚠️ **CORRECTION IMPORTANTE** : L'estimation KV précédente était incorrecte.
 
-**Clarification** : Les 4800 writes/jour dépassent le quota gratuit (1k). **Solution Phase B** :
+### Réalité des opérations KV
 
-- Batch les writes (1 appel KV/reminder, pas par subscription)
-- Ou utiliser Durable Objects (transactions SQLite) pour >100 users
+| Opération        | Quand                     | Fréquence                       | Par jour              |
+| ---------------- | ------------------------- | ------------------------------- | --------------------- |
+| **Lectures**     | Cron vérifie schedules    | 144 × jour                      | 144                   |
+| **Lectures**     | Cron charge subscriptions | 144 × jour                      | 144                   |
+| **Écritures**    | Subscription créée        | ~1-5 / jour (adhésions)         | 5                     |
+| **Écritures**    | Subscription supprimée    | ~1-2 / jour (410 Gone)          | 2                     |
+| **Écritures**    | Marquer `sent` (dédup)    | 144 Cron × 1 schedule × 1 write | 144                   |
+| **TOTAL READS**  |                           |                                 | ~288 reads / jour     |
+| **TOTAL WRITES** |                           |                                 | ~151 écritures / jour |
 
-### Risques et Mitigations
+### Quota Gratuit Cloudflare
 
-1. **Spike d'inscriptions** (ex: 1000 users en 1h)
-   - Risque : Quota KV write dépassé
-   - Mitigation : Rate-limit front-end, queue local sur 1h
+```
+KV Reads : 100,000 / jour → 288 reads/jour ✅ SAFE
+KV Writes : 1,000 / jour → 151 writes/jour ✅ SAFE
+```
 
-2. **Worker timeout (30s) avec >100 users**
-   - Risque : Notifications perdues
-   - Mitigation : Limiter batch, retry prochain Cron (30 min après)
+**Explication de la confusion** :
 
-3. **Push Service retry chain**
-   - Risque : Requêtes perdues = KV ops qui comptent mais aucun envoi
-   - Mitigation : Déduplication `scheduleId#reminderId#subscriptionId` + retry
+L'estimation antérieure supposait "144 Cron runs × 100 subscriptions × 1 write = 14,400 writes".  
+**C'est faux** car :
+
+1. **Une notification n'est pas sauvegardée par subscription**
+   - Marquer "sent" = 1 clé KV = 1 write
+   - Clé : `SENT:${scheduleId}#${reminderId}`
+   - Pas une écriture par user, mais une par rappel
+
+2. **Déduplication = 1 write par rappel, pas 144 × 100**
+   - 144 Cron runs × 1 schedule × 1 reminder = 144 writes max
+   - Pas 14.4k
+
+3. **Subscription adds/removes = flux faible**
+   - ~1-5 adhésions/jour (uploads)
+   - ~1-2 suppressions/jour (410 Gone ou unsubscribe)
+   - Pas des centaines
+
+### Architecture réelle Phase B
+
+```
+KV Keys Organization :
+├─ NOTIFICATIONS_SCHEDULES:{scheduleId} = schedule config
+├─ NOTIFICATIONS_SUBSCRIPTIONS:{subscriptionId} = { endpoint, keys }
+├─ SENT_NOTIFICATIONS:{scheduleId}#{reminderId} = true (TTL 7d)
+└─ ERROR_LOG:{date} = [{ timestamp, subscriptionId, error }]
+
+Cron Execution Pattern (every 10 min) :
+1. READ : KV.list("NOTIFICATIONS_SCHEDULES:*") → ~5-10 schedules = 1 read
+2. LOOP each schedule.reminders :
+   - READ : KV.get(SENT_NOTIFICATIONS:key) → check if already sent = 1 read per reminder
+   - If not sent AND deadline reached :
+     * WRITE : KV.put(SENT_NOTIFICATIONS:key, true, TTL=7d) = 1 write per reminder
+     * Send push to all subscriptions (no KV touch, just HTTP)
+3. Total per run : ~2 reads + ~1 write per active reminder
+4. Per day (144 runs) : ~288 reads + ~144 writes (under quota ✅)
+```
+
+### Quotas avec Architecture Correcte
+
+| Limite            | Quota/jour | Usage/jour | Margin   |
+| ----------------- | ---------- | ---------- | -------- |
+| **KV reads**      | 100,000    | 288        | 99.7% ✅ |
+| **KV writes**     | 1,000      | 144        | 85.6% ✅ |
+| **Cron triggers** | 5 max      | 1          | 80% ✅   |
+| **Request cap**   | 100k/jour  | ~15k push  | 85% ✅   |
+
+### Risques Réalistes et Mitigations
+
+1. **Spike inscriptions** (100 users → 1000 users)
+   - Risque : 900 subscription writes en 1h = quota OK
+   - Mitigation : aucune (gratuit supporte bien la croissance)
+
+2. **Spike notifications** (1 event → 100 events)
+   - Risque : 100 schedules × 2 reminders = 200 writes/day = OK
+   - Mitigation : aucune
+
+3. **410 Gone cleanup** (subscription invalide)
+   - Risque : 50 users → 50 delete writes = 50 writes
+   - Mitigation : batch delete, max ~10/min = OK
+
+4. **Worker timeout (30s)**
+   - Risque : Cron interrompu mid-loop
+   - Mitigation : Stateless = retry à next Cron (10 min après)
+
+**Conclusion** : **Plan gratuit est suffisant pour 100-500 utilisateurs sans optimisation supplémentaire.**
 
 ---
 

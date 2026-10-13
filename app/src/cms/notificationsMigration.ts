@@ -207,27 +207,38 @@ export function migrateNotification(
 /**
  * Migrer un lot de notifications.
  * Préserve l'ordre, signale les erreurs, garantit relativeReminders présent.
+ * 
+ * GARANTIES EN CAS D'ERREUR :
+ * - Aucun horaire inventé (pas Date.now())
+ * - enabled=false (pas d'envoi jusqu'à correction manuelle)
+ * - Données originales conservées (audit trail)
+ * - ID conservé si possible, sinon identifiant d'erreur unique
  */
 export function migrateNotifications(
   oldNotifs: any[],
   events: Event[]
 ): EventNotificationSchedule[] {
-  return oldNotifs.map((notif) => {
+  return oldNotifs.map((notif, index) => {
     try {
       return migrateNotification(notif, events)
     } catch (err) {
       console.error(`[Migration] Erreur notif ${notif?.id}:`, err)
-      // Retourner une structure sûre en cas d'erreur
+      
+      // Structure de secours : aucun horaire inventé, désactivée, données préservées
       return {
-        id: notif?.id || `error-${Date.now()}`,
-        enabled: notif?.enabled ?? true,
+        id: notif?.id || `migration-error-${index}`,
+        enabled: false, // JAMAIS d'envoi automatique en cas d'erreur
         title: notif?.title || '[Erreur migration]',
         message: notif?.message || '',
-        absoluteTime: notif?.absoluteTime || Date.now(),
-        relativeReminders: [],
-        createdAt: notif?.createdAt || Date.now(),
-        modifiedAt: notif?.modifiedAt || Date.now(),
-        eventId: undefined,
+        imageUrl: notif?.imageUrl,
+        tutorialId: notif?.tutorialId,
+        // Préserver la valeur brute si disponible, sinon sentinel 0 (PAS Date.now())
+        absoluteTime: notif?.absoluteTime ?? 0,
+        relativeReminders: [], // Aucun envoi avant correction
+        // Préserver métadonnées historiques ou sentinel 0
+        createdAt: notif?.createdAt ?? 0,
+        modifiedAt: notif?.modifiedAt ?? 0,
+        eventId: (notif as any)?.eventId, // Audit trail pour investigation
       }
     }
   })
