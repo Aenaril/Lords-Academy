@@ -83,6 +83,83 @@ const KV_PAGE_SIZE = 1000;  // Pagination limit for KV list
 // ============================================================================
 
 /**
+ * Convert VAPID private key (base64url 32-byte format) to JWK P-256 format
+ * 
+ * Input: 32-byte base64url string (raw private key d)
+ * Output: JWK object with kty, crv, d, x, y
+ * 
+ * Derives x,y (public key) from private key using WebCrypto
+ */
+async function convertVAPIDPrivateKeyToJWK(base64urlPrivateKey: string): Promise<any> {
+  try {
+    // Decode base64url to bytes
+    const d_bytes = base64urlToUint8Array(base64urlPrivateKey);
+
+    if (d_bytes.length !== 32) {
+      throw new Error(`Private key must be 32 bytes, got ${d_bytes.length}`);
+    }
+
+    // Import as raw P-256 private key
+    const privateKey = await crypto.subtle.importKey(
+      'raw',
+      d_bytes,
+      {
+        name: 'ECDH',
+        namedCurve: 'P-256',
+      },
+      true,  // extractable
+      []     // no operations needed, just extract
+    );
+
+    // Export as JWK to get x, y coordinates
+    const exported = await crypto.subtle.exportKey('jwk', privateKey);
+    const jwk = exported as JsonWebKey;
+
+    // Ensure JWK has required fields
+    if (!jwk.d || !jwk.x || !jwk.y) {
+      throw new Error('Failed to derive JWK coordinates');
+    }
+
+    return jwk;
+  } catch (error) {
+    console.error('[Phase C] JWK conversion error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Decode base64url to Uint8Array
+ */
+function base64urlToUint8Array(base64url: string): Uint8Array {
+  // Convert base64url to base64
+  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  // Add padding if needed
+  const padding = (4 - (base64.length % 4)) % 4;
+  const base64Padded = base64 + '='.repeat(padding);
+  // Decode
+  const binaryString = atob(base64Padded);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Encode Uint8Array to base64url
+ */
+function uint8ArrayToBase64url(bytes: Uint8Array): string {
+  let binaryString = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binaryString += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binaryString)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+}
+
+/**
  * Parse relative delay string to milliseconds
  * @param delay e.g., "-24h", "+2h", "-30m"
  * @returns milliseconds
@@ -114,35 +191,26 @@ function parseRelativeDelay(delay: string): number {
 /**
  * Main handler for scheduled notifications (called by Cron)
  * 
- * Eligibility criteria:
- * - schedule.enabled === true
- * - absoluteTime <= now  (don't send before scheduled time)
- * - now - absoluteTime < 60 min  (tolerance window)
+ * Eligibility criteria (per notification or reminder):
+ * - enabled === true
+ * - dueTime <= now  (don't send before scheduled time)
+ * - now - dueTime < 60 min  (tolerance window)
+ * 
+ * Main notification dueTime = absoluteTime
+ * Reminder dueTime = absoluteTime + relativeDelay
  */
 export async function handleCronNotifications(env: any): Promise<void> {
   console.log('[Phase C] Cron triggered for notification processing');
 
   try {
     const now = Date.now();
-    const cronTolerance = 60 * 60 * 1000; // ±60 min acceptable for Cron timing
+    const cronTolerance = 60 * 60 * 1000; // 60 min acceptable for Cron timing
 
     // Fetch CMS notifications from GitHub
     const schedules = await fetchCMSNotifications(env);
     console.log(`[Phase C] Fetched ${schedules.length} CMS schedules`);
 
-    // Filter for notifications that should send NOW
-    // ✅ BLOCAGE 3: Respect ≤60min rule (now >= absoluteTime AND now - absoluteTime < 60min)
-    const toProcess = schedules.filter(schedule => {
-      if (!schedule.enabled) return false;
-      if (schedule.absoluteTime > now) return false; // ❌ Future: don't send yet
-      if (now - schedule.absoluteTime >= cronTolerance) return false; // ❌ Too old: already sent
-      return true; // ✅ Within window
-    });
-
-    console.log(`[Phase C] ${toProcess.length} schedules eligible for sending now`);
-
     // Get all active subscriptions (with pagination)
-    // ✅ BLOCAGE 5: Pagination for large subscription lists
     const subscriptions = await fetchAllSubscriptionsWithPagination(env);
     console.log(`[Phase C] Found ${subscriptions.length} active subscriptions`);
 
@@ -151,10 +219,53 @@ export async function handleCronNotifications(env: any): Promise<void> {
       return;
     }
 
-    // Process each schedule
-    for (const schedule of toProcess) {
+    // ✅ BLOCAGE 2: Process each schedule and its reminders independently
+    for (const schedule of schedules) {
+      if (!schedule.enabled) continue;
+
       try {
-        await processScheduleNotifications(schedule, subscriptions, env, now);
+        // Check main notification eligibility
+        const mainDueTime = schedule.absoluteTime;
+        if (mainDueTime >= now - cronTolerance && mainDueTime <= now) {
+          console.log(`[Phase C] Sending main notification for ${schedule.id}`);
+          await sendNotificationToAllSubscriptions(
+            {
+              scheduleId: schedule.id,
+              reminderId: 'main',
+              title: schedule.title,
+              message: schedule.message,
+              imageUrl: schedule.imageUrl,
+              tutorialId: schedule.tutorialId,
+            },
+            subscriptions,
+            env
+          );
+        }
+
+        // Check each reminder independently (even if main is future)
+        if (schedule.relativeReminders && schedule.relativeReminders.length > 0) {
+          for (const reminder of schedule.relativeReminders) {
+            if (!reminder.enabled) continue;
+
+            const reminderDueTime = schedule.absoluteTime + parseRelativeDelay(reminder.relativeDelay);
+
+            if (reminderDueTime >= now - cronTolerance && reminderDueTime <= now) {
+              console.log(`[Phase C] Sending reminder ${reminder.id} for ${schedule.id}`);
+              await sendNotificationToAllSubscriptions(
+                {
+                  scheduleId: schedule.id,
+                  reminderId: reminder.id,
+                  title: `Rappel: ${schedule.title}`,
+                  message: schedule.message,
+                  imageUrl: schedule.imageUrl,
+                  tutorialId: schedule.tutorialId,
+                },
+                subscriptions,
+                env
+              );
+            }
+          }
+        }
       } catch (error) {
         console.error(`[Phase C] Error processing schedule ${schedule.id}:`, error);
       }
@@ -177,8 +288,8 @@ export async function handleCronNotifications(env: any): Promise<void> {
 async function fetchCMSNotifications(env: any): Promise<CMSNotificationSchedule[]> {
   try {
     const url = GITHUB_RAW_URL
-      .replace('{owner}', env.GITHUB_OWNER || 'username')
-      .replace('{repo}', env.GITHUB_REPO || 'Lords-Mobile-Academy')
+      .replace('{owner}', env.GITHUB_OWNER || 'Aenaril')
+      .replace('{repo}', env.GITHUB_REPO || 'Lords-Academy')
       .replace('{branch}', env.GITHUB_BRANCH || 'main');
 
     console.log(`[Phase C] Fetching CMS from: ${url}`);
@@ -251,59 +362,6 @@ async function fetchAllSubscriptionsWithPagination(env: any): Promise<PhaseB_Sub
 /**
  * Process a single schedule: send main notification + reminders
  */
-async function processScheduleNotifications(
-  schedule: CMSNotificationSchedule,
-  subscriptions: PhaseB_Subscription[],
-  env: any,
-  now: number
-): Promise<void> {
-  const cronTolerance = 60 * 60 * 1000;
-
-  console.log(`[Phase C] Processing schedule: ${schedule.id}`);
-
-  // Main notification (at absoluteTime)
-  if (schedule.absoluteTime >= now - cronTolerance && schedule.absoluteTime <= now) {
-    console.log(`[Phase C] Sending main notification for ${schedule.id}`);
-    await sendNotificationToAllSubscriptions(
-      {
-        scheduleId: schedule.id,
-        reminderId: 'main',
-        title: schedule.title,
-        message: schedule.message,
-        imageUrl: schedule.imageUrl,
-        tutorialId: schedule.tutorialId,
-      },
-      subscriptions,
-      env
-    );
-  }
-
-  // Relative reminders
-  // ✅ BLOCAGE 3: Check each reminder against same ≤60min rule
-  if (schedule.relativeReminders && schedule.relativeReminders.length > 0) {
-    for (const reminder of schedule.relativeReminders) {
-      if (!reminder.enabled) continue;
-
-      const reminderTime = schedule.absoluteTime + parseRelativeDelay(reminder.relativeDelay);
-
-      if (reminderTime >= now - cronTolerance && reminderTime <= now) {
-        console.log(`[Phase C] Sending reminder ${reminder.id} for ${schedule.id}`);
-        await sendNotificationToAllSubscriptions(
-          {
-            scheduleId: schedule.id,
-            reminderId: reminder.id,
-            title: `Rappel: ${schedule.title}`,
-            message: schedule.message,
-            imageUrl: schedule.imageUrl,
-            tutorialId: schedule.tutorialId,
-          },
-          subscriptions,
-          env
-        );
-      }
-    }
-  }
-}
 
 /**
  * Send a notification to all subscriptions
@@ -367,19 +425,27 @@ async function sendNotification(
       return;
     }
 
-    // Parse VAPID private key (may be JWK string or object)
+    // Parse VAPID private key (may be JWK, base64url raw, or base64-encoded JWK)
     let privateJWK: any;
     if (typeof vapidKeys.privateKey === 'string') {
       try {
-        // Try to parse as JSON first
+        // Try to parse as JSON first (already JWK)
         privateJWK = JSON.parse(vapidKeys.privateKey);
       } catch {
-        // If not JSON, try base64 decode
         try {
+          // Try base64-decoded JSON (base64-encoded JWK)
           const decoded = atob(vapidKeys.privateKey);
           privateJWK = JSON.parse(decoded);
         } catch {
-          throw new Error('VAPID private key must be valid JWK JSON or base64url-encoded JWK');
+          // Try as raw 32-byte base64url private key
+          if (vapidKeys.privateKey.length === 43 || vapidKeys.privateKey.length === 44) {
+            // Looks like base64url 32-byte key
+            privateJWK = await convertVAPIDPrivateKeyToJWK(vapidKeys.privateKey);
+          } else {
+            throw new Error(
+              'VAPID private key must be: JWK JSON, base64-encoded JWK, or base64url 32-byte raw key'
+            );
+          }
         }
       }
     } else {
@@ -574,6 +640,29 @@ export async function handleTestNotification(request: Request, env: any): Promis
           headers: { 'Content-Type': 'application/json' },
         }
       );
+    }
+
+    // Parse VAPID private key
+    let privateJWK: any;
+    if (typeof vapidKeys.privateKey === 'string') {
+      try {
+        privateJWK = JSON.parse(vapidKeys.privateKey);
+      } catch {
+        try {
+          const decoded = atob(vapidKeys.privateKey);
+          privateJWK = JSON.parse(decoded);
+        } catch {
+          if (vapidKeys.privateKey.length === 43 || vapidKeys.privateKey.length === 44) {
+            privateJWK = await convertVAPIDPrivateKeyToJWK(vapidKeys.privateKey);
+          } else {
+            throw new Error(
+              'VAPID private key must be: JWK JSON, base64-encoded JWK, or base64url 32-byte raw key'
+            );
+          }
+        }
+      }
+    } else {
+      privateJWK = vapidKeys.privateKey;
     }
 
     // Send to ONE subscription only
