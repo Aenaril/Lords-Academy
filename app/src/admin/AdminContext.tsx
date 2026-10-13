@@ -220,6 +220,8 @@ interface AdminContextValue {
   /** Mode démonstration admin activé (boutons crayon visibles). */
   isAdminMode: boolean
   toggleAdminMode: () => void
+  /** ✅ Activer le mode admin sans toggle (pour restauration après F5) */
+  activateAdminMode: () => void
   /** Ouvrir la modale d'accueil : choisir entre démo local ou connexion sécurisée. */
   openAdminModeModal: () => void
   /** Fermer la modale d'accueil (utilisée pour les deux choix). */
@@ -1013,6 +1015,17 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     })
   }, [remoteConfigured, isAuthenticated])
 
+  // ✅ Fonction dédiée pour activer le mode admin conditionnellement (sans toggle)
+  // Utilisée uniquement pour la restauration après F5
+  const activateAdminMode = useCallback(() => {
+    if (remoteConfigured && !isAuthenticated) {
+      // Session invalide : ne pas activer
+      return
+    }
+    // Activer directement (ne pas toggle)
+    setIsAdminMode(true)
+  }, [remoteConfigured, isAuthenticated])
+
   const openAdminModeModal = useCallback(() => {
     setShowAdminModeModal(true)
   }, [])
@@ -1025,6 +1038,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     () => ({
       isAdminMode,
       toggleAdminMode,
+      activateAdminMode,
       openAdminModeModal,
       closeAdminModeModal,
       showAdminModeModal,
@@ -1068,6 +1082,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
     [
       isAdminMode,
       toggleAdminMode,
+      activateAdminMode,
       openAdminModeModal,
       closeAdminModeModal,
       showAdminModeModal,
@@ -1097,7 +1112,7 @@ export function AdminProvider({ children, tutorialId }: { children: ReactNode; t
       deleteVersion,
       remoteConfigured,
       isAuthenticated,
-      isVerifying,  // ✅ Ajouter isVerifying au tableau de dépendances
+      isVerifying,
       refreshSession,
       logout,
       publish,

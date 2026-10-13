@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAdmin } from './AdminContext'
 import { openAdminLoginForm } from './AdminBarWrapper'
 import TutorialMetaPanel from './TutorialMetaPanel'
@@ -24,6 +24,7 @@ export default function AdminBar({ onSelectTutorial }: AdminBarProps) {
   const {
     isAdminMode,
     toggleAdminMode,
+    activateAdminMode,
     openAdminModeModal,
     isPreview,
     setPreview,
@@ -47,22 +48,32 @@ export default function AdminBar({ onSelectTutorial }: AdminBarProps) {
   const [showCms, setShowCms] = useState(false)  // ✅ Initialiser à false (restauration sécurisée via useEffect)
   const isDev = import.meta.env.DEV
 
-  // ✅ Restauration sécurisée du CMS après F5 :
-  // - Attendre la fin de la vérification (isVerifying === false)
-  // - Vérifier que l'utilisateur est authentifié
-  // - Vérifier que isAdminMode est actif
-  // - Seulement ALORS restaurer si sessionStorage indique "ouvert"
+  // ✅ État pour tracker si on a déjà tenté la restauration du CMS après vérification
+  const hasAttemptedRestoration = useRef(false)
+
+  // ✅ Restauration du CMS après F5 : basée sur isAuthenticated (pas isAdminMode)
+  // - Attendre fin de vérification (isVerifying === false)
+  // - Vérifier que l'utilisateur est authentifié (session valide)
+  // - Restaurer isAdminMode ET showCms une seule fois si sessionStorage dit "ouvert"
+  // - Ne jamais réactiver isAdminMode sans authentification
   useEffect(() => {
-    if (isVerifying) return // Attendre la fin de la vérification
-    if (remoteConfigured && !isAuthenticated) return // Session invalide
-    if (!isAdminMode) return // Mode édition désactivé
-    
-    // Session valide + mode édition actif : restaurer l'état du CMS
+    if (isVerifying) return // Vérification toujours en cours
+    if (remoteConfigured && !isAuthenticated) {
+      // Session invalide : jamais restaurer
+      hasAttemptedRestoration.current = true
+      return
+    }
+    if (hasAttemptedRestoration.current) return // Déjà tenté cette session
+
+    // Session valide + première tentative : vérifier sessionStorage
+    hasAttemptedRestoration.current = true
     const wasCmsOpen = sessionStorage.getItem(CMS_OPEN_KEY)
     if (wasCmsOpen === 'true') {
+      // Restaurer mode édition + CMS (idempotent via activateAdminMode)
+      activateAdminMode()
       setShowCms(true)
     }
-  }, [isVerifying, remoteConfigured, isAuthenticated, isAdminMode])
+  }, [isVerifying, remoteConfigured, isAuthenticated, activateAdminMode])
 
   const handleDiscard = async () => {
     // CORRECTION : Utiliser discardDraftAsync pour aussi supprimer le KV distant si en mode remote
