@@ -26,11 +26,19 @@ kv_namespaces = [
 [env.production.vars]
 GITHUB_REPO = "Aenaril/Lords-Academy"
 GITHUB_BRANCH = "main"
+GITHUB_OWNER = "Aenaril"
 VAPID_PUBLIC_KEY = ""
 VAPID_PRIVATE_KEY = ""
 
+# Secrets (à configurer dans Cloudflare Dashboard)
+# - GITHUB_TOKEN (optionnel, requis si repo est privé)
+# - TEST_TOKEN (pour endpoint /test-send)
+
 # Notes:
 # - KV ID et VAPID keys à remplir avant déploiement
+# - GITHUB_TOKEN: Si Aenaril/Lords-Academy est privé, fournir token GitHub fine-grained avec accès public_repo
 # - Endpoint test (sans Cron auto): POST /test-send
 #   Body: { subscriptionId: "...", title: "...", message: "..." }
+#   Header: Authorization: Bearer {TEST_TOKEN}
 # - Cron trigger à ajouter après validation
+

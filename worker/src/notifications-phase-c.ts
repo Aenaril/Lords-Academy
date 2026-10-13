@@ -83,46 +83,61 @@ const KV_PAGE_SIZE = 1000;  // Pagination limit for KV list
 // ============================================================================
 
 /**
- * Convert VAPID private key (base64url 32-byte format) to JWK P-256 format
+ * Build VAPID private key JWK from existing Phase B keys
  * 
- * Input: 32-byte base64url string (raw private key d)
- * Output: JWK object with kty, crv, d, x, y
+ * Input:
+ *  - base64urlPrivateKey: 32 bytes private key (base64url)
+ *  - base64urlPublicKey: 65 bytes uncompressed P-256 public point (base64url, starts with 0x04)
  * 
- * Derives x,y (public key) from private key using WebCrypto
+ * Output: JWK object { kty, crv, d, x, y }
+ * 
+ * Does NOT derive public from private (impossible without private key material).
+ * Instead uses the known public key coordinates directly.
  */
-async function convertVAPIDPrivateKeyToJWK(base64urlPrivateKey: string): Promise<any> {
+function buildVAPIDPrivateKeyJWK(
+  base64urlPrivateKey: string,
+  base64urlPublicKey: string
+): JsonWebKey {
   try {
-    // Decode base64url to bytes
-    const d_bytes = base64urlToUint8Array(base64urlPrivateKey);
-
-    if (d_bytes.length !== 32) {
-      throw new Error(`Private key must be 32 bytes, got ${d_bytes.length}`);
+    // Decode private key (32 bytes)
+    const privateKeyBytes = base64urlToUint8Array(base64urlPrivateKey);
+    if (privateKeyBytes.length !== 32) {
+      throw new Error(`Private key must be 32 bytes, got ${privateKeyBytes.length}`);
     }
 
-    // Import as raw P-256 private key
-    const privateKey = await crypto.subtle.importKey(
-      'raw',
-      d_bytes,
-      {
-        name: 'ECDH',
-        namedCurve: 'P-256',
-      },
-      true,  // extractable
-      []     // no operations needed, just extract
-    );
-
-    // Export as JWK to get x, y coordinates
-    const exported = await crypto.subtle.exportKey('jwk', privateKey);
-    const jwk = exported as JsonWebKey;
-
-    // Ensure JWK has required fields
-    if (!jwk.d || !jwk.x || !jwk.y) {
-      throw new Error('Failed to derive JWK coordinates');
+    // Decode public key (65 bytes: 0x04 prefix + 32 bytes X + 32 bytes Y)
+    const publicKeyBytes = base64urlToUint8Array(base64urlPublicKey);
+    if (publicKeyBytes.length !== 65) {
+      throw new Error(`Public key must be 65 bytes, got ${publicKeyBytes.length}`);
     }
 
+    // Verify prefix is 0x04 (uncompressed point)
+    if (publicKeyBytes[0] !== 0x04) {
+      throw new Error(`Public key must start with 0x04, got 0x${publicKeyBytes[0].toString(16)}`);
+    }
+
+    // Extract X and Y coordinates (32 bytes each, skip the 0x04 prefix)
+    const x_bytes = publicKeyBytes.slice(1, 33);
+    const y_bytes = publicKeyBytes.slice(33, 65);
+
+    // Encode coordinates as base64url
+    const x_base64url = uint8ArrayToBase64url(x_bytes);
+    const y_base64url = uint8ArrayToBase64url(y_bytes);
+    const d_base64url = base64urlPrivateKey; // Already base64url
+
+    // Build JWK
+    const jwk: JsonWebKey = {
+      kty: 'EC',
+      crv: 'P-256',
+      d: d_base64url,
+      x: x_base64url,
+      y: y_base64url,
+    };
+
+    console.log('[Phase C] VAPID JWK built successfully from Phase B keys');
     return jwk;
   } catch (error) {
-    console.error('[Phase C] JWK conversion error:', error);
+    console.error('[Phase C] JWK build error:', error);
     throw error;
   }
 }
@@ -294,12 +309,17 @@ async function fetchCMSNotifications(env: any): Promise<CMSNotificationSchedule[
 
     console.log(`[Phase C] Fetching CMS from: ${url}`);
 
-    const response = await fetch(url, {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'LMA-Worker-Phase-C-V5',
-      },
-    });
+    // Build headers with optional GitHub token for private repos
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'User-Agent': 'LMA-Worker-Phase-C-V5',
+    };
+
+    if (env.GITHUB_TOKEN) {
+      headers['Authorization'] = `token ${env.GITHUB_TOKEN}`;
+    }
+
+    const response = await fetch(url, { headers });
 
     if (!response.ok) {
       throw new Error(`GitHub fetch failed: ${response.status} ${response.statusText}`);
@@ -439,8 +459,8 @@ async function sendNotification(
         } catch {
           // Try as raw 32-byte base64url private key
           if (vapidKeys.privateKey.length === 43 || vapidKeys.privateKey.length === 44) {
-            // Looks like base64url 32-byte key
-            privateJWK = await convertVAPIDPrivateKeyToJWK(vapidKeys.privateKey);
+            // Looks like base64url 32-byte key — build JWK from both keys
+            privateJWK = buildVAPIDPrivateKeyJWK(vapidKeys.privateKey, vapidKeys.publicKey);
           } else {
             throw new Error(
               'VAPID private key must be: JWK JSON, base64-encoded JWK, or base64url 32-byte raw key'
@@ -653,7 +673,8 @@ export async function handleTestNotification(request: Request, env: any): Promis
           privateJWK = JSON.parse(decoded);
         } catch {
           if (vapidKeys.privateKey.length === 43 || vapidKeys.privateKey.length === 44) {
-            privateJWK = await convertVAPIDPrivateKeyToJWK(vapidKeys.privateKey);
+            // Looks like base64url 32-byte key — build JWK from both keys
+            privateJWK = buildVAPIDPrivateKeyJWK(vapidKeys.privateKey, vapidKeys.publicKey);
           } else {
             throw new Error(
               'VAPID private key must be: JWK JSON, base64-encoded JWK, or base64url 32-byte raw key'
