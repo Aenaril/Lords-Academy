@@ -128,6 +128,25 @@ interface CmsStorageContext {
   params: { route?: string[] }
 }
 
+function validateCronToken(req: Request, env: any): boolean {
+  // Endpoint sécurisé pour Worker Cron uniquement
+  // Token Bearer dans Authorization header
+  const authHeader = req.headers.get('Authorization') ?? ''
+  const match = authHeader.match(/^Bearer\s+(.+)$/)
+  if (!match) return false
+
+  const token = match[1]
+  const expectedToken = env.CRON_CMS_READ_TOKEN
+
+  if (!expectedToken) {
+    console.error('⚠️  CRON_CMS_READ_TOKEN not configured')
+    return false
+  }
+
+  // Comparaison temporelle (timing-safe)
+  return timingSafeEqual(token, expectedToken)
+}
+
 export const onRequest = async (context: CmsStorageContext): Promise<Response> => {
   const { request, env, params } = context
 
@@ -140,6 +159,40 @@ export const onRequest = async (context: CmsStorageContext): Promise<Response> =
   // Préflight CORS
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: cors })
+  }
+
+  // Route spéciale Cron : GET /api/cms-storage/notifications/cron-read (authentification token Bearer)
+  if (resource === 'notifications' && action === 'cron-read' && request.method === 'GET') {
+    // 1) Valider token Cron
+    if (!validateCronToken(request, env)) {
+      return json({ error: 'Unauthorized' }, 401, cors)
+    }
+
+    // 2) Récupérer store
+    let store
+    try {
+      store = cmsStore(env)
+    } catch (err) {
+      console.error('❌ CMS Storage: backend indisponible (Cron)')
+      return json({ error: 'Service de stockage indisponible' }, 502, cors)
+    }
+
+    // 3) Charger et retourner les notifications
+    try {
+      const schedules = await loadNotificationSchedules(store)
+      return json(
+        {
+          ok: true,
+          schedules,
+          timestamp: Date.now(),
+        },
+        200,
+        cors
+      )
+    } catch (err) {
+      console.error('❌ CMS: erreur lecture notifications (Cron):', err)
+      return json({ ok: false, error: 'Failed to load schedules' }, 500, cors)
+    }
   }
 
   if (request.method !== 'POST') {

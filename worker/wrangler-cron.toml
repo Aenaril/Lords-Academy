@@ -10,11 +10,12 @@ compatibility_date = "2024-10-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = false
 
-# ⚠️ CRON DÉSACTIVÉ POUR PHASE DE DÉVELOPPEMENT
+# ✅ CRON ACTIVÉ — Phase C Production
 # 
-# À activer UNIQUEMENT après validation utilisateur:
-# [triggers]
-# crons = ["0 * * * *"]  # Toutes les heures UTC
+# Exécution: Toutes les 6 heures UTC
+# Déploiement: wrangler deploy --config wrangler-cron.toml --env production
+[triggers]
+crons = ["0 */6 * * *"]  # 00:00, 06:00, 12:00, 18:00 UTC
 
 # KV Namespace (Phase B production)
 [env.production]

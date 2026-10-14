@@ -165,27 +165,44 @@ function parseRelativeDelay(delay: string): number {
 
 async function fetchCMSNotifications(env: any): Promise<CMSNotificationSchedule[]> {
   try {
-    // Use published CMS from app/public/cms/notifications.json
-    // (accessible via Pages domain, not raw.githubusercontent.com)
-    const url = `${env.PAGES_URL || 'https://your-pages-domain.pages.dev'}/cms/notifications.json`;
+    // NEW: Fetch from secured API endpoint with Bearer token
+    // This reads from the live CMS backend (Durable Objects/KV),
+    // not the static GitHub Pages file
+    const apiUrl = `${env.PAGES_URL || 'https://lords-academy.pages.dev'}/api/cms-storage/notifications/cron-read`;
+    const cronToken = env.CRON_CMS_READ_TOKEN;
 
-    console.log(`[Cron] Fetching CMS from: ${url}`);
+    if (!cronToken) {
+      console.error('[Cron] CRON_CMS_READ_TOKEN not configured');
+      return [];
+    }
 
-    const response = await fetch(url, {
+    console.log(`[Cron] Fetching CMS from secured endpoint: ${apiUrl}`);
+
+    const response = await fetch(apiUrl, {
+      method: 'GET',
       headers: {
         'Accept': 'application/json',
+        'Authorization': `Bearer ${cronToken}`,
         'User-Agent': 'LMA-Cron-Phase-C',
       },
     });
 
     if (!response.ok) {
-      throw new Error(`CMS fetch failed: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `CMS API fetch failed: ${response.status} ${response.statusText}`
+      );
     }
 
-    const data: CMSNotificationsData = await response.json();
-    return data.schedules || [];
+    const data = await response.json();
+    if (!data.ok || !Array.isArray(data.schedules)) {
+      throw new Error('Invalid CMS API response format');
+    }
+
+    console.log(`[Cron] Fetched ${data.schedules.length} notification schedule(s)`);
+    return data.schedules;
   } catch (error) {
-    console.error('[Cron] CMS fetch error:', error);
+    console.error('[Cron] CMS API fetch error:', error);
+    // Return empty array on failure - do NOT send notifications if source is unreachable
     return [];
   }
 }
