@@ -12,20 +12,20 @@ workers_dev = false
 
 # ⚠️ CRON DÉSACTIVÉ POUR PHASE DE DÉVELOPPEMENT
 # 
-# À activer UNIQUEMENT après validation:
-# [[triggers.crons]]
-# crons = ["0 * * * *"]  # Toutes les heures UTC (every hour at :00)
+# À activer UNIQUEMENT après validation utilisateur:
+# [triggers]
+# crons = ["0 * * * *"]  # Toutes les heures UTC
 
-# KV Namespace (réutilisé Phase B)
+# KV Namespace (Phase B production)
 [env.production]
 kv_namespaces = [
-  { binding = "NOTIFICATIONS_SUBSCRIPTIONS", id = "your-namespace-id", preview_id = "your-preview-namespace-id" }
+  { binding = "NOTIFICATIONS_SUBSCRIPTIONS", id = "notifications-subscriptions-prod", preview_id = "notifications-subscriptions-preview" }
 ]
 
 # Variables d'environnement
 [env.production.vars]
-# Pages domain où le CMS est publié (remplacer par votre domaine Pages réel)
-PAGES_URL = "https://lords-mobile-academy.pages.dev"
+# Pages domain où le CMS est publié
+PAGES_URL = "https://lords-academy.pages.dev"
 
 # Notes sur les secrets à configurer dans Cloudflare Dashboard:
 # - VAPID_PUBLIC_KEY (base64url 65 bytes)
@@ -33,11 +33,11 @@ PAGES_URL = "https://lords-mobile-academy.pages.dev"
 
 # Configuration Deployments:
 # Pour déployer ce Worker (une fois validé):
-#   wrangler deploy --config wrangler-cron.toml
+#   wrangler deploy --config wrangler-cron.toml --env production
 #
 # Pour activer le Cron (une fois validé):
-#   1. Décommenter [[triggers.crons]] ci-dessous
-#   2. Re-déployer: wrangler deploy --config wrangler-cron.toml
+#   1. Décommenter [triggers] et crons = ["0 * * * *"] ci-dessous
+#   2. Re-déployer: wrangler deploy --config wrangler-cron.toml --env production
 #   3. Vérifier exécution dans Cloudflare Dashboard → Workers → Triggers
 #
 # Cron Schedule Reference:
