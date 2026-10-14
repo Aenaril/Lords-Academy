@@ -1,0 +1,52 @@
+# Cloudflare Worker Configuration — Phase C Cron (Scheduled Notifications)
+# 
+# ATTENTION: Ce fichier est PRÉPARATOIRE.
+# N'activate PAS le Cron trigger automatiquement.
+# À utiliser SEULEMENT après validation utilisateur.
+
+name = "lma-notifications-cron"
+main = "dist/notifications-cron.js"
+compatibility_date = "2024-10-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+# ⚠️ CRON DÉSACTIVÉ POUR PHASE DE DÉVELOPPEMENT
+# 
+# À activer UNIQUEMENT après validation:
+# [[triggers.crons]]
+# crons = ["0 * * * *"]  # Toutes les heures UTC
+
+# KV Namespace (réutilisé Phase B)
+[env.production]
+kv_namespaces = [
+  { binding = "NOTIFICATIONS_SUBSCRIPTIONS", id = "", preview_id = "" }
+]
+
+# Variables d'environnement
+[env.production.vars]
+# Pages domain où le CMS est publié (remplacer par votre domaine Pages réel)
+PAGES_URL = "https://lords-mobile-academy.pages.dev"
+
+# Notes sur les secrets à configurer dans Cloudflare Dashboard:
+# - VAPID_PUBLIC_KEY (base64url 65 bytes)
+# - VAPID_PRIVATE_KEY (base64url 32 bytes ou JWK)
+
+# Configuration Deployments:
+# Pour déployer ce Worker (une fois validé):
+#   wrangler deploy --config wrangler-cron.toml
+#
+# Pour activer le Cron (une fois validé):
+#   1. Décommenter [[triggers.crons]] ci-dessous
+#   2. Re-déployer: wrangler deploy --config wrangler-cron.toml
+#   3. Vérifier exécution dans Cloudflare Dashboard → Workers → Triggers
+#
+# Cron Schedule Reference:
+#   "0 * * * *"  = À HH:00:00 UTC chaque heure
+#   "0 0 * * *"  = À minuit UTC chaque jour
+#   "0 9 * * MON" = À 09:00 UTC chaque lundi
+#
+# TTL et Tolérances:
+#   - Déduplication: 7 jours (KV expiration)
+#   - Fenêtre Cron: ±60 minutes autour de dueTime
+#   - Pas d'envoi anticipé (now >= dueTime)
+#   - Pas d'envoi excessivement tardif (now - dueTime < 60min)
