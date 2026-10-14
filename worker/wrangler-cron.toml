@@ -19,7 +19,7 @@ workers_dev = false
 # KV Namespace (Phase B production)
 [env.production]
 kv_namespaces = [
-  { binding = "NOTIFICATIONS_SUBSCRIPTIONS", id = "notifications-subscriptions-prod", preview_id = "notifications-subscriptions-preview" }
+  { binding = "NOTIFICATIONS_SUBSCRIPTIONS", id = "b806f10c63a640cb81754b7e3ca8f9ae" }
 ]
 
 # Variables d'environnement
