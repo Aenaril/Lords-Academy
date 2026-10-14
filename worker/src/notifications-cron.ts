@@ -193,7 +193,7 @@ async function fetchCMSNotifications(env: any): Promise<CMSNotificationSchedule[
       );
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as any;
     if (!data.ok || !Array.isArray(data.schedules)) {
       throw new Error('Invalid CMS API response format');
     }
