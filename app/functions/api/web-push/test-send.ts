@@ -309,9 +309,13 @@ export const onRequest: PagesFunction<{
 
     const subscription = subscriptionData as PhaseB_Subscription;
 
+    // Generate unique identifiers for each test to bypass deduplication
+    // This allows multiple test runs without waiting 7 days for TTL expiration
+    const testRunId = crypto.randomUUID();
+
     const testNotification = {
-      scheduleId: 'test-event',
-      reminderId: 'test',
+      scheduleId: `test-event-${testRunId}`,  // Unique per test run
+      reminderId: `test-${testRunId}`,        // Unique per test run
       title: body.title || 'Test Notification',
       message: body.message || 'This is a test notification from Lords Mobile Academy',
       imageUrl: body.imageUrl,
@@ -339,6 +343,10 @@ export const onRequest: PagesFunction<{
       JSON.stringify({
         ok: true,
         message: `Test notification sent to ${body.subscriptionId}`,
+        testRunId: testRunId,
+        scheduleId: `test-event-${testRunId}`,
+        reminderId: `test-${testRunId}`,
+        note: 'Each test uses a unique ID to bypass deduplication for testing purposes',
       }),
       {
         status: 200,
