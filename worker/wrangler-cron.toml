@@ -28,9 +28,14 @@ kv_namespaces = [
 # Pages domain où le CMS est publié
 PAGES_URL = "https://lords-academy.pages.dev"
 
+# VAPID public key (P-256, 65 bytes base64url)
+# Private key is stored as a secret in Cloudflare (not in this file)
+VAPID_PUBLIC_KEY = "BCuvGtABJrmtCHk6Xuxgj3VI00vfxj6k3RUV4b4T8ERiTMP7CJEAyjSKoPinKfGxzIZVeG5t1qcGZD5i5TS7Hl4"
+
 # Notes sur les secrets à configurer dans Cloudflare Dashboard:
-# - VAPID_PUBLIC_KEY (base64url 65 bytes)
-# - VAPID_PRIVATE_KEY (base64url 32 bytes ou JWK)
+# - VAPID_PRIVATE_KEY (base64url 32 bytes ou JWK) — SECRET
+# - CRON_CMS_READ_TOKEN — SECRET
+# Ne PAS les ajouter dans ce fichier (fichier versionnée dans Git)
 
 # Configuration Deployments:
 # Pour déployer ce Worker (une fois validé):
