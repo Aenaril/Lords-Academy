@@ -1,4 +1,30 @@
 {
-  "schedules": [],
+  "schedules": [
+    {
+      "id": "test-event-001",
+      "enabled": false,
+      "title": "[TEST] Notification Programmée",
+      "message": "Ceci est une notification de test pour valider le système Cron.",
+      "imageUrl": "https://lords-mobile-academy.pages.dev/images/tutorial-default.jpg",
+      "tutorialId": "attaque-defense",
+      "absoluteTime": 1728556800000,
+      "relativeReminders": [
+        {
+          "id": "reminder-24h-before",
+          "enabled": false,
+          "relativeDelay": "-24h",
+          "status": "pending"
+        },
+        {
+          "id": "reminder-1h-before",
+          "enabled": false,
+          "relativeDelay": "-1h",
+          "status": "pending"
+        }
+      ],
+      "createdAt": 1728470400000,
+      "modifiedAt": 1728470400000
+    }
+  ],
   "publishedAt": 1728556800000
 }

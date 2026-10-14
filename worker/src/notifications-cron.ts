@@ -285,10 +285,14 @@ async function sendNotification(
       title: notification.title,
       body: notification.message,
       tag: `lma-${notification.scheduleId}`,
-      icon: notification.imageUrl,
-      badge: notification.imageUrl,
       data: notificationData,
     };
+
+    // Ajouter image/badge seulement s'ils existent
+    if (notification.imageUrl) {
+      payloadData.icon = notification.imageUrl;
+      payloadData.badge = notification.imageUrl;
+    }
 
     const { endpoint, headers, body } = await buildPushHTTPRequest({
       privateJWK,
