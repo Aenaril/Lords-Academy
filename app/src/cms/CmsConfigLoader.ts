@@ -234,6 +234,23 @@ export function invalidateCmsCache(): void {
  */
 export async function reloadCmsConfigs(): Promise<CmsConfig> {
   invalidateCmsCache()
+  
+  // ✅ Invalider le cache Service Worker pour les fichiers CMS
+  // (force NetworkFirst à ignorer le cache de Workbox)
+  if ('caches' in window) {
+    try {
+      const cacheNames = await caches.keys()
+      for (const cacheName of cacheNames) {
+        if (cacheName.includes('cms')) {
+          await caches.delete(cacheName)
+          console.info(`✅ Cache ${cacheName} invalidé après reload CMS`)
+        }
+      }
+    } catch (err) {
+      console.warn('Erreur invalidation cache SW:', err)
+    }
+  }
+  
   const newConfig = await loadCmsConfigs()
   
   // ✅ Notifier les autres onglets du changement via storage event
@@ -263,6 +280,19 @@ export function initCmsStorageListener(): void {
         `📡 Autre onglet a reloadé CMS configs (v${incoming.version})`,
         `- reloading cette fenêtre...`
       )
+      
+      // ✅ Invalider aussi les caches Service Worker
+      if ('caches' in window) {
+        caches.keys().then((cacheNames) => {
+          cacheNames.forEach((cacheName) => {
+            if (cacheName.includes('cms')) {
+              caches.delete(cacheName).then(() => {
+                console.info(`✅ Cache ${cacheName} invalidé (sync cross-tab)`)
+              })
+            }
+          })
+        })
+      }
       
       // Invalider le cache local et recharger
       invalidateCmsCache()

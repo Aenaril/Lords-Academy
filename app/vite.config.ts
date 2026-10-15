@@ -54,10 +54,10 @@ export default defineConfig({
             handler: 'NetworkFirst',
             options: {
               cacheName: 'cms-config-cache',
-              networkTimeoutSeconds: 4,
+              networkTimeoutSeconds: 2,
               expiration: {
                 maxEntries: 10,
-                maxAgeSeconds: 5 * 60
+                maxAgeSeconds: 2 * 60
               }
             }
           },

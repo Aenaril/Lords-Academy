@@ -27,7 +27,7 @@ cleanupOutdatedCaches()
 
 // ========== RUNTIME CACHING RULES ==========
 
-// CMS configs (annonces, thèmes, etc.) : réseau d'abord, max 5 min cache
+// CMS configs (annonces, thèmes, etc.) : réseau d'abord, max 2 min cache
 registerRoute(
   ({ url }) => url.pathname.startsWith('/cms/') && url.pathname.endsWith('.json'),
   new NetworkFirst({
@@ -35,7 +35,7 @@ registerRoute(
     plugins: [
       new CacheExpiration({
         maxEntries: 10,
-        maxAgeSeconds: 5 * 60,
+        maxAgeSeconds: 2 * 60,
       }),
     ],
   })
