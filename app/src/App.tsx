@@ -8,7 +8,7 @@ import PWAInstallPrompt from './components/PWAInstallPrompt'
 import PWAUpdatePrompt from './components/PWAUpdatePrompt'
 import { NotificationPermissionButton } from './components/NotificationPermissionButton'
 import { AdminProvider } from './admin/AdminContext'
-import { loadCmsConfigs } from './cms/CmsConfigLoader'
+import { loadCmsConfigs, initCmsStorageListener } from './cms/CmsConfigLoader'
 import { applyTheme } from './cms/ThemeManager'
 
 type PageType = 'home' | 'tutorial'
@@ -17,8 +17,11 @@ function App() {
   const [currentPage, setCurrentPage] = useState<PageType>('home')
   const [selectedTutorialId, setSelectedTutorialId] = useState<string>('dragon-arena')
 
-  // ✅ Charger configs CMS au démarrage
+  // ✅ Initialiser cross-tab sync + charger configs CMS au démarrage
   useEffect(() => {
+    // Initialiser l'écoute des changements CMS d'autres onglets
+    initCmsStorageListener()
+    
     const initializeCms = async () => {
       try {
         const cmsConfig = await loadCmsConfigs()

@@ -218,10 +218,23 @@ export function NotificationPermissionButton({ vapidPublicKey }: Props) {
   }
 
   if (subscriptionState === 'error') {
+    // ✅ Messages d'erreur détaillés et utiles
+    let userFriendlyMessage = errorMessage
+    
+    if (errorMessage.includes('Permission refusée')) {
+      userFriendlyMessage = '🚫 Permission refusée. Allez dans les paramètres du navigateur pour autoriser les notifications.'
+    } else if (errorMessage.includes('non supportées') || errorMessage.includes('NOT_SUPPORTED')) {
+      userFriendlyMessage = '⚠️ Navigateur non supporté. Essayez un autre navigateur ou appareil.'
+    } else if (errorMessage.includes('VAPID')) {
+      userFriendlyMessage = '⚙️ Erreur de configuration serveur (VAPID). Contactez l\'administrateur.'
+    } else if (errorMessage.includes('STORAGE')) {
+      userFriendlyMessage = '💾 Erreur de stockage serveur. Réessayez plus tard.'
+    }
+    
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         <p style={{ color: '#f44336', margin: 0, fontSize: '0.9rem' }}>
-          ✗ {errorMessage}
+          ✗ {userFriendlyMessage}
         </p>
         <button
           onClick={handleSubscribe}

@@ -417,11 +417,16 @@ async function handleCmsHome(req: Request, env: any): Promise<Response> {
       publishedAt: Date.now(),
     })
 
-    if (!result.ok) {
-      return json({ ok: false, error: result.error }, 502)
-    }
-
-    return json({ ok: true, revision: result.revision })
+    // ✅ RETOURNER HTTP 200 + status détaillé (pas 502 masquant l'erreur)
+    // Frontend peut ainsi distinguer write failure vs verification failure
+    return json({
+      ok: result.ok,
+      error: result.error,
+      revision: result.revision,
+      revisionNumber: result.revisionNumber,
+      status: result.status,
+      details: result.details,
+    }, result.ok ? 200 : 200)  // ✅ Always 200 so frontend can read status enum
   }
 
   return json({ ok: false, error: 'Unknown action' }, 400)

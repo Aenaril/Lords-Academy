@@ -79,6 +79,7 @@ export async function subscribeToPushNotifications(
 
   // ✅ Vérifier VAPID
   if (!vapidPublicKey || typeof vapidPublicKey !== 'string' || vapidPublicKey.length === 0) {
+    console.error('[WebPush] VAPID public key missing or invalid')
     return {
       ok: false,
       error: 'Clé VAPID publique manquante (configuration serveur requise)',
@@ -88,19 +89,48 @@ export async function subscribeToPushNotifications(
 
   try {
     // Enregistrer le Service Worker
+    console.info('[WebPush] Waiting for Service Worker...')
     const registration = await navigator.serviceWorker.ready
+    console.info('[WebPush] Service Worker ready')
 
     // S'abonner
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
-    })
+    console.info('[WebPush] Calling PushManager.subscribe()...')
+    let subscription: PushSubscription
+    try {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
+      })
+      console.info('[WebPush] PushManager.subscribe() succeeded')
+    } catch (swErr) {
+      const swErrMsg = swErr instanceof Error ? swErr.message : String(swErr)
+      console.error('[WebPush] PushManager.subscribe() failed:', swErrMsg)
+      
+      // Identifier l'erreur exacte
+      if (swErrMsg.includes('permission')) {
+        return {
+          ok: false,
+          error: 'Permission refusée',
+          code: 'PERMISSION_DENIED',
+        }
+      } else if (swErrMsg.includes('applicationServerKey') || swErrMsg.includes('VAPID')) {
+        return {
+          ok: false,
+          error: 'Clé VAPID invalide (configuration serveur)',
+          code: 'VAPID_INVALID',
+        }
+      }
+      
+      throw swErr
+    }
 
     // Extraire les données
     const data = subscription.toJSON()
     if (!data.endpoint || !data.keys?.p256dh || !data.keys?.auth) {
       throw new Error('Données d\'abonnement incomplètes')
     }
+
+    console.info('[WebPush] Subscription data extracted, sending to server...')
 
     // ✅ SÉCURITÉ : Récupérer l'ancien secret si réabonnement (F5 recovery)
     const oldRevocationSecret = localStorage.getItem('lma-revocation-secret')
@@ -120,22 +150,29 @@ export async function subscribeToPushNotifications(
 
     if (!response.ok) {
       const error = await response.text()
+      console.error('[WebPush] Server rejected subscription:', response.status, error)
       throw new Error(`Serveur retour ${response.status}: ${error}`)
     }
 
     const result = (await response.json()) as SubscriptionResponse
+    
+    console.info('[WebPush] Server response:', result)
+    
     // ✅ S'assurer que subscriptionId + revocationSecret sont retournés
     if (!result.subscriptionId || !result.revocationSecret) {
+      console.error('[WebPush] Server did not return required identifiers')
       throw new Error('Serveur n\'a pas retourné les identifiants requis')
     }
 
     // ✅ SAUVEGARDER le nouveau revocationSecret en localStorage
     localStorage.setItem('lma-subscription-id', result.subscriptionId)
     localStorage.setItem('lma-revocation-secret', result.revocationSecret)
+    console.info('[WebPush] Subscription saved locally')
 
     return result
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
+    console.error('[WebPush] Subscription error:', message)
     return {
       ok: false,
       error: `Erreur d'abonnement: ${message}`,

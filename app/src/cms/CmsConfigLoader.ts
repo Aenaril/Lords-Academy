@@ -234,5 +234,42 @@ export function invalidateCmsCache(): void {
  */
 export async function reloadCmsConfigs(): Promise<CmsConfig> {
   invalidateCmsCache()
-  return loadCmsConfigs()
+  const newConfig = await loadCmsConfigs()
+  
+  // ✅ Notifier les autres onglets du changement via storage event
+  // (ce onglet se notifie via fonction directe, autres onglets via storage event)
+  try {
+    localStorage.setItem('cms:config:reloaded', JSON.stringify({
+      timestamp: Date.now(),
+      version: configVersion,
+    }))
+  } catch (err) {
+    console.warn('Erreur localStorage broadcast:', err)
+  }
+  
+  return newConfig
+}
+
+/**
+ * Initialiser l'écoute des changements CMS d'autres onglets (cross-tab sync)
+ * Appelé une fois au démarrage de l'app
+ */
+export function initCmsStorageListener(): void {
+  window.addEventListener('storage', (event) => {
+    if (event.key === 'cms:config:reloaded' && event.newValue) {
+      // Un autre onglet a reloadé les configs
+      const incoming = JSON.parse(event.newValue)
+      console.info(
+        `📡 Autre onglet a reloadé CMS configs (v${incoming.version})`,
+        `- reloading cette fenêtre...`
+      )
+      
+      // Invalider le cache local et recharger
+      invalidateCmsCache()
+      loadCmsConfigs().then(() => {
+        configVersion++
+        notifyCmsSubscribers()
+      })
+    }
+  })
 }

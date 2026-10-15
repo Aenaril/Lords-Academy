@@ -70,24 +70,34 @@ export default function HomeCustomizationModule() {
         body: JSON.stringify({ action: 'save', config }),
       })
 
-      if (response.ok) {
-        setSaveStatus('success')
-        
-        // ✅ Recharger les configs CMS après publication
-        await reloadCmsConfigs()
-        console.info('✅ Configs CMS rechargés après publication')
-        
-        setTimeout(() => setSaveStatus('idle'), 3000)
-      } else {
-        const error = await response.text()
-        console.error('Erreur publication:', response.status, error)
+      const data = await response.json().catch(() => ({ ok: false, error: 'Invalid JSON response' }))
+
+      // ✅ Vérifier la réponse et le status détaillé
+      if (!response.ok || !data.ok) {
+        // Distinction entre write failure et verification failure
+        const errorMsg = data.details || data.error || 'Erreur lors de la sauvegarde'
+        console.error('Erreur publication:', response.status, data, errorMsg)
         setSaveStatus('error')
-        setTimeout(() => setSaveStatus('idle'), 3000)
+        // TODO: Afficher message d'erreur spécifique selon data.status enum
+        setTimeout(() => setSaveStatus('idle'), 5000)
+        return
       }
+
+      // ✅ Publication GitHub réussie et vérifiée
+      console.info('✅ Publication GitHub réussie:', data.revision)
+      
+      // ✅ SEULEMENT si vérification réussie : recharger CMS + attendre déploiement
+      // Attendre un peu que GitHub Actions soit triggérée et Pages rebuilt
+      await new Promise(r => setTimeout(r, 1000))
+      await reloadCmsConfigs()
+      console.info('✅ Configs CMS rechargés après publication')
+      
+      setSaveStatus('success')
+      setTimeout(() => setSaveStatus('idle'), 3000)
     } catch (e) {
       console.error('Erreur sauvegarde config accueil:', e)
       setSaveStatus('error')
-      setTimeout(() => setSaveStatus('idle'), 3000)
+      setTimeout(() => setSaveStatus('idle'), 5000)
     }
   }
 
