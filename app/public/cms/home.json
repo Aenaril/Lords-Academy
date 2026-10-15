@@ -8,7 +8,7 @@
     "sections": {
       "available": {
         "visible": true,
-        "title": "Tutoriels Disponibles"
+        "title": "Tutoriels Disponibles - TEST"
       },
       "comingSoon": {
         "visible": true,
@@ -20,5 +20,7 @@
       }
     }
   },
-  "publishedAt": 1791818234078
+  "publishedAt": 1792055564315,
+  "_rev": 1,
+  "_publishedAt": 1792055564609
 }
