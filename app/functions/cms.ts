@@ -262,12 +262,15 @@ export async function publishCmsConfig(
               // Vérifications STRICTES :
               // 1. SHA correspond
               // 2. Révision correspond
-              // 3. Theme ID correspond
+              // 3. Theme ID correspond (seulement pour themes.json qui en a un)
               // 4. Hash du contenu correspond (identité exacte)
+              const hasThemeId = filename === 'themes.json'
+              const themeIdMatches = !hasThemeId || publishedContent.activeThemeId === content.activeThemeId
+              
               if (
                 verifySha === newSha &&
                 publishedContent._rev === newRevision &&
-                publishedContent.activeThemeId === content.activeThemeId &&
+                themeIdMatches &&
                 publishedHash === newContentHash
               ) {
                 verified = true
@@ -289,7 +292,7 @@ export async function publishCmsConfig(
                 console.warn(`  SHA: ${verifySha?.slice(0, 7)} vs attendu ${newSha?.slice(0, 7)}`)
               if (publishedContent._rev !== newRevision)
                 console.warn(`  Rev: ${publishedContent._rev} vs attendu ${newRevision}`)
-              if (publishedContent.activeThemeId !== content.activeThemeId)
+              if (filename === 'themes.json' && publishedContent.activeThemeId !== content.activeThemeId)
                 console.warn(
                   `  Theme: ${publishedContent.activeThemeId} vs attendu ${content.activeThemeId}`
                 )

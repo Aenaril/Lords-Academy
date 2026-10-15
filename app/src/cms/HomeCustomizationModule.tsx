@@ -28,6 +28,7 @@ const DEFAULT_HOME_CONFIG: HomePageConfig = {
 export default function HomeCustomizationModule() {
   const [config, setConfig] = useState<HomePageConfig>(DEFAULT_HOME_CONFIG)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
+  const [errorMessage, setErrorMessage] = useState<string>('')
 
   // ✅ Charger config depuis CMS à la première utilisation
   useEffect(() => {
@@ -56,6 +57,7 @@ export default function HomeCustomizationModule() {
   // ✅ Sauvegarder config — Publier vers l'API ET recharger CMS
   const saveConfig = async () => {
     setSaveStatus('saving')
+    setErrorMessage('')  // ✅ Effacer erreur précédente
     try {
       localStorage.setItem('cms:home:config', JSON.stringify(config))
 
@@ -77,9 +79,9 @@ export default function HomeCustomizationModule() {
         // Distinction entre write failure et verification failure
         const errorMsg = data.details || data.error || 'Erreur lors de la sauvegarde'
         console.error('Erreur publication:', response.status, data, errorMsg)
+        setErrorMessage(errorMsg)
         setSaveStatus('error')
-        // TODO: Afficher message d'erreur spécifique selon data.status enum
-        setTimeout(() => setSaveStatus('idle'), 5000)
+        // Erreur persiste jusqu'à ce que l'utilisateur retente
         return
       }
 
@@ -96,8 +98,9 @@ export default function HomeCustomizationModule() {
       setTimeout(() => setSaveStatus('idle'), 3000)
     } catch (e) {
       console.error('Erreur sauvegarde config accueil:', e)
+      const msg = (e as any)?.message || 'Erreur inconnue'
+      setErrorMessage(msg)
       setSaveStatus('error')
-      setTimeout(() => setSaveStatus('idle'), 5000)
     }
   }
 
@@ -239,7 +242,9 @@ export default function HomeCustomizationModule() {
                 {saveStatus === 'saving' ? '⏳ Sauvegarde...' : '💾 Sauvegarder'}
               </button>
               {saveStatus === 'success' && <span className="status-success">✓ Sauvegardé!</span>}
-              {saveStatus === 'error' && <span className="status-error">✗ Erreur</span>}
+              {saveStatus === 'error' && (
+                <span className="status-error" title={errorMessage}>✗ {errorMessage || 'Erreur'}</span>
+              )}
             </div>
           </div>
         </div>
