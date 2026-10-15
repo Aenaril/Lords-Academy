@@ -44,6 +44,13 @@
           "_uid": "b_rg_2_1"
         },
         {
+          "type": "image",
+          "imagePath": "/images/content/regles-generales/1-scout.svg",
+          "alt": "Processus scout : tester puis rapporter",
+          "caption": "Scout → Rapport Discord → Interdiction d'action",
+          "_uid": "b_rg_2_1b"
+        },
+        {
           "type": "memo",
           "title": "Scout d'abord",
           "content": "Tester la Phalange/Rangée de la cible et poster le rapport sur Discord.",
@@ -207,6 +214,13 @@
           "type": "text",
           "content": "Le timing est critique dans un rally. Demande tôt au filler s'il peut être speedable ou kickable. Comprendre la différence entre ces deux concepts t'aidera à mieux coordonner l'attaque.",
           "_uid": "b_rg_5_1"
+        },
+        {
+          "type": "image",
+          "imagePath": "/images/content/regles-generales/4-timer.svg",
+          "alt": "Speedable vs Kickable",
+          "caption": "Comprendre les deux modes de gestion du timing",
+          "_uid": "b_rg_5_1b"
         },
         {
           "type": "memo",
