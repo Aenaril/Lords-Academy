@@ -12,15 +12,15 @@
       "order": 3
     },
     {
-      "id": "test",
-      "title": "Test",
-      "description": "",
-      "category": "Autre",
-      "difficulty": "easy",
-      "estimatedDuration": "10",
-      "coverIcon": "📚",
+      "id": "regles-generales",
+      "title": "Règles des Rally Wars",
+      "description": "Maîtrisez les 7 règles essentielles pour fluidifier vos Rally Wars. Scout, communication, timer, split : tout ce qu'il faut savoir.",
+      "category": "Combats",
+      "difficulty": "medium",
+      "estimatedDuration": "12-15",
+      "coverIcon": "⚔️",
       "status": "published",
-      "order": 999
+      "order": 7
     }
   ]
 }
