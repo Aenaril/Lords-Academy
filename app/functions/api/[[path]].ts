@@ -936,7 +936,11 @@ async function handleGetPublished(
     }
 
     // 3. Servir le fichier si publié
-    const contentUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${contentPath}`
+    // Utiliser le SHA comme paramètre de version pour éviter le cache Cloudflare
+    let contentUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${contentPath}`
+    if (sha) {
+      contentUrl += `?v=${sha}`
+    }
     const contentRes = await fetch(contentUrl, { cache: 'no-store' })
     
     if (!contentRes.ok) {
