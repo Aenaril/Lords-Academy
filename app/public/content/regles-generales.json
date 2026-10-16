@@ -1,0 +1,509 @@
+{
+  "id": "regles-generales",
+  "title": "Règles des Rally Wars",
+  "description": "Maîtrisez les 7 règles essentielles pour fluidifier vos Rally Wars. Scout, communication, timer, split : tout ce qu'il faut savoir.",
+  "category": "Combats",
+  "difficulty": "medium",
+  "estimatedDuration": "12-15",
+  "coverIcon": "⚔️",
+  "status": "published",
+  "order": 7,
+  "sections": [
+    {
+      "id": "intro",
+      "title": "Règles des Rally Wars — Introduction",
+      "sourceSlide": 1,
+      "sourceTitle": "⚔️ Règles des Rally Wars",
+      "slideType": "cover",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Pour fluidifier nos prochains Rally Wars, voici les règles essentielles à suivre.",
+          "_uid": "b_rg_1_1"
+        },
+        {
+          "type": "memo",
+          "title": "Objectif",
+          "content": "Ces 7 règles nous aideront à mieux coordonner nos RW et à progresser ensemble.",
+          "icon": "🎯",
+          "_uid": "b_rg_1_2"
+        }
+      ],
+      "_uid": "s_rg_1"
+    },
+    {
+      "id": "regle-1-scout",
+      "title": "RÈGLE 1 : Tester la Phalange",
+      "sourceSlide": 2,
+      "sourceTitle": "📋 RÈGLE 1 — Tester la Phalange",
+      "slideType": "content",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Avant de lancer un ralliement, il est crucial de tester la formation (phalange ou rangée) de la cible et de poster le rapport sur Discord pour informer l'équipe.",
+          "_uid": "b_rg_2_1"
+        },
+        {
+          "type": "image",
+          "imagePath": "/images/content/regles-generales/1-scout.svg",
+          "alt": "Processus scout : tester puis rapporter",
+          "caption": "Scout → Rapport Discord → Interdiction d'action",
+          "_uid": "b_rg_2_1b"
+        },
+        {
+          "type": "memo",
+          "title": "Scout d'abord",
+          "content": "Tester la Phalange/Rangée de la cible et poster le rapport sur Discord.",
+          "icon": "📋",
+          "_uid": "b_rg_2_2"
+        },
+        {
+          "type": "memo",
+          "title": "Interdit ensuite",
+          "content": "Une fois la cible identifiée et le ralliement lancé : ne plus spy ni interagir (flamis, etc.).",
+          "icon": "🚫",
+          "_uid": "b_rg_2_3"
+        },
+        {
+          "type": "quiz",
+          "question": "Que dois-tu faire AVANT de lancer un rally ?",
+          "options": [
+            "Attendre que le RL confirme",
+            "Tester la phalange/rangée de la cible et poster sur Discord",
+            "Lancer directement",
+            "Demander aux fillers leurs compos"
+          ],
+          "correctAnswerIndex": 1,
+          "explanation": "Il faut toujours tester la phalange/rangée de la cible en amont et partager le rapport sur Discord. C'est essentiel pour la coordination de l'équipe.",
+          "_uid": "b_rg_2_4"
+        }
+      ],
+      "_uid": "s_rg_2"
+    },
+    {
+      "id": "regle-2-retester",
+      "title": "RÈGLE 2 : Retester avant de marcher",
+      "sourceSlide": 3,
+      "sourceTitle": "📄 RÈGLE 2 — Retester avant de marcher",
+      "slideType": "content",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Avant de marcher, demande de l'aide si tu as besoin de clarification : la cible est-elle ON ? Avez-vous besoin de tapis ? Faut-il retester en urgence ? N'hésite pas à demander à tes coéquipiers — ils sont toujours là pour t'épauler.",
+          "_uid": "b_rg_3_1"
+        },
+        {
+          "type": "memo",
+          "title": "Demander de l'aide",
+          "content": "Les coéquipiers sont toujours là pour épauler. Communication = victoire.",
+          "icon": "👊",
+          "_uid": "b_rg_3_2"
+        },
+        {
+          "type": "comparison",
+          "title": "Avant de marcher : les bonnes questions",
+          "items": [
+            {
+              "name": "Cible ON ?",
+              "description": "La cible est-elle actuellement active/défendable ?",
+              "pros": [
+                "Permet d'ajuster la stratégie"
+              ],
+              "cons": [
+                "Peut retarder le rally si pas de réponse"
+              ]
+            },
+            {
+              "name": "Besoin de tapis ?",
+              "description": "Avez-vous besoin de tapis pour la cible ?",
+              "pros": [
+                "Garantit le succès"
+              ],
+              "cons": [
+                "Ressource limitée"
+              ]
+            },
+            {
+              "name": "Retester en urgence ?",
+              "description": "La cible a-t-elle changé depuis le test initial ?",
+              "pros": [
+                "Infos à jour = décisions meilleures"
+              ],
+              "cons": [
+                "Nécessite un re-scout"
+              ]
+            }
+          ],
+          "_uid": "b_rg_3_3"
+        }
+      ],
+      "_uid": "s_rg_3"
+    },
+    {
+      "id": "regle-3-communiquer",
+      "title": "RÈGLE 3 : Communiquer avant tout",
+      "sourceSlide": 4,
+      "sourceTitle": "💬 RÈGLE 3 — Communiquer avant tout",
+      "slideType": "content",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "La communication est la clé du succès. Respecte les compositions demandées par le RL. Important : le RL ne lance pas forcément la marche qu'il demande aux fillers. Au moindre doute, demande à tes coéquipiers !",
+          "_uid": "b_rg_4_1"
+        },
+        {
+          "type": "comparison",
+          "title": "RL ≠ Filler : les rôles",
+          "items": [
+            {
+              "name": "Rally Leader (RL)",
+              "description": "Lance l'attaque, décide la stratégie.",
+              "pros": [
+                "Dirige la marche",
+                "Décide de l'ordre"
+              ],
+              "cons": [
+                "Ne lance pas toujours sa compo"
+              ]
+            },
+            {
+              "name": "Filler",
+              "description": "Remplit le rally selon les instructions.",
+              "pros": [
+                "Suit la compo demandée",
+                "Soutient l'équipe"
+              ],
+              "cons": [
+                "Dépend du RL pour le timing"
+              ]
+            }
+          ],
+          "_uid": "b_rg_4_2"
+        },
+        {
+          "type": "memo",
+          "title": "Communication = Victoire",
+          "content": "Tchat, message de guilde & Discord : les compos doivent être respectées. Au moindre doute : demandez aux copains !",
+          "icon": "💬",
+          "_uid": "b_rg_4_3"
+        },
+        {
+          "type": "quiz",
+          "question": "Que signifie 'RL ≠ filler' dans ce contexte ?",
+          "options": [
+            "Ils ont des équipements différents",
+            "Le RL ne lance pas forcément la marche qu'il demande aux fillers",
+            "Les fillers ne doivent jamais écouter le RL",
+            "Le RL est toujours plus fort"
+          ],
+          "correctAnswerIndex": 1,
+          "explanation": "Le RL décide la stratégie et peut demander une certaine composition aux fillers, mais il ne lance pas toujours cette même marche lui-même. L'important est que tout le monde comprenne et suive les instructions.",
+          "_uid": "b_rg_4_4"
+        }
+      ],
+      "_uid": "s_rg_4"
+    },
+    {
+      "id": "regle-4-timer",
+      "title": "RÈGLE 4 : Timer — Speedable ou Kickable ?",
+      "sourceSlide": 5,
+      "sourceTitle": "⏱️ RÈGLE 4 — Timer : Speedable ou Kickable ?",
+      "slideType": "content",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Le timing est critique dans un rally. Demande tôt au filler s'il peut être speedable ou kickable. Comprendre la différence entre ces deux concepts t'aidera à mieux coordonner l'attaque.",
+          "_uid": "b_rg_5_1"
+        },
+        {
+          "type": "image",
+          "imagePath": "/images/content/regles-generales/4-timer.svg",
+          "alt": "Speedable vs Kickable",
+          "caption": "Comprendre les deux modes de gestion du timing",
+          "_uid": "b_rg_5_1b"
+        },
+        {
+          "type": "memo",
+          "title": "Speedable ?",
+          "content": "La troupe du filler est hors délai pour être speedée en fonction du timing souhaité par le RL.",
+          "icon": "⚡",
+          "_uid": "b_rg_5_2"
+        },
+        {
+          "type": "memo",
+          "title": "Kickable ?",
+          "content": "La troupe bloque le rally jusqu'à ce qu'on la kick pour démarrer selon le délai souhaité par le RL.",
+          "icon": "⏱️",
+          "_uid": "b_rg_5_3"
+        },
+        {
+          "type": "comparison",
+          "title": "Speedable vs Kickable",
+          "items": [
+            {
+              "name": "Speedable",
+              "description": "Troupe trop lente pour le timing",
+              "pros": [
+                "Solution : speed la troupe"
+              ],
+              "cons": [
+                "Besoin de ressources (bottes)"
+              ]
+            },
+            {
+              "name": "Kickable",
+              "description": "Troupe qui bloque le rally",
+              "pros": [
+                "Solution : kick pour démarrer"
+              ],
+              "cons": [
+                "Les troupes kickées sont perdues"
+              ]
+            }
+          ],
+          "_uid": "b_rg_5_4"
+        }
+      ],
+      "_uid": "s_rg_5"
+    },
+    {
+      "id": "regle-5-split",
+      "title": "RÈGLE 5 : Le Split — Diviser pour mieux remplir",
+      "sourceSlide": 6,
+      "sourceTitle": "✂️ RÈGLE 5 — Le Split : diviser pour mieux remplir",
+      "slideType": "content",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Avec plus de membres actifs, nous ne pouvons plus compter sur le Boost Size 50% automatique. La nouvelle règle est simple : 200k max → Split ! Divise tes troupes par 2 pour laisser un maximum de joueurs entrer dans le rally. La gestion des places en RW deviendra de plus en plus naturelle avec le temps.",
+          "_uid": "b_rg_6_1"
+        },
+        {
+          "type": "memo",
+          "title": "Split = 200k max",
+          "content": "Diviser ses troupes par 2 pour laisser entrer plus de joueurs.",
+          "icon": "✂️",
+          "_uid": "b_rg_6_2"
+        },
+        {
+          "type": "comparison",
+          "title": "Single vs Split",
+          "items": [
+            {
+              "name": "Single (une seule marche)",
+              "description": "Troupes < 200k",
+              "pros": [
+                "Plus de puissance concentrée"
+              ],
+              "cons": [
+                "Limite le nombre de joueurs"
+              ]
+            },
+            {
+              "name": "Split (deux marches)",
+              "description": "Troupes divisées par 2",
+              "pros": [
+                "Plus de joueurs peuvent participer",
+                "Plus flexible"
+              ],
+              "cons": [
+                "Coordination plus complexe"
+              ]
+            }
+          ],
+          "_uid": "b_rg_6_3"
+        },
+        {
+          "type": "memo",
+          "title": "Apprentissage progressif",
+          "content": "Cela s'apprend. La gestion des places en RW deviendra naturelle avec le temps et l'expérience.",
+          "icon": "⚠️",
+          "_uid": "b_rg_6_4"
+        }
+      ],
+      "_uid": "s_rg_6"
+    },
+    {
+      "id": "regle-6-cacher-marches",
+      "title": "RÈGLE 6 : Cacher ses marches",
+      "sourceSlide": 7,
+      "sourceTitle": "🕵️ RÈGLE 6 — Cacher ses marches",
+      "slideType": "content",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Une technique stratégique avancée : cacher tes marches en Blast ou Mono pour brouiller la perception de la cible. Cela implique de ralentir les troupes des fillers en mélangeant des unités de différentes tailles.",
+          "_uid": "b_rg_7_1"
+        },
+        {
+          "type": "memo",
+          "title": "Mono Snip — Exemple",
+          "content": "Full T4/5 Snip + 1 troupe T4 Infanterie pour ralentir la marche.",
+          "icon": "🎯",
+          "_uid": "b_rg_7_2"
+        },
+        {
+          "type": "memo",
+          "title": "Idem Cavalerie",
+          "content": "Même principe appliqué avec la cavalerie : mélanger unités rapides et lentes.",
+          "icon": "🐴",
+          "_uid": "b_rg_7_3"
+        },
+        {
+          "type": "quiz",
+          "question": "Comment caches-tu une marche Mono Snip ?",
+          "options": [
+            "En envoyant beaucoup de snip rapidement",
+            "En full T4/5 Snip + 1 troupe T4 Infanterie pour ralentir",
+            "En attendant le dernier moment",
+            "En cachant les infos aux fillers"
+          ],
+          "correctAnswerIndex": 1,
+          "explanation": "Tu ralentis ta marche en ajoutant une troupe d'infanterie T4 aux snips rapides. Cela trompe la cible sur ton timing réel. Le même principe s'applique à la cavalerie.",
+          "_uid": "b_rg_7_4"
+        }
+      ],
+      "_uid": "s_rg_7"
+    },
+    {
+      "id": "regle-7-ordre-attaque",
+      "title": "RÈGLE 7 : Ordre d'attaque des RLs",
+      "sourceSlide": 8,
+      "sourceTitle": "🎯 RÈGLE 7 — Ordre d'attaque des RLs",
+      "slideType": "content",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Quand plusieurs RLs visent la même cible, le RL originel peut demander à un coéquipier de mettre un Blast spécifique. Si la cible est très chargée, il faut indiquer l'ordre d'attaque dans le tchat pour éviter la confusion.",
+          "_uid": "b_rg_8_1"
+        },
+        {
+          "type": "memo",
+          "title": "Ordre d'attaque",
+          "content": "Plusieurs RLs ? Indiquer l'ordre dans le tchat. Ex : Black > Voye > Cha > ...",
+          "icon": "🎯",
+          "_uid": "b_rg_8_2"
+        },
+        {
+          "type": "comparison",
+          "title": "Un RL vs Plusieurs RLs",
+          "items": [
+            {
+              "name": "Un seul RL",
+              "description": "Contrôle total de la stratégie",
+              "pros": [
+                "Coordination simple"
+              ],
+              "cons": [
+                "Moins de troupes"
+              ]
+            },
+            {
+              "name": "Plusieurs RLs",
+              "description": "Puissance augmentée mais complexité accrue",
+              "pros": [
+                "Plus de troupes concentrées"
+              ],
+              "cons": [
+                "Besoin de synchronisation",
+                "Ordre d'attaque critique"
+              ]
+            }
+          ],
+          "_uid": "b_rg_8_3"
+        },
+        {
+          "type": "checklist",
+          "title": "Avant d'attaquer (plusieurs RLs)",
+          "items": [
+            {
+              "label": "Clarifier l'ordre d'attaque",
+              "description": "Qui attaque en premier ? Deuxième ? Etc."
+            },
+            {
+              "label": "Confirmer les Blasts",
+              "description": "RL originel valide les Blasts des coéquipiers"
+            },
+            {
+              "label": "Synchroniser les timings",
+              "description": "Tous les RLs lancent au même moment"
+            }
+          ],
+          "_uid": "b_rg_8_4"
+        }
+      ],
+      "_uid": "s_rg_8"
+    },
+    {
+      "id": "recap",
+      "title": "Synthèse — Les 7 Règles",
+      "sourceSlide": 9,
+      "sourceTitle": "📋 Synthèse",
+      "slideType": "recap",
+      "blocks": [
+        {
+          "type": "memo",
+          "title": "Interdits sans accord RL",
+          "content": "Spy, Flamis, Test Phal, Solo — toujours demander avant !",
+          "icon": "⚠️",
+          "_uid": "b_rg_9_1"
+        },
+        {
+          "type": "comparison",
+          "title": "Les 7 Règles en résumé",
+          "items": [
+            {
+              "name": "Règle 1 : Scout",
+              "description": "Tester la phalange avant de lancer",
+              "pros": [
+                "Infos précises"
+              ],
+              "cons": [
+                "Interdit après le rally"
+              ]
+            },
+            {
+              "name": "Règle 2 : Retester",
+              "description": "Demander aide avant de marcher",
+              "pros": [
+                "Équipe engagée"
+              ],
+              "cons": [
+                "Peut retarder"
+              ]
+            },
+            {
+              "name": "Règles 3-4 : Comm & Timer",
+              "description": "Respecter compos & timing",
+              "pros": [
+                "Coordination"
+              ],
+              "cons": [
+                "Complexe"
+              ]
+            },
+            {
+              "name": "Règles 5-7 : Split, Cache, Ordre",
+              "description": "Gestion avancée",
+              "pros": [
+                "Efficacité"
+              ],
+              "cons": [
+                "Expérience requise"
+              ]
+            }
+          ],
+          "_uid": "b_rg_9_2"
+        },
+        {
+          "type": "memo",
+          "title": "Ensemble on grandit",
+          "content": "Ces procédures nous rodent progressivement sur les RW et la War en général. L'important : communiquer, respecter, s'adapter.",
+          "icon": "🤝",
+          "_uid": "b_rg_9_3"
+        }
+      ],
+      "_uid": "s_rg_9"
+    }
+  ]
+}

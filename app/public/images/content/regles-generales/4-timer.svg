@@ -1,0 +1,25 @@
+<svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .timer-box { fill: #f5f5f0; stroke: #D84D00; stroke-width: 2; }
+      .timer-title { font-size: 13px; font-weight: bold; fill: #D84D00; }
+      .timer-text { font-size: 11px; fill: #333; }
+    </style>
+  </defs>
+  
+  <text class="timer-title" x="150" y="20" text-anchor="middle">Speedable vs Kickable</text>
+  
+  <rect class="timer-box" x="10" y="40" width="130" height="120" rx="5"/>
+  <text class="timer-title" x="20" y="60">⚡ Speedable</text>
+  <text class="timer-text" x="20" y="80">Troupe hors</text>
+  <text class="timer-text" x="20" y="95">délai pour le</text>
+  <text class="timer-text" x="20" y="110">timing du RL</text>
+  <text class="timer-text" x="20" y="135">Solution: Speed</text>
+  
+  <rect class="timer-box" x="160" y="40" width="130" height="120" rx="5"/>
+  <text class="timer-title" x="170" y="60">⏱️ Kickable</text>
+  <text class="timer-text" x="170" y="80">Troupe qui</text>
+  <text class="timer-text" x="170" y="95">bloque le rally</text>
+  <text class="timer-text" x="170" y="110">jusqu'à kick</text>
+  <text class="timer-text" x="170" y="135">Solution: Kick</text>
+</svg>
