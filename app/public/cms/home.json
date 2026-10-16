@@ -1,6 +1,6 @@
 {
   "config": {
-    "title": "Lords Mobile Academy",
+    "title": "Lords Mobile FT's Academy",
     "subtitle": "Tout pour apprendre et comprendre!",
     "introText": "Que vous soyez nouvel arrivant ou joueur vétéran, Lords Mobile Academy vous guide à travers les meilleures stratégies, formations et tactiques de combat.\n\nChaque tutoriel est conçu pour être ludique, interactif et facilement mémorisable. Apprenez à votre rythme, et dominez votre prochaine bataille.",
     "heroImageUrl": "/images/hero-default.jpg",
@@ -20,7 +20,7 @@
       }
     }
   },
-  "publishedAt": 1792059361615,
-  "_rev": 3,
-  "_publishedAt": 1792059362100
+  "publishedAt": 1792060064325,
+  "_rev": 4,
+  "_publishedAt": 1792060064656
 }
