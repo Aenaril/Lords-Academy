@@ -1,0 +1,27 @@
+{
+  "id": "demo-phase1-status",
+  "title": "Demo Phase1 Status",
+  "description": "",
+  "category": "Combats",
+  "difficulty": "easy",
+  "estimatedDuration": "10",
+  "coverIcon": "📚",
+  "order": 999,
+  "status": "draft",
+  "sections": [
+    {
+      "id": "967dfc24-c2b6-4018-939f-ff0df9f380b9",
+      "_uid": "s_mvbhsrho_61",
+      "title": "Section de test",
+      "sourceSlide": 0,
+      "sourceTitle": "Source",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Ceci est un tutoriel temporaire destiné à valider le fonctionnement des statuts R4.",
+          "_uid": "b_mvbhuoju_62"
+        }
+      ]
+    }
+  ]
+}
