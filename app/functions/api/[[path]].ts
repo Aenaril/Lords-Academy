@@ -502,74 +502,7 @@ async function handleUpload(req: Request, env: any): Promise<Response> {
   return json({ ok: true, url: imageUrl })
 }
 
-/* ───────────────────────── Contenu publié (GitHub) ───────────────────────── */
 
-async function handleGetPublished(
-  req: Request,
-  env: any,
-  url: URL
-): Promise<Response> {
-  // Route publique : pas d'authentification requise
-  const tutorialId = sanitizeId(url.searchParams.get('tutorialId'))
-  if (!tutorialId) return json({ error: 'tutorialId invalide' }, 400)
-
-  const path = contentPath(tutorialId)
-  
-  // Headers stricts pour empêcher la mise en cache du contenu obsolète
-  const cacheHeaders = {
-    'Cache-Control': 'no-cache, max-age=0, must-revalidate',
-    'Pragma': 'no-cache',
-    'Expires': '0'
-  }
-
-  try {
-    // Étape 1 : Obtenir le SHA courant du fichier via l'API GitHub (authentifiée)
-    // Cela force Cloudflare à revalider auprès de GitHub
-    const apiUrl = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}?ref=${env.GITHUB_BRANCH}`
-    const apiRes = await fetch(apiUrl, {
-      headers: ghHeaders(env),
-      // Force la revalidation à chaque fois
-      cache: 'no-store'
-    })
-
-    let sha: string | undefined
-    if (apiRes.ok) {
-      const data = (await apiRes.json()) as any
-      sha = data.sha
-    }
-
-    // Étape 2 : Récupérer le contenu publié
-    // Utiliser le SHA comme cache-bust pour éviter le cache Cloudflare
-    let rawUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${path}`
-    if (sha) {
-      // Ajouter le SHA en paramètre pour garantir une URL unique par version
-      rawUrl += `?v=${sha}`
-    } else {
-      // Fallback : utiliser un timestamp si le SHA n'est pas disponible
-      rawUrl += `?t=${Date.now()}`
-    }
-
-    const res = await fetch(rawUrl, { cache: 'no-store' })
-
-    if (!res.ok) {
-      // Pas de contenu publié
-      return json({ content: null }, 200, cacheHeaders)
-    }
-
-    let content: unknown = null
-    try {
-      content = await res.json()
-    } catch {
-      content = null
-    }
-
-    return json({ content, revision: sha || 'published' }, 200, cacheHeaders)
-  } catch (err) {
-    // Erreur lors de la récupération : retourner null au lieu de servir une ancienne version
-    console.error('Error fetching published content:', err)
-    return json({ content: null }, 200, cacheHeaders)
-  }
-}
 
 /* ───────────────────────── Historique & restauration (GitHub) ───────────────────────── */
 
@@ -939,10 +872,13 @@ async function handlePublishedTutorials(req: Request, env: any): Promise<Respons
     const indexData = await indexRes.json()
     const allTutorials = indexData.tutorials || []
 
-    // ✅ PHASE 1 : Filtrer uniquement les tutoriels publiés
-    const publishedTutorials = allTutorials.filter((t: any) => t.status === 'published')
+    // ✅ PHASE 1 : Filtrer les tutoriels publiés ET coming-soon
+    // (draft, in_progress, unpublished sont exclus)
+    const visibleTutorials = allTutorials.filter((t: any) => 
+      t.status === 'published' || t.status === 'coming-soon'
+    )
 
-    return json({ tutorials: publishedTutorials }, 200, cacheHeaders)
+    return json({ tutorials: visibleTutorials }, 200, cacheHeaders)
   } catch (err) {
     console.error('Error fetching published tutorials:', err)
     // En cas d'erreur, retourner liste vide (pas d'erreur 500)
@@ -988,8 +924,18 @@ async function handleGetPublished(
       return json({ error: 'Tutoriel non publié' }, 404)
     }
 
-    // 2. Servir le fichier si publié
+    // 2. Obtenir le SHA du fichier via l'API GitHub
     const contentPath = `app/public/content/${tutorialId}.json`
+    const apiUrl = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${contentPath}?ref=${env.GITHUB_BRANCH}`
+    const apiRes = await fetch(apiUrl, { headers, cache: 'no-store' })
+    
+    let sha: string | undefined
+    if (apiRes.ok) {
+      const apiData = (await apiRes.json()) as any
+      sha = apiData.sha
+    }
+
+    // 3. Servir le fichier si publié
     const contentUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${contentPath}`
     const contentRes = await fetch(contentUrl, { cache: 'no-store' })
     
@@ -998,7 +944,9 @@ async function handleGetPublished(
     }
 
     const content = await contentRes.json()
-    return json({ content })
+    
+    // Retourner le contenu + la révision (SHA) pour support versioning
+    return json({ content, revision: sha || 'published' })
   } catch (err) {
     console.error('Error getting published tutorial:', err)
     return json({ error: 'Erreur serveur' }, 500)
