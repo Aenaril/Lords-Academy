@@ -21,6 +21,28 @@
       "coverIcon": "⚔️",
       "status": "published",
       "order": 7
+    },
+    {
+      "id": "demo-phase1-status",
+      "title": "Demo Phase1 Status",
+      "description": "",
+      "category": "Combats",
+      "difficulty": "easy",
+      "estimatedDuration": "10",
+      "coverIcon": "📚",
+      "status": "draft",
+      "order": 999
+    },
+    {
+      "id": "test",
+      "title": "Test",
+      "description": "",
+      "category": "Autre",
+      "difficulty": "easy",
+      "estimatedDuration": "10",
+      "coverIcon": "📚",
+      "status": "draft",
+      "order": 999
     }
   ]
 }
