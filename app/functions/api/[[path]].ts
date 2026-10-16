@@ -1094,6 +1094,24 @@ async function handleSetTutorialStatus(req: Request, env: any): Promise<Response
     }
 
     const oldStatus = indexContent.tutorials[tutorialIndex].status
+    
+    // VALIDATION : Vérifier qu'on ne publie que si contenu existe
+    if (newStatus === 'published') {
+      try {
+        const contentPath = `app/public/content/${tutorialId}.json`
+        const contentUrl = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${contentPath}`
+        const contentCheckRes = await fetch(`${contentUrl}?ref=${env.GITHUB_BRANCH}`, { headers })
+        if (!contentCheckRes.ok) {
+          return json({ 
+            ok: false, 
+            error: `Impossible publier: tutoriel ${tutorialId}.json n'existe pas` 
+          }, 422)
+        }
+      } catch (err) {
+        return json({ ok: false, error: 'Erreur vérification contenu' }, 502)
+      }
+    }
+
     indexContent.tutorials[tutorialIndex].status = newStatus
 
     // Committer la modification

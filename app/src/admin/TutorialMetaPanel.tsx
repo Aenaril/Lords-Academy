@@ -36,6 +36,10 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
 
   // Réinitialiser l'état quand on change de tutoriel
   useEffect(() => {
+    // Sécurité : annuler tout changement de statut en cours
+    if (isStatusSaving) {
+      console.warn('Changement de tutoriel pendant une requête de statut en cours')
+    }
     setDisplayedStatus(tutorial.status)
     setPendingStatus(null)
     setShowConfirm(false)
@@ -64,6 +68,7 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
 
   const performStatusChange = async (newStatus: string) => {
     setIsStatusSaving(true)
+    const currentTutorialId = tutorial.id // Capturer l'ID au moment de la requête
     
     try {
       const response = await fetch('/api/tutorial/status', {
@@ -73,7 +78,7 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
           'X-Requested-With': 'lma-admin'
         },
         body: JSON.stringify({
-          tutorialId: tutorial.id,
+          tutorialId: currentTutorialId,
           newStatus
         })
       })
@@ -82,6 +87,13 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
         const error = await response.json()
         setIsStatusSaving(false)
         alert(`Erreur : ${error.error || 'Impossible de changer le statut'}`)
+        return
+      }
+
+      // CRITIQUE : Vérifier qu'on est toujours sur le même tutoriel avant d'appliquer la réponse
+      if (tutorial.id !== currentTutorialId) {
+        console.warn(`Tutoriel changé pendant requête. Ignorer la réponse pour ${currentTutorialId}`)
+        setIsStatusSaving(false)
         return
       }
 
@@ -103,13 +115,13 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
 
   const getStatusDescription = () => {
     const newStatusObj = STATUSES.find((s) => s.value === pendingStatus)
-    if (tutorial.status === 'published' && pendingStatus === 'unpublished') {
+    if (displayedStatus === 'published' && pendingStatus === 'unpublished') {
       return 'Le tutoriel disparaîtra du catalogue public. Son contenu sera conservé et accessible aux R4.'
     }
-    if (pendingStatus === 'published' && (tutorial.status === 'draft' || tutorial.status === 'in_progress')) {
+    if (pendingStatus === 'published' && (displayedStatus === 'draft' || displayedStatus === 'in_progress')) {
       return 'Le tutoriel sera visible et consultable par les joueurs immédiatement après confirmation.'
     }
-    if (tutorial.status === 'unpublished' && pendingStatus === 'published') {
+    if (displayedStatus === 'unpublished' && pendingStatus === 'published') {
       return 'Le tutoriel dépublié sera reactivé et redevendra visible.'
     }
     return newStatusObj?.description || ''

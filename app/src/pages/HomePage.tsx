@@ -32,25 +32,30 @@ export default function HomePage({ onSelectTutorial }: HomePageProps) {
         }
         const data = await response.json();
         if (data.tutorials && Array.isArray(data.tutorials)) {
-          // ✅ FUSION ROBUSTE : inclure tutoriels publiés + statiques, sans doublon
+          // ✅ FUSION ROBUSTE : priorité à l'API pour statuts publics
+          // Ne fusionner que les tutoriels publiés ou coming-soon de l'API
+          const apiTutorials = data.tutorials.filter((t: any) => 
+            t.status === 'published' || t.status === 'coming-soon'
+          );
           const publishedMap = new Map(
-            data.tutorials.map((t: any) => [t.id, t]),
+            apiTutorials.map((t: any) => [t.id, t]),
           );
 
-          // Commencer avec les tutoriels statiques, remplacer par versions publiées si elles existent
-          const merged: Tutorial[] = staticTutorials.map(
-            (staticTut: Tutorial) =>
-              (publishedMap.get(staticTut.id) as Tutorial) || staticTut,
-          );
+          // Remplacer les tutoriels statiques par les versions publiées de l'API
+          const merged: Tutorial[] = staticTutorials
+            .map((staticTut: Tutorial) =>
+              (publishedMap.get(staticTut.id) as Tutorial) || null
+            )
+            .filter((t): t is Tutorial => t !== null); // Rejeter les tutoriels statiques dépubliés
 
-          // ✅ Ajouter tutoriels publiés qui n'existent pas dans la liste statique (dynamiques)
+          // Ajouter tutoriels dynamiques (publiés via API mais pas dans liste statique)
           for (const [id, publishedTut] of publishedMap) {
             if (!merged.some((t) => t.id === id)) {
               merged.push(publishedTut as Tutorial);
             }
           }
 
-          // Trier par ordre (tutoriels statiques + dynamiques)
+          // Trier par ordre
           merged.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
 
           setTutorials(merged);
