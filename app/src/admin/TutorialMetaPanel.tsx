@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAdmin } from './AdminContext'
 import './TutorialMetaPanel.css'
 
@@ -33,6 +33,9 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
   const [showConfirm, setShowConfirm] = useState(false)
   const [isStatusSaving, setIsStatusSaving] = useState(false)
   const [displayedStatus, setDisplayedStatus] = useState(tutorial.status)
+  
+  // Référence actualisée au tutoriel courant pour vérifier les requêtes concurrentes
+  const currentTutorialIdRef = useRef(tutorial.id)
 
   // Réinitialiser l'état quand on change de tutoriel
   useEffect(() => {
@@ -40,6 +43,7 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
     if (isStatusSaving) {
       console.warn('Changement de tutoriel pendant une requête de statut en cours')
     }
+    currentTutorialIdRef.current = tutorial.id
     setDisplayedStatus(tutorial.status)
     setPendingStatus(null)
     setShowConfirm(false)
@@ -48,13 +52,14 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
 
   const handleStatusChange = (newStatus: string) => {
     // Confirmation requise pour les transitions sensibles
+    // Utiliser displayedStatus (actualisé) plutôt que tutorial.status (peut être stale)
     const requiresConfirmation = 
       // Publication
-      ((tutorial.status === 'draft' || tutorial.status === 'in_progress') && newStatus === 'published') ||
+      ((displayedStatus === 'draft' || displayedStatus === 'in_progress') && newStatus === 'published') ||
       // Dépublication
-      (tutorial.status === 'published' && newStatus === 'unpublished') ||
+      (displayedStatus === 'published' && newStatus === 'unpublished') ||
       // Réactivation
-      (tutorial.status === 'unpublished' && newStatus === 'published')
+      (displayedStatus === 'unpublished' && newStatus === 'published')
     
     if (requiresConfirmation) {
       setPendingStatus(newStatus)
@@ -68,7 +73,7 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
 
   const performStatusChange = async (newStatus: string) => {
     setIsStatusSaving(true)
-    const currentTutorialId = tutorial.id // Capturer l'ID au moment de la requête
+    const startingTutorialId = currentTutorialIdRef.current
     
     try {
       const response = await fetch('/api/tutorial/status', {
@@ -78,7 +83,7 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
           'X-Requested-With': 'lma-admin'
         },
         body: JSON.stringify({
-          tutorialId: currentTutorialId,
+          tutorialId: startingTutorialId,
           newStatus
         })
       })
@@ -91,8 +96,9 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
       }
 
       // CRITIQUE : Vérifier qu'on est toujours sur le même tutoriel avant d'appliquer la réponse
-      if (tutorial.id !== currentTutorialId) {
-        console.warn(`Tutoriel changé pendant requête. Ignorer la réponse pour ${currentTutorialId}`)
+      // Utiliser useRef pour garantir une valeur actualisée, pas une fermeture stale
+      if (currentTutorialIdRef.current !== startingTutorialId) {
+        console.warn(`Tutoriel changé pendant requête. Ignorer la réponse pour ${startingTutorialId}. Actuellement: ${currentTutorialIdRef.current}`)
         setIsStatusSaving(false)
         return
       }
