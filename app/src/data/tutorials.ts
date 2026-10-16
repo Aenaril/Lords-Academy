@@ -6,7 +6,15 @@ export interface Tutorial {
   difficulty: 'easy' | 'medium' | 'hard' | 'expert';
   estimatedDuration: string;
   coverIcon: string;
-  status: 'published' | 'coming-soon' | 'draft';
+  /**
+   * Statut de publication :
+   * - draft: Brouillon, non publié, visible R4 only
+   * - in_progress: En chantier, modifié par R4, non publié
+   * - published: Publié, visible tous
+   * - unpublished: Dépublié, était publié, retiré, R4 peut le republier
+   * - coming-soon: À venir, visible homepage avec accès désactivé
+   */
+  status: 'draft' | 'in_progress' | 'published' | 'unpublished' | 'coming-soon';
   order: number;
   sections?: Section[];
 }

@@ -224,3 +224,157 @@
     align-items: flex-start;
   }
 }
+
+/* Status Management Styles */
+
+.meta-panel__current-status {
+  margin: 0 0 16px 0;
+  padding: 10px 12px;
+  background: rgba(212, 175, 55, 0.1);
+  border-left: 3px solid var(--primary-gold, #d4af37);
+  color: #cfcfcf;
+  font-size: 0.9rem;
+  border-radius: 4px;
+}
+
+.meta-panel__status-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.meta-panel__status-option {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: #0f0f12;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.meta-panel__status-option input {
+  accent-color: var(--primary-gold, #d4af37);
+}
+
+.meta-panel__status-option input:checked ~ .meta-panel__status-label {
+  color: var(--primary-gold, #d4af37);
+}
+
+.meta-panel__status-option:has(input:checked) {
+  border-color: var(--primary-gold, #d4af37);
+  background: rgba(212, 175, 55, 0.08);
+}
+
+.meta-panel__status-option:hover {
+  border-color: rgba(212, 175, 55, 0.4);
+}
+
+.meta-panel__status-label {
+  font-weight: 600;
+  color: #f2f2f2;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meta-panel__status-desc {
+  font-size: 0.8rem;
+  color: #999;
+  line-height: 1.3;
+}
+
+/* Confirmation Dialog */
+
+.meta-panel__confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.meta-panel__confirm-dialog {
+  background: #15151a;
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 420px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.meta-panel__confirm-dialog h4 {
+  margin: 0 0 12px 0;
+  color: var(--primary-gold, #d4af37);
+  font-size: 1.05rem;
+}
+
+.meta-panel__confirm-message {
+  margin: 0 0 20px 0;
+  color: #cfcfcf;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.meta-panel__confirm-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.meta-panel__confirm-actions .btn {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f2f2f2;
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.btn-primary {
+  background: var(--primary-gold, #d4af37);
+  color: #1a1a1a;
+}
+
+.btn-primary:hover {
+  background: #e8c547;
+}
+
+@media (max-width: 640px) {
+  .meta-panel__status-options {
+    grid-template-columns: 1fr;
+  }
+
+  .meta-panel__confirm-dialog {
+    padding: 16px;
+  }
+}

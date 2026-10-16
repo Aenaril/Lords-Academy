@@ -1,0 +1,59 @@
+{
+  "tutorials": [
+    {
+      "id": "dragon-arena",
+      "title": "Dragon Arena: Comment Jouer",
+      "description": "Dominez la Dragon Arena en comprenant les rôles clés et les stratégies gagnantes.",
+      "category": "Événements",
+      "difficulty": "hard",
+      "estimatedDuration": "12-15",
+      "coverIcon": "🐉",
+      "status": "published",
+      "order": 3
+    },
+    {
+      "id": "regles-generales",
+      "title": "Règles des Rally Wars",
+      "description": "Maîtrisez les 7 règles essentielles pour fluidifier vos Rally Wars. Scout, communication, timer, split : tout ce qu'il faut savoir.",
+      "category": "Combats",
+      "difficulty": "medium",
+      "estimatedDuration": "12-15",
+      "coverIcon": "⚔️",
+      "status": "published",
+      "order": 7
+    },
+    {
+      "id": "attaque-defense-test",
+      "title": "Attaque-Défense (Test Unpublished)",
+      "description": "Test: Tutoriel dépublié pour validation Phase 1",
+      "category": "Combats",
+      "difficulty": "medium",
+      "estimatedDuration": "8-10",
+      "coverIcon": "🛡️",
+      "status": "unpublished",
+      "order": 1
+    },
+    {
+      "id": "bataillons-test",
+      "title": "Bataillons (Test Coming Soon)",
+      "description": "Test: Tutoriel à venir (visible mais non-cliquable)",
+      "category": "Formations",
+      "difficulty": "medium",
+      "estimatedDuration": "10-12",
+      "coverIcon": "📋",
+      "status": "coming-soon",
+      "order": 2
+    },
+    {
+      "id": "techniques-brouillon",
+      "title": "Techniques Avancées (Draft)",
+      "description": "Test: Brouillon non-visible publiquement",
+      "category": "Stratégie",
+      "difficulty": "expert",
+      "estimatedDuration": "12-15",
+      "coverIcon": "🎯",
+      "status": "draft",
+      "order": 8
+    }
+  ]
+}

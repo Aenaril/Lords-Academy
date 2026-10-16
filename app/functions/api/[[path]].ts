@@ -94,6 +94,12 @@ export const onRequest: PagesFunction = async (context) => {
       case 'GET /api/tutorials/published':
         response = await handlePublishedTutorials(request, env as any)
         break
+      case 'GET /api/tutorial/status':
+        response = await handleGetTutorialStatus(request, env as any, url)
+        break
+      case 'POST /api/tutorial/status':
+        response = await handleSetTutorialStatus(request, env as any)
+        break
       default:
         response = json({ error: 'Not found' }, 404)
     }
@@ -108,17 +114,35 @@ export const onRequest: PagesFunction = async (context) => {
 /* ───────────────────────── Index publié (dynamique) ───────────────────────── */
 
 /**
- * Reconstruit l'index publié en énumérant tous les fichiers tutoriels publiés
- * et en créant index.json. Appelé après chaque publication réussie.
+ * Reconstruit l'index publié en énumérant tous les fichiers tutoriels
+ * et en conservant leurs statuts réels. Appelé après chaque changement de publication/statut.
  * 
- * L'index contient une liste de tous les tutoriels publiés avec métadonnées essentielles
- * (id, title, description, category, difficulty, estimatedDuration, coverIcon, status, order).
+ * L'index contient une liste de tous les tutoriels avec leurs statuts et métadonnées.
+ * Seuls les tutoriels avec status === 'published' sont inclus dans le catalogue public.
+ * Phase 1 : index.json = source de vérité pour les statuts.
  */
 async function rebuildPublishedIndex(env: any): Promise<void> {
   const headers = {
     Authorization: `Bearer ${env.GITHUB_TOKEN}`,
     'User-Agent': 'lma-pages-function',
     Accept: 'application/vnd.github+json'
+  }
+
+  // Charger l'index actuel (pour préserver les statuts)
+  const indexUrl = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/app/public/content/index.json`
+  const currentIndexRes = await fetch(`${indexUrl}?ref=${env.GITHUB_BRANCH}`, { headers })
+  let currentIndex: any = { tutorials: [] }
+  let currentIndexSha: string | undefined
+  
+  if (currentIndexRes.ok) {
+    const indexData = (await currentIndexRes.json()) as any
+    currentIndexSha = indexData.sha
+    try {
+      const decoded = decodeURIComponent(escape(atob(indexData.content.replace(/\n/g, ''))))
+      currentIndex = JSON.parse(decoded)
+    } catch {
+      console.warn('Impossible de parser index.json existant, reconstruction complète')
+    }
   }
 
   // Récupérer la liste des fichiers dans app/public/content/
@@ -134,8 +158,10 @@ async function rebuildPublishedIndex(env: any): Promise<void> {
     (item: any) => item.path.startsWith('app/public/content/') && item.path.endsWith('.json') && item.path !== 'app/public/content/index.json'
   )
 
-  // Charger et extraire les métadonnées de chaque tutoriel
+  // Charger et extraire métadonnées, en préservant les statuts existants
   const tutorials: any[] = []
+  const existingMap = new Map((currentIndex.tutorials ?? []).map((t: any) => [t.id, t]))
+  
   for (const file of contentFiles) {
     try {
       const fileUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${file.path}`
@@ -144,6 +170,12 @@ async function rebuildPublishedIndex(env: any): Promise<void> {
 
       const content = await fileRes.json()
       if (content && typeof content.id === 'string') {
+        // Récupérer le statut existant
+        // Pour les tutoriels déjà référencés : préserver leur statut
+        // Pour les nouveaux tutoriels découverts : utiliser 'draft' (jamais 'published')
+        const existingEntry = existingMap.get(content.id)
+        const status = existingEntry?.status ?? 'draft'
+
         tutorials.push({
           id: content.id,
           title: content.title || 'Sans titre',
@@ -152,7 +184,7 @@ async function rebuildPublishedIndex(env: any): Promise<void> {
           difficulty: content.difficulty || 'medium',
           estimatedDuration: content.estimatedDuration || '10',
           coverIcon: content.coverIcon || '📚',
-          status: 'published',
+          status: status,  // ← Préserver ou 'draft' pour nouveaux
           order: content.order ?? 999
         })
       }
@@ -165,25 +197,15 @@ async function rebuildPublishedIndex(env: any): Promise<void> {
   tutorials.sort((a, b) => a.order - b.order)
 
   // Écrire l'index
-  const indexPath = 'app/public/content/index.json'
-  const indexUrl = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${indexPath}`
-
-  // Récupérer le SHA courant (s'il existe)
-  const currentRes = await fetch(`${indexUrl}?ref=${env.GITHUB_BRANCH}`, { headers })
-  let currentSha: string | undefined
-  if (currentRes.ok) {
-    currentSha = ((await currentRes.json()) as any).sha
-  }
-
   const indexContent = btoa(unescape(encodeURIComponent(JSON.stringify({ tutorials }, null, 2))))
   const publishRes = await fetch(indexUrl, {
     method: 'PUT',
     headers,
     body: JSON.stringify({
-      message: `Mise à jour index.json (auto) — ${new Date().toISOString()}`,
+      message: `Mise à jour index.json (statuts + métadonnées) — ${new Date().toISOString()}`,
       content: indexContent,
       branch: env.GITHUB_BRANCH,
-      sha: currentSha
+      sha: currentIndexSha
     })
   })
 
@@ -888,8 +910,9 @@ async function handleTutorialIds(req: Request, env: any): Promise<Response> {
 
 /**
  * Énumère tous les tutoriels publiés (endpoint public).
+ * Phase 1 : Filtre par status === 'published'.
  * 
- * Construit la liste en consulant index.json (mis à jour après chaque publication).
+ * Construit la liste en consultant index.json (mise à jour après chaque publication).
  * Cache : 5 min CDN + revalidation sur chaque accès.
  */
 async function handlePublishedTutorials(req: Request, env: any): Promise<Response> {
@@ -914,13 +937,194 @@ async function handlePublishedTutorials(req: Request, env: any): Promise<Respons
     }
 
     const indexData = await indexRes.json()
-    const tutorials = indexData.tutorials || []
+    const allTutorials = indexData.tutorials || []
 
-    return json({ tutorials }, 200, cacheHeaders)
+    // ✅ PHASE 1 : Filtrer uniquement les tutoriels publiés
+    const publishedTutorials = allTutorials.filter((t: any) => t.status === 'published')
+
+    return json({ tutorials: publishedTutorials }, 200, cacheHeaders)
   } catch (err) {
     console.error('Error fetching published tutorials:', err)
     // En cas d'erreur, retourner liste vide (pas d'erreur 500)
     return json({ tutorials: [] }, 200, cacheHeaders)
+  }
+}
+
+/**
+ * Récupère le contenu publié d'un tutoriel.
+ * Route publique, mais vérifiée contre le statut dans index.json.
+ * 
+ * Phase 1 : Bloque l'accès si statut !== 'published' dans index.json.
+ */
+async function handleGetPublished(
+  req: Request,
+  env: any,
+  url: URL
+): Promise<Response> {
+  const tutorialId = sanitizeId(url.searchParams.get('tutorialId'))
+  if (!tutorialId) return json({ error: 'tutorialId invalide' }, 400)
+
+  try {
+    const headers = {
+      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      'User-Agent': 'lma-pages-function',
+      Accept: 'application/vnd.github+json'
+    }
+
+    // 1. Vérifier le statut dans index.json
+    const indexPath = 'app/public/content/index.json'
+    const indexUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${indexPath}`
+    const indexRes = await fetch(indexUrl, { cache: 'no-store' })
+    
+    if (!indexRes.ok) {
+      return json({ error: 'Index non trouvé' }, 404)
+    }
+
+    const indexData = await indexRes.json()
+    const tutorial = (indexData.tutorials || []).find((t: any) => t.id === tutorialId)
+    
+    // ✅ PHASE 1 : Bloquer l'accès si pas publié
+    if (!tutorial || tutorial.status !== 'published') {
+      return json({ error: 'Tutoriel non publié' }, 404)
+    }
+
+    // 2. Servir le fichier si publié
+    const contentPath = `app/public/content/${tutorialId}.json`
+    const contentUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${contentPath}`
+    const contentRes = await fetch(contentUrl, { cache: 'no-store' })
+    
+    if (!contentRes.ok) {
+      return json({ error: 'Contenu non trouvé' }, 404)
+    }
+
+    const content = await contentRes.json()
+    return json({ content })
+  } catch (err) {
+    console.error('Error getting published tutorial:', err)
+    return json({ error: 'Erreur serveur' }, 500)
+  }
+}
+async function handleGetTutorialStatus(
+  req: Request,
+  env: any,
+  url: URL
+): Promise<Response> {
+  if (!(await readSession(req, env))) return json({ error: 'Non authentifié' }, 401)
+  const tutorialId = sanitizeId(url.searchParams.get('tutorialId'))
+  if (!tutorialId) return json({ error: 'tutorialId invalide' }, 400)
+
+  try {
+    const indexPath = 'app/public/content/index.json'
+    const indexUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${indexPath}`
+    const indexRes = await fetch(indexUrl, { cache: 'no-store' })
+    
+    if (!indexRes.ok) {
+      return json({ error: 'Index non trouvé' }, 404)
+    }
+
+    const indexData = await indexRes.json()
+    const tutorial = (indexData.tutorials || []).find((t: any) => t.id === tutorialId)
+    
+    if (!tutorial) {
+      return json({ error: 'Tutoriel non trouvé' }, 404)
+    }
+
+    return json({ tutorialId, status: tutorial.status })
+  } catch (err) {
+    console.error('Error getting tutorial status:', err)
+    return json({ error: 'Erreur serveur' }, 500)
+  }
+}
+
+/**
+ * Change le statut d'un tutoriel dans index.json.
+ * R4 auth requise.
+ * 
+ * Corps : { tutorialId, newStatus }
+ * newStatus : 'draft' | 'in_progress' | 'published' | 'unpublished' | 'coming-soon'
+ */
+async function handleSetTutorialStatus(req: Request, env: any): Promise<Response> {
+  if (!originAllowed(req, env)) return json({ error: 'Origine refusée' }, 403)
+  if (!csrfOk(req)) return json({ error: 'CSRF' }, 403)
+  if (!(await readSession(req, env))) return json({ error: 'Non authentifié' }, 401)
+
+  const body = (await req.json().catch(() => null)) as any
+  const tutorialId = sanitizeId(body?.tutorialId)
+  const newStatus = body?.newStatus
+
+  if (!tutorialId || !newStatus) {
+    return json({ ok: false, error: 'Paramètres invalides' }, 400)
+  }
+
+  // Valider le statut
+  const validStatuses = ['draft', 'in_progress', 'published', 'unpublished', 'coming-soon']
+  if (!validStatuses.includes(newStatus)) {
+    return json({ ok: false, error: `Statut invalide: ${newStatus}` }, 422)
+  }
+
+  try {
+    const headers = {
+      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      'User-Agent': 'lma-pages-function',
+      Accept: 'application/vnd.github+json'
+    }
+
+    // Charger index.json courant
+    const indexPath = 'app/public/content/index.json'
+    const indexUrl = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${indexPath}`
+    
+    const currentRes = await fetch(`${indexUrl}?ref=${env.GITHUB_BRANCH}`, { headers })
+    if (!currentRes.ok) {
+      return json({ ok: false, error: 'Index non trouvé' }, 404)
+    }
+
+    const indexData = (await currentRes.json()) as any
+    let indexContent: any = { tutorials: [] }
+    try {
+      const decoded = decodeURIComponent(escape(atob(indexData.content.replace(/\n/g, ''))))
+      indexContent = JSON.parse(decoded)
+    } catch {
+      return json({ ok: false, error: 'Index corrompu' }, 422)
+    }
+
+    // Trouver et mettre à jour le tutoriel
+    const tutorialIndex = (indexContent.tutorials || []).findIndex((t: any) => t.id === tutorialId)
+    if (tutorialIndex === -1) {
+      return json({ ok: false, error: 'Tutoriel non trouvé dans index' }, 404)
+    }
+
+    const oldStatus = indexContent.tutorials[tutorialIndex].status
+    indexContent.tutorials[tutorialIndex].status = newStatus
+
+    // Committer la modification
+    const newContentB64 = btoa(unescape(encodeURIComponent(JSON.stringify(indexContent, null, 2))))
+    const commitRes = await fetch(indexUrl, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        message: `Changement statut ${tutorialId}: ${oldStatus} → ${newStatus} — ${new Date().toISOString()}`,
+        content: newContentB64,
+        branch: env.GITHUB_BRANCH,
+        sha: indexData.sha
+      })
+    })
+
+    if (!commitRes.ok) {
+      const errorText = await commitRes.text()
+      console.error('GitHub commit error:', commitRes.status, errorText)
+      return json({ ok: false, error: 'Échec écriture GitHub' }, 502)
+    }
+
+    return json({
+      ok: true,
+      tutorialId,
+      oldStatus,
+      newStatus,
+      message: `Statut changé: ${oldStatus} → ${newStatus}`
+    })
+  } catch (err) {
+    console.error('Error setting tutorial status:', err)
+    return json({ ok: false, error: 'Erreur serveur' }, 500)
   }
 }
 
