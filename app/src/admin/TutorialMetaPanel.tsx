@@ -71,35 +71,68 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
         }
       )
 
-      // ✅ SÉCURITÉ : Vérifier qu'on est toujours sur le même tutoriel
+      // ✅ SÉCURITÉ : Vérifier immédiatement après fetch (avant traitement)
       if (currentTutorialIdRef.current !== startingTutorialId) {
         console.warn(`Tutoriel changé. Ignorer réponse pour ${startingTutorialId}`)
         return
       }
 
       if (response.ok) {
+        // ✅ SÉCURITÉ : Vérifier avant json()
+        if (currentTutorialIdRef.current !== startingTutorialId) {
+          console.warn(`Tutoriel changé avant json(). Ignorer pour ${startingTutorialId}`)
+          return
+        }
+
         const data = await response.json()
+
+        // ✅ SÉCURITÉ : Vérifier APRÈS json() (étape finale avant setState)
+        if (currentTutorialIdRef.current !== startingTutorialId) {
+          console.warn(`Tutoriel changé après json(). Ignorer setState pour ${startingTutorialId}`)
+          return
+        }
+
         // ✅ Tutoriel existe dans index.json public → utiliser son statut officiel
         setDisplayedStatus(data.status)
         setStatusLoadingState('loaded')
       } else if (response.status === 401 || response.status === 403) {
         // ⚠️ ERREUR D'AUTHENTIFICATION
+        // ✅ Vérifier même pour les erreurs
+        if (currentTutorialIdRef.current !== startingTutorialId) {
+          console.warn(`Tutoriel changé (erreur 401/403). Ignorer pour ${startingTutorialId}`)
+          return
+        }
         console.error(`Erreur d'authentification: HTTP ${response.status}`)
         setStatusErrorMessage(`Erreur d'authentification. Impossible de charger le statut officiel. Veuillez vous reconnecter.`)
         setStatusLoadingState('auth_error')
       } else if (response.status === 404) {
+        // ✅ Vérifier pour le 404
+        if (currentTutorialIdRef.current !== startingTutorialId) {
+          console.warn(`Tutoriel changé (404). Ignorer pour ${startingTutorialId}`)
+          return
+        }
         // ✅ Tutoriel n'existe pas dans index.json public
         // → C'est un brouillon pur ou pas encore publié → afficher le statut du brouillon
         setDisplayedStatus(tutorial.status)
         setStatusLoadingState('loaded')
       } else {
         // ⚠️ ERREUR SERVEUR (5xx, etc.)
+        // ✅ Vérifier pour les erreurs serveur
+        if (currentTutorialIdRef.current !== startingTutorialId) {
+          console.warn(`Tutoriel changé (erreur serveur). Ignorer pour ${startingTutorialId}`)
+          return
+        }
         console.warn(`Erreur API statut: HTTP ${response.status}`)
         setStatusErrorMessage(`Erreur serveur (${response.status}). Impossible de charger le statut officiel.`)
         setStatusLoadingState('server_error')
       }
     } catch (err) {
       // ⚠️ ERREUR RÉSEAU
+      // ✅ Vérifier même en cas d'erreur réseau
+      if (currentTutorialIdRef.current !== startingTutorialId) {
+        console.warn(`Tutoriel changé (erreur réseau). Ignorer pour ${startingTutorialId}`)
+        return
+      }
       console.warn('Erreur réseau lors du fetch du statut officiel:', err)
       setStatusErrorMessage('Erreur réseau. Impossible de charger le statut officiel.')
       setStatusLoadingState('network_error')
@@ -170,29 +203,55 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
         })
       })
 
+      // ✅ SÉCURITÉ : Vérifier immédiatement après fetch (avant json())
+      if (currentTutorialIdRef.current !== startingTutorialId) {
+        console.warn(`Tutoriel changé après fetch. Ignorer réponse pour ${startingTutorialId}`)
+        setIsStatusSaving(false)
+        return
+      }
+
       if (!response.ok) {
         const error = await response.json()
+        // ✅ SÉCURITÉ : Vérifier à nouveau après json() (même tutoriel?)
+        if (currentTutorialIdRef.current !== startingTutorialId) {
+          console.warn(`Tutoriel changé après json(). Ignorer erreur pour ${startingTutorialId}`)
+          setIsStatusSaving(false)
+          return
+        }
         setIsStatusSaving(false)
         alert(`Erreur : ${error.error || 'Impossible de changer le statut'}`)
         return
       }
 
-      // CRITIQUE : Vérifier qu'on est toujours sur le même tutoriel avant d'appliquer la réponse
-      // Utiliser useRef pour garantir une valeur actualisée, pas une fermeture stale
+      // ✅ SÉCURITÉ : Vérifier avant json() sur réponse réussie
       if (currentTutorialIdRef.current !== startingTutorialId) {
-        console.warn(`Tutoriel changé pendant requête. Ignorer la réponse pour ${startingTutorialId}. Actuellement: ${currentTutorialIdRef.current}`)
+        console.warn(`Tutoriel changé avant json() (succès). Ignorer pour ${startingTutorialId}`)
         setIsStatusSaving(false)
         return
       }
 
-      // ✅ CORRECTION : Utiliser la réponse API comme source de vérité
       const result = await response.json()
+
+      // ✅ SÉCURITÉ : Vérifier APRÈS json() (étape finale)
+      // Cela garantit qu'aucun setState ne modifie le mauvais panneau
+      if (currentTutorialIdRef.current !== startingTutorialId) {
+        console.warn(`Tutoriel changé après json() (succès). Ignorer setState pour ${startingTutorialId}`)
+        setIsStatusSaving(false)
+        return
+      }
+
       const actualNewStatus = result.newStatus || newStatus
       
-      // Actualiser l'état affiché avec le statut réellement enregistré
+      // ✅ FINAL : Actualiser l'état uniquement si on est encore sur le bon tutoriel
       setDisplayedStatus(actualNewStatus as 'draft' | 'in_progress' | 'published' | 'unpublished' | 'coming-soon')
       setIsStatusSaving(false)
     } catch (err) {
+      // ✅ SÉCURITÉ : Vérifier même en cas d'erreur
+      if (currentTutorialIdRef.current !== startingTutorialId) {
+        console.warn(`Tutoriel changé pendant erreur. Ignorer pour ${startingTutorialId}`)
+        setIsStatusSaving(false)
+        return
+      }
       setIsStatusSaving(false)
       alert(`Erreur réseau : ${err}`)
     }
