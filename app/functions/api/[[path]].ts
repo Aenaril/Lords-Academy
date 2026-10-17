@@ -1074,14 +1074,38 @@ async function handleGetAllTutorialStatuses(
     }
 
     // 4. Merger : pour chaque tutoriel dans index.json, ajouter info brouillon
-    const result = allTutorials.map((t: any) => ({
-      id: t.id,
-      title: t.title || t.id,
-      category: t.category || null,
-      status: t.status || 'draft',
-      hasDraft: draftIds.has(t.id),
-      lastModified: t.lastModified || null
-    }))
+    const result: any[] = []
+    const processedIds = new Set<string>()
+
+    // 4a. Ajouter tous les tutoriels de index.json avec leur flag hasDraft
+    allTutorials.forEach((t: any) => {
+      result.push({
+        id: t.id,
+        title: t.title || t.id,
+        category: t.category || null,
+        status: t.status || 'draft',
+        hasDraft: draftIds.has(t.id),
+        lastModified: t.lastModified || null,
+        inIndex: true  // Tutoriel est dans index.json
+      })
+      processedIds.add(t.id)
+    })
+
+    // 4b. Ajouter les brouillons orphelins (en KV mais pas en index.json)
+    draftIds.forEach((draftId: string) => {
+      if (!processedIds.has(draftId)) {
+        result.push({
+          id: draftId,
+          title: null,  // Pas de métadonnées fiables (orphelin)
+          category: null,
+          status: 'draft',
+          hasDraft: true,
+          lastModified: null,
+          inIndex: false  // Tutoriel n'est pas dans index.json
+        })
+        processedIds.add(draftId)
+      }
+    })
 
     // 5. Retourner avec cache-control strict
     return json({

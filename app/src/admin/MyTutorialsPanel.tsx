@@ -85,8 +85,8 @@ export default function MyTutorialsPanel({
     // Avertissement adapté au statut
     const messages: Record<string, string> = {
       'published': `Supprimer le brouillon de "${tutorialId}" ? Le tutoriel publié restera accessible.`,
-      'unpublished': `Supprimer le brouillon de "${tutorialId}" ? Le tutoriel dépublié ne sera plus accessible.`,
-      'coming-soon': `Supprimer le brouillon de "${tutorialId}" ? Le statut "Bientôt disponible" disparaîtra.`,
+      'unpublished': `Supprimer le brouillon de "${tutorialId}" ? Le tutoriel dépublié restera dans la liste mais ne sera plus accessible aux utilisateurs.`,
+      'coming-soon': `Supprimer le brouillon de "${tutorialId}" ? Le statut "Bientôt disponible" persiste dans l'index officiel.`,
       'in_progress': `Supprimer le brouillon de "${tutorialId}" ?`,
       'draft': `Supprimer le brouillon de "${tutorialId}" ?`
     }
@@ -109,17 +109,31 @@ export default function MyTutorialsPanel({
         return
       }
 
-      // Retirer de la liste si c'était un brouillon pur
-      // Si le tutoriel a un statut publié/unpublished/coming-soon, il reste dans la liste
-      if (tutorial.status === 'draft' || tutorial.status === 'in_progress') {
-        setTutorials((prev) => prev.filter((t) => t.id !== tutorialId))
-      } else {
-        // Sinon, recharger la liste pour mettre à jour le statut
-        setTutorials((prev) =>
-          prev.map((t) =>
-            t.id === tutorialId ? { ...t, hasDraft: false } : t
-          )
-        )
+      // Recharger la liste depuis le serveur pour une source de vérité correcte.
+      // Cela évite de supprimer un tutoriel publié/dépublié/coming-soon
+      // si le backend pense qu'il n'a pas de brouillon mais que le frontend le supprime locally.
+      const statusRes = await fetch('/api/tutorial/statuses', {
+        headers: { 'X-Requested-With': 'lma-admin' },
+        credentials: 'include'
+      })
+
+      if (statusRes.ok) {
+        const data = await statusRes.json()
+        if (data.ok && Array.isArray(data.tutorials)) {
+          const updatedItems: TutorialItem[] = data.tutorials.map((t: any) => ({
+            id: t.id,
+            title: t.title || t.id,
+            category: t.category || '—',
+            status: t.status || 'draft',
+            hasDraft: t.hasDraft || false,
+            lastModified: t.lastModified
+              ? new Date(t.lastModified).toLocaleDateString('fr-FR')
+              : '—'
+          }))
+          
+          updatedItems.sort((a, b) => a.title.localeCompare(b.title))
+          setTutorials(updatedItems)
+        }
       }
     } catch (err) {
       alert('Erreur réseau')
