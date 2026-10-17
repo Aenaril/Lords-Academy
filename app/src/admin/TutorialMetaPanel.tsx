@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAdmin } from './AdminContext'
 import './TutorialMetaPanel.css'
 
@@ -21,21 +21,123 @@ const STATUSES: { value: 'draft' | 'in_progress' | 'published' | 'unpublished' |
   { value: 'coming-soon', label: 'Bientôt disponible', description: 'Visible, accès désactivé' }
 ]
 
+type StatusLoadingState = 'idle' | 'loading' | 'loaded' | 'auth_error' | 'server_error' | 'network_error'
+
 /**
  * Panneau modal : métadonnées du tutoriel
  * (titre, icône, description, difficulté, durée, statut).
  *
  * Gère le changement de statut avec confirmation pour publication/dépublication.
+ * 
+ * ✅ CORRECTIF : Statut officiel chargé depuis l'API (/api/tutorial/status)
+ * plutôt que depuis le brouillon KV. Cela assure la synchronisation avec
+ * index.json public, même après changements via API.
+ * 
+ * Gère les erreurs d'API directement dans le panneau (messages visibles, retry, désactivation des contrôles).
  */
 export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
-  const { tutorial, updateTutorialMeta } = useAdmin()
+  const { tutorial, updateTutorialMeta, isAuthenticated } = useAdmin()
   const [pendingStatus, setPendingStatus] = useState<string | null>(null)
   const [showConfirm, setShowConfirm] = useState(false)
   const [isStatusSaving, setIsStatusSaving] = useState(false)
   const [displayedStatus, setDisplayedStatus] = useState(tutorial.status)
+  const [statusLoadingState, setStatusLoadingState] = useState<StatusLoadingState>('loading')
+  const [statusErrorMessage, setStatusErrorMessage] = useState<string | null>(null)
   
   // Référence actualisée au tutoriel courant pour vérifier les requêtes concurrentes
   const currentTutorialIdRef = useRef(tutorial.id)
+
+  /**
+   * ✅ NOUVEAU : Charger le statut officiel depuis l'API
+   * Source de vérité : index.json public via /api/tutorial/status
+   * 
+   * Gère tous les cas d'erreur (401/403, 404, 5xx, réseau) de manière explicite.
+   * Aucun fallback silencieux. Les erreurs sont affichées et permettent un retry.
+   */
+  const fetchOfficialStatus = useCallback(async () => {
+    if (!isAuthenticated) return
+    
+    setStatusLoadingState('loading')
+    setStatusErrorMessage(null)
+    
+    const startingTutorialId = currentTutorialIdRef.current
+    
+    try {
+      const response = await fetch(
+        `/api/tutorial/status?tutorialId=${encodeURIComponent(startingTutorialId)}`,
+        {
+          headers: { 'X-Requested-With': 'lma-admin' },
+          credentials: 'include'
+        }
+      )
+
+      // ✅ SÉCURITÉ : Vérifier immédiatement après fetch (avant traitement)
+      if (currentTutorialIdRef.current !== startingTutorialId) {
+        console.warn(`Tutoriel changé. Ignorer réponse pour ${startingTutorialId}`)
+        return
+      }
+
+      if (response.ok) {
+        // ✅ SÉCURITÉ : Vérifier avant json()
+        if (currentTutorialIdRef.current !== startingTutorialId) {
+          console.warn(`Tutoriel changé avant json(). Ignorer pour ${startingTutorialId}`)
+          return
+        }
+
+        const data = await response.json()
+
+        // ✅ SÉCURITÉ : Vérifier APRÈS json() (étape finale avant setState)
+        if (currentTutorialIdRef.current !== startingTutorialId) {
+          console.warn(`Tutoriel changé après json(). Ignorer setState pour ${startingTutorialId}`)
+          return
+        }
+
+        // ✅ Tutoriel existe dans index.json public → utiliser son statut officiel
+        setDisplayedStatus(data.status)
+        setStatusLoadingState('loaded')
+      } else if (response.status === 401 || response.status === 403) {
+        // ⚠️ ERREUR D'AUTHENTIFICATION
+        // ✅ Vérifier même pour les erreurs
+        if (currentTutorialIdRef.current !== startingTutorialId) {
+          console.warn(`Tutoriel changé (erreur 401/403). Ignorer pour ${startingTutorialId}`)
+          return
+        }
+        console.error(`Erreur d'authentification: HTTP ${response.status}`)
+        setStatusErrorMessage(`Erreur d'authentification. Impossible de charger le statut officiel. Veuillez vous reconnecter.`)
+        setStatusLoadingState('auth_error')
+      } else if (response.status === 404) {
+        // ✅ Vérifier pour le 404
+        if (currentTutorialIdRef.current !== startingTutorialId) {
+          console.warn(`Tutoriel changé (404). Ignorer pour ${startingTutorialId}`)
+          return
+        }
+        // ✅ Tutoriel n'existe pas dans index.json public
+        // → C'est un brouillon pur → afficher explicitement 'draft'
+        setDisplayedStatus('draft')
+        setStatusLoadingState('loaded')
+      } else {
+        // ⚠️ ERREUR SERVEUR (5xx, etc.)
+        // ✅ Vérifier pour les erreurs serveur
+        if (currentTutorialIdRef.current !== startingTutorialId) {
+          console.warn(`Tutoriel changé (erreur serveur). Ignorer pour ${startingTutorialId}`)
+          return
+        }
+        console.warn(`Erreur API statut: HTTP ${response.status}`)
+        setStatusErrorMessage(`Erreur serveur (${response.status}). Impossible de charger le statut officiel.`)
+        setStatusLoadingState('server_error')
+      }
+    } catch (err) {
+      // ⚠️ ERREUR RÉSEAU
+      // ✅ Vérifier même en cas d'erreur réseau
+      if (currentTutorialIdRef.current !== startingTutorialId) {
+        console.warn(`Tutoriel changé (erreur réseau). Ignorer pour ${startingTutorialId}`)
+        return
+      }
+      console.warn('Erreur réseau lors du fetch du statut officiel:', err)
+      setStatusErrorMessage('Erreur réseau. Impossible de charger le statut officiel.')
+      setStatusLoadingState('network_error')
+    }
+  }, [isAuthenticated, tutorial.status])
 
   // Réinitialiser l'état quand on change de tutoriel
   useEffect(() => {
@@ -44,13 +146,25 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
       console.warn('Changement de tutoriel pendant une requête de statut en cours')
     }
     currentTutorialIdRef.current = tutorial.id
+    // ✅ CORRECTION : Réinitialiser au statut du brouillon d'abord
+    // puis charger le statut officiel via API
     setDisplayedStatus(tutorial.status)
     setPendingStatus(null)
     setShowConfirm(false)
     setIsStatusSaving(false)
-  }, [tutorial.id])
+    setStatusLoadingState('loading')
+    setStatusErrorMessage(null)
+    
+    // ✅ NOUVEAU : Charger le statut officiel
+    fetchOfficialStatus()
+  }, [tutorial.id, fetchOfficialStatus])
 
   const handleStatusChange = (newStatus: string) => {
+    // ✅ NOUVEAU : Ne pas permettre de changement si erreur d'API en cours
+    if (statusLoadingState !== 'loaded') {
+      return
+    }
+    
     // Confirmation requise pour les transitions sensibles
     // Utiliser displayedStatus (actualisé) plutôt que tutorial.status (peut être stale)
     const requiresConfirmation = 
@@ -82,31 +196,62 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
           'Content-Type': 'application/json',
           'X-Requested-With': 'lma-admin'
         },
+        credentials: 'include',
         body: JSON.stringify({
           tutorialId: startingTutorialId,
           newStatus
         })
       })
 
+      // ✅ SÉCURITÉ : Vérifier immédiatement après fetch (avant json())
+      if (currentTutorialIdRef.current !== startingTutorialId) {
+        console.warn(`Tutoriel changé après fetch. Ignorer réponse pour ${startingTutorialId}`)
+        setIsStatusSaving(false)
+        return
+      }
+
       if (!response.ok) {
         const error = await response.json()
+        // ✅ SÉCURITÉ : Vérifier à nouveau après json() (même tutoriel?)
+        if (currentTutorialIdRef.current !== startingTutorialId) {
+          console.warn(`Tutoriel changé après json(). Ignorer erreur pour ${startingTutorialId}`)
+          setIsStatusSaving(false)
+          return
+        }
         setIsStatusSaving(false)
         alert(`Erreur : ${error.error || 'Impossible de changer le statut'}`)
         return
       }
 
-      // CRITIQUE : Vérifier qu'on est toujours sur le même tutoriel avant d'appliquer la réponse
-      // Utiliser useRef pour garantir une valeur actualisée, pas une fermeture stale
+      // ✅ SÉCURITÉ : Vérifier avant json() sur réponse réussie
       if (currentTutorialIdRef.current !== startingTutorialId) {
-        console.warn(`Tutoriel changé pendant requête. Ignorer la réponse pour ${startingTutorialId}. Actuellement: ${currentTutorialIdRef.current}`)
+        console.warn(`Tutoriel changé avant json() (succès). Ignorer pour ${startingTutorialId}`)
         setIsStatusSaving(false)
         return
       }
 
-      // Succès : actualiser l'état affiché avec le nouveau statut
-      setDisplayedStatus(newStatus as 'draft' | 'in_progress' | 'published' | 'unpublished' | 'coming-soon')
+      const result = await response.json()
+
+      // ✅ SÉCURITÉ : Vérifier APRÈS json() (étape finale)
+      // Cela garantit qu'aucun setState ne modifie le mauvais panneau
+      if (currentTutorialIdRef.current !== startingTutorialId) {
+        console.warn(`Tutoriel changé après json() (succès). Ignorer setState pour ${startingTutorialId}`)
+        setIsStatusSaving(false)
+        return
+      }
+
+      const actualNewStatus = result.newStatus || newStatus
+      
+      // ✅ FINAL : Actualiser l'état uniquement si on est encore sur le bon tutoriel
+      setDisplayedStatus(actualNewStatus as 'draft' | 'in_progress' | 'published' | 'unpublished' | 'coming-soon')
       setIsStatusSaving(false)
     } catch (err) {
+      // ✅ SÉCURITÉ : Vérifier même en cas d'erreur
+      if (currentTutorialIdRef.current !== startingTutorialId) {
+        console.warn(`Tutoriel changé pendant erreur. Ignorer pour ${startingTutorialId}`)
+        setIsStatusSaving(false)
+        return
+      }
       setIsStatusSaving(false)
       alert(`Erreur réseau : ${err}`)
     }
@@ -144,10 +289,38 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
         {/* Statut */}
         <section className="meta-panel__section">
           <h4>Statut de publication</h4>
-          <p className="meta-panel__current-status">
-            <strong>Statut actuel :</strong> {isStatusSaving && '(Enregistrement en cours...) '}{STATUSES.find((s) => s.value === displayedStatus)?.label || displayedStatus}
-          </p>
-          <div className="meta-panel__status-options" style={{ opacity: isStatusSaving ? 0.5 : 1, pointerEvents: isStatusSaving ? 'none' : 'auto' }}>
+          
+          {/* Affichage du statut ou erreur de chargement */}
+          {statusLoadingState === 'loading' && (
+            <p className="meta-panel__status-message meta-panel__status-loading">
+              ⏳ Chargement du statut officiel...
+            </p>
+          )}
+          {statusLoadingState === 'loaded' && (
+            <p className="meta-panel__current-status">
+              <strong>Statut actuel :</strong> {isStatusSaving && '(Enregistrement en cours...) '}{STATUSES.find((s) => s.value === displayedStatus)?.label || displayedStatus}
+            </p>
+          )}
+          {(statusLoadingState === 'auth_error' || statusLoadingState === 'server_error' || statusLoadingState === 'network_error') && (
+            <div className="meta-panel__status-error">
+              <p className="meta-panel__error-message">⚠️ {statusErrorMessage}</p>
+              <button 
+                className="btn btn-secondary btn-small"
+                onClick={fetchOfficialStatus}
+              >
+                Réessayer
+              </button>
+            </div>
+          )}
+          
+          {/* Sélecteur de statut (désactivé si erreur ou en cours de chargement) */}
+          <div 
+            className="meta-panel__status-options" 
+            style={{ 
+              opacity: (isStatusSaving || statusLoadingState !== 'loaded') ? 0.5 : 1, 
+              pointerEvents: (isStatusSaving || statusLoadingState !== 'loaded') ? 'none' : 'auto' 
+            }}
+          >
             {STATUSES.map((status) => (
               <label key={status.value} className="meta-panel__status-option">
                 <input
@@ -156,7 +329,7 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
                   value={status.value}
                   checked={displayedStatus === status.value}
                   onChange={(e) => handleStatusChange(e.target.value)}
-                  disabled={isStatusSaving}
+                  disabled={isStatusSaving || statusLoadingState !== 'loaded'}
                 />
                 <span className="meta-panel__status-label">{status.label}</span>
                 <span className="meta-panel__status-desc">{status.description}</span>
