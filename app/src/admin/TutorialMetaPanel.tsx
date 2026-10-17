@@ -112,8 +112,8 @@ export default function TutorialMetaPanel({ onClose }: TutorialMetaPanelProps) {
           return
         }
         // ✅ Tutoriel n'existe pas dans index.json public
-        // → C'est un brouillon pur ou pas encore publié → afficher le statut du brouillon
-        setDisplayedStatus(tutorial.status)
+        // → C'est un brouillon pur → afficher explicitement 'draft'
+        setDisplayedStatus('draft')
         setStatusLoadingState('loaded')
       } else {
         // ⚠️ ERREUR SERVEUR (5xx, etc.)

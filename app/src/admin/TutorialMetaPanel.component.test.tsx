@@ -131,4 +131,49 @@ describe('TutorialMetaPanel Component', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 2000 })
     u2()
   })
+
+  it('Cas 7: Changement tutoriel pendant requête async → ancienne réponse ignorée', async () => {
+    // Tutoriel 1 avec réponse lente
+    mockAdminContext.tutorial.id = 'test-slow'
+    mockAdminContext.tutorial.status = 'draft' as const
+
+    let resolveFetch: any
+    fetchMock.mockReturnValue(
+      new Promise(resolve => {
+        resolveFetch = resolve
+      })
+    )
+
+    const { rerender } = render(<TutorialMetaPanel onClose={vi.fn()} />)
+
+    // Avant que réponse arrive, changer tutoriel
+    mockAdminContext.tutorial.id = 'test-fast'
+    ;(mockAdminContext.tutorial.status as any) = 'published'
+
+    // Réponse rapide pour tutoriel 2
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ tutorialId: 'test-fast', status: 'published' })
+    })
+
+    rerender(<TutorialMetaPanel onClose={vi.fn()} />)
+
+    // Attendre que tutoriel 2 soit chargé
+    await waitFor(() => {
+      const publishedRadio = screen.getByDisplayValue('published') as HTMLInputElement
+      expect(publishedRadio.checked).toBe(true)
+    }, { timeout: 2000 })
+
+    // Maintenant résoudre la requête lente (tutoriel 1)
+    resolveFetch({
+      ok: true,
+      json: async () => ({ tutorialId: 'test-slow', status: 'draft' })
+    })
+
+    // Attendre un peu et vérifier que le statut du tutoriel 2 n'a pas changé
+    await new Promise(r => setTimeout(r, 100))
+
+    const publishedRadioAfter = screen.getByDisplayValue('published') as HTMLInputElement
+    expect(publishedRadioAfter.checked).toBe(true)
+  })
 })
