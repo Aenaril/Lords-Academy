@@ -62,15 +62,11 @@ export default defineConfig({
             }
           },
           {
-            urlPattern: /^https:\/\/lords-academy\.pages\.dev\/api\/published/,
-            handler: 'NetworkFirst',
+            urlPattern: /^https:\/\/lords-academy\.pages\.dev\/api\/tutorials\/published/,
+            handler: 'NetworkOnly',  // ← Jamais de cache pour les listes publiées
             options: {
-              cacheName: 'published-content-cache',
-              networkTimeoutSeconds: 5,
-              expiration: {
-                maxEntries: 10,
-                maxAgeSeconds: 60 * 60
-              }
+              cacheName: 'published-list-cache',
+              // Pas de fallback cache
             }
           },
           {

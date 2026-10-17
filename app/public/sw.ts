@@ -18,7 +18,7 @@ declare const self: ServiceWorkerGlobalScope
 // Ce placeholder est remplacé par Workbox lors du build
 import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching'
 import { registerRoute, NavigationRoute } from 'workbox-routing'
-import { CacheFirst, NetworkFirst, StaleWhileRevalidate } from 'workbox-strategies'
+import { CacheFirst, NetworkFirst, StaleWhileRevalidate, NetworkOnly } from 'workbox-strategies'
 import { CacheExpiration } from 'workbox-expiration'
 
 // Précache manifest injecté par Workbox
@@ -55,16 +55,13 @@ registerRoute(
   })
 )
 
-// Contenu publié : réseau d'abord
+// Contenu publié : réseau UNIQUEMENT, jamais de cache (sécurité critique)
+// Si le réseau échoue, retourner erreur plutôt que servir un contenu potentiellement dépublié
 registerRoute(
   ({ url }) => /\/api\/published/.test(url.href),
-  new NetworkFirst({
-    cacheName: 'published-content-cache',
+  new NetworkOnly({
     plugins: [
-      new CacheExpiration({
-        maxEntries: 10,
-        maxAgeSeconds: 60 * 60,
-      }),
+      // Pas de cache du tout pour cet endpoint
     ],
   })
 )

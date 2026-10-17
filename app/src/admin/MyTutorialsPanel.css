@@ -166,9 +166,24 @@
   color: #0c4a6e;
 }
 
+.badge--in_progress {
+  background: #fef08a;
+  color: #713f12;
+}
+
 .badge--published {
   background: #dcfce7;
   color: #166534;
+}
+
+.badge--unpublished {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+
+.badge--coming-soon {
+  background: #f3e8ff;
+  color: #6b21a8;
 }
 
 /* Bouttons icones */
