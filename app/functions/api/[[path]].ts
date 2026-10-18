@@ -25,6 +25,7 @@
  */
 
 import { getStorageBackend } from '../storage'
+import { mergeTutorialStatuses } from '../../src/utils/mergeTutorialStatuses'
 
 export const onRequest: PagesFunction = async (context) => {
   const { request, env, params } = context
@@ -96,6 +97,9 @@ export const onRequest: PagesFunction = async (context) => {
         break
       case 'GET /api/tutorial/status':
         response = await handleGetTutorialStatus(request, env as any, url)
+        break
+      case 'GET /api/tutorial/statuses':
+        response = await handleGetAllTutorialStatuses(request, env as any)
         break
       case 'POST /api/tutorial/status':
         response = await handleSetTutorialStatus(request, env as any)
@@ -850,9 +854,10 @@ async function handleTutorialIds(req: Request, env: any): Promise<Response> {
  */
 async function handlePublishedTutorials(req: Request, env: any): Promise<Response> {
   // Route publique : pas d'authentification requise
+  // BUT: Pas de cache pour éviter de servir une liste obsolète après dépublication
   
   const cacheHeaders = {
-    'Cache-Control': 'public, max-age=300, must-revalidate',
+    'Cache-Control': 'public, max-age=60, must-revalidate, no-transform',
     'Pragma': 'public'
   }
 
@@ -950,7 +955,10 @@ async function handleGetPublished(
     const content = await contentRes.json()
     
     // Retourner le contenu + la révision (SHA) pour support versioning
-    return json({ content, revision: sha || 'published' })
+    // CRITICAL: Never cache published content, always verify status
+    return json({ content, revision: sha || 'published' }, 200, {
+      'Cache-Control': 'no-store'
+    })
   } catch (err) {
     console.error('Error getting published tutorial:', err)
     return json({ error: 'Erreur serveur' }, 500)
@@ -985,6 +993,106 @@ async function handleGetTutorialStatus(
   } catch (err) {
     console.error('Error getting tutorial status:', err)
     return json({ error: 'Erreur serveur' }, 500)
+  }
+}
+
+/**
+ * Récupère TOUS les tutoriels avec leurs statuts et infos de brouillon.
+ * R4 auth requise (endpoint privé).
+ * 
+ * Retour : { tutorials: [{ id, title, category, status, hasDraft, lastModified }] }
+ * 
+ * Merge :
+ * - index.json source de vérité pour statuts
+ * - DRAFTS KV pour détecter si brouillon existe
+ * - Ne retourne PAS le contenu (seulement métadonnées)
+ * 
+ * Sécurité :
+ * - Auth R4 requise (retour 401 sinon)
+ * - CSRF check obligatoire
+ * - Cache-Control: private, no-store (jamais de cache public)
+ * - Refuses d'exposer l'inventaire privé si GitHub indisponible
+ */
+async function handleGetAllTutorialStatuses(
+  req: Request,
+  env: any
+): Promise<Response> {
+  // 1. Vérifier l'authentification R4
+  if (!originAllowed(req, env)) return json({ error: 'Origine refusée' }, 403)
+  if (!csrfOk(req)) return json({ error: 'CSRF' }, 403)
+  
+  const session = await readSession(req, env)
+  if (!session) {
+    return json({ error: 'Non authentifié', ok: false }, 401, {
+      'Cache-Control': 'private, no-store'
+    })
+  }
+
+  try {
+    // 2. Charger index.json depuis GitHub (source de vérité)
+    const indexPath = 'app/public/content/index.json'
+    const indexUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${indexPath}`
+    
+    let indexData: any
+    try {
+      const indexRes = await fetch(indexUrl, { cache: 'no-store' })
+      
+      if (!indexRes.ok) {
+        console.error(`[Statuses] GitHub index unavailable: ${indexRes.status}`)
+        // Ne pas servir d'inventaire privé si GitHub est indisponible
+        return json({
+          error: 'Index GitHub indisponible',
+          ok: false
+        }, 503, {
+          'Cache-Control': 'private, no-store'
+        })
+      }
+
+      indexData = await indexRes.json()
+    } catch (err) {
+      console.error('[Statuses] GitHub fetch failed:', err)
+      return json({
+        error: 'Impossible de charger l\'index',
+        ok: false
+      }, 503, {
+        'Cache-Control': 'private, no-store'
+      })
+    }
+
+    const allTutorials = indexData.tutorials || []
+
+    // 3. Charger les brouillon IDs depuis KV (inventaire privé)
+    let draftIds: Set<string> = new Set()
+    try {
+      const indexKey = 'private:adminTutorialIds'
+      const indexRaw = await env.DRAFTS.get(indexKey)
+      const draftIndex = indexRaw ? JSON.parse(indexRaw) : { tutorialIds: [] }
+      draftIds = new Set(draftIndex.tutorialIds || [])
+    } catch (err) {
+      console.error('[Statuses] KV read failed:', err)
+      // Si KV échoue, continuer avec un ensemble vide (pas de brouillons signalés)
+      // Mais ne pas révéler l'erreur à l'utilisateur
+    }
+
+    // 4. Merger : utiliser la fonction réutilisable
+    const result = mergeTutorialStatuses(allTutorials, draftIds)
+
+    // 5. Retourner avec cache-control strict
+    return json({
+      ok: true,
+      tutorials: result,
+      count: result.length
+    }, 200, {
+      'Cache-Control': 'private, no-store'
+    })
+  } catch (err) {
+    console.error('Error getting all tutorial statuses:', err)
+    return json({
+      error: 'Erreur serveur',
+      ok: false
+    }, 500, {
+      'Cache-Control': 'private, no-store'
+    })
   }
 }
 

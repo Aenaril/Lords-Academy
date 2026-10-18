@@ -12,7 +12,8 @@ interface TutorialItem {
   id: string
   title: string
   category: string
-  status: 'draft' | 'published'
+  status: 'draft' | 'in_progress' | 'published' | 'unpublished' | 'coming-soon'
+  hasDraft: boolean
   lastModified: string
 }
 
@@ -32,82 +33,33 @@ export default function MyTutorialsPanel({
         setLoading(true)
         setError(null)
 
-        // Étape 1 : Charger la liste des brouillons depuis l'index privé
-        const draftResponse = await fetch('/api/tutorialIds', {
+        // Appeler le nouvel endpoint /api/tutorial/statuses pour charger TOUS les tutoriels
+        // avec leurs statuts (draft, in_progress, published, unpublished, coming-soon)
+        const response = await fetch('/api/tutorial/statuses', {
           headers: { 'X-Requested-With': 'lma-admin' },
           credentials: 'include'
         })
 
-        if (!draftResponse.ok) {
-          throw new Error('Impossible de charger la liste des brouillons')
+        if (!response.ok) {
+          throw new Error('Impossible de charger la liste des tutoriels')
         }
 
-        const draftData = await draftResponse.json()
-        const draftIds = draftData.tutorialIds || []
-
-        // Étape 2 : Charger les tutoriels publiés depuis l'API
-        let publishedMap = new Map<string, any>()
-        try {
-          const pubResponse = await fetch('/api/tutorials/published', { cache: 'no-store' })
-          if (pubResponse.ok) {
-            const pubData = await pubResponse.json()
-            if (pubData.tutorials && Array.isArray(pubData.tutorials)) {
-              publishedMap = new Map(pubData.tutorials.map((t: any) => [t.id, t]))
-            }
-          }
-        } catch {
-          // Fallback : pas d'accès à l'API publique
+        const data = await response.json()
+        if (!data.ok || !Array.isArray(data.tutorials)) {
+          throw new Error('Format de réponse invalide')
         }
 
-        // Étape 3 : Construire la liste complète (brouillons + publiés + Dragon Arena statique)
-        const allIds = new Set<string>()
-        
-        // Ajouter tous les brouillons
-        draftIds.forEach((id: string) => allIds.add(id))
-        
-        // Ajouter tous les tutoriels publiés
-        publishedMap.forEach((_, id) => allIds.add(id))
-        
-        // S'assurer que Dragon Arena est toujours présent (même s'il n'est ni brouillon ni publié)
-        allIds.add('dragon-arena')
-
-        // Construire les items avec vrais titres et statuts
-        const items: TutorialItem[] = Array.from(allIds).map((id: string) => {
-          const published = publishedMap.get(id)
-          const isDraft = draftIds.includes(id)
-          
-          // Logique de statut corrigée
-          let status: 'draft' | 'published'
-          if (published) {
-            // Si une version publiée existe, le tutoriel est publié
-            // (peu importe s'il y a aussi un brouillon privé)
-            status = 'published'
-          } else if (isDraft) {
-            // Pas de version publique, mais existe dans l'index privé
-            status = 'draft'
-          } else {
-            // Ni publié ni brouillon enregistré = ne devrait pas arriver ici
-            status = 'draft'
-          }
-
-          // Date de modification : ne jamais inventer
-          let lastModified = '—'
-          if (published && published.publishedAt) {
-            try {
-              lastModified = new Date(published.publishedAt).toLocaleDateString('fr-FR')
-            } catch {
-              lastModified = '—'
-            }
-          }
-
-          return {
-            id,
-            title: published?.title || id,
-            category: published?.category || '—',
-            status,
-            lastModified
-          }
-        })
+        // Construire les items avec les données du nouvel endpoint
+        const items: TutorialItem[] = data.tutorials.map((t: any) => ({
+          id: t.id,
+          title: t.title || t.id,
+          category: t.category || '—',
+          status: t.status || 'draft',
+          hasDraft: t.hasDraft || false,
+          lastModified: t.lastModified
+            ? new Date(t.lastModified).toLocaleDateString('fr-FR')
+            : '—'
+        }))
 
         // Trier par titre pour cohérence
         items.sort((a, b) => a.title.localeCompare(b.title))
@@ -129,11 +81,17 @@ export default function MyTutorialsPanel({
     onClose()
   }
 
-  const handleDeleteDraft = async (tutorialId: string, status: 'draft' | 'published') => {
-    // Avertissement si le tutoriel est publié
-    const message = status === 'published'
-      ? `Supprimer le brouillon de "${tutorialId}" ? Le tutoriel publié restera accessible.`
-      : `Supprimer le brouillon de "${tutorialId}" ?`
+  const handleDeleteDraft = async (tutorialId: string, tutorial: TutorialItem) => {
+    // Avertissement adapté au statut
+    const messages: Record<string, string> = {
+      'published': `Supprimer le brouillon de "${tutorialId}" ? Le tutoriel publié restera accessible.`,
+      'unpublished': `Supprimer le brouillon de "${tutorialId}" ? Le tutoriel dépublié restera dans la liste mais ne sera plus accessible aux utilisateurs.`,
+      'coming-soon': `Supprimer le brouillon de "${tutorialId}" ? Le statut "Bientôt disponible" persiste dans l'index officiel.`,
+      'in_progress': `Supprimer le brouillon de "${tutorialId}" ?`,
+      'draft': `Supprimer le brouillon de "${tutorialId}" ?`
+    }
+    
+    const message = messages[tutorial.status] || messages['draft']
     
     if (!confirm(message)) {
       return
@@ -151,8 +109,32 @@ export default function MyTutorialsPanel({
         return
       }
 
-      // Retirer de la liste
-      setTutorials((prev) => prev.filter((t) => t.id !== tutorialId))
+      // Recharger la liste depuis le serveur pour une source de vérité correcte.
+      // Cela évite de supprimer un tutoriel publié/dépublié/coming-soon
+      // si le backend pense qu'il n'a pas de brouillon mais que le frontend le supprime locally.
+      const statusRes = await fetch('/api/tutorial/statuses', {
+        headers: { 'X-Requested-With': 'lma-admin' },
+        credentials: 'include'
+      })
+
+      if (statusRes.ok) {
+        const data = await statusRes.json()
+        if (data.ok && Array.isArray(data.tutorials)) {
+          const updatedItems: TutorialItem[] = data.tutorials.map((t: any) => ({
+            id: t.id,
+            title: t.title || t.id,
+            category: t.category || '—',
+            status: t.status || 'draft',
+            hasDraft: t.hasDraft || false,
+            lastModified: t.lastModified
+              ? new Date(t.lastModified).toLocaleDateString('fr-FR')
+              : '—'
+          }))
+          
+          updatedItems.sort((a, b) => a.title.localeCompare(b.title))
+          setTutorials(updatedItems)
+        }
+      }
     } catch (err) {
       alert('Erreur réseau')
     }
@@ -228,7 +210,11 @@ export default function MyTutorialsPanel({
                   <td className="tutorials-table__category">{tutorial.category}</td>
                   <td>
                     <span className={`badge badge--${tutorial.status}`}>
-                      {tutorial.status === 'draft' ? 'Brouillon' : 'Publié'}
+                      {tutorial.status === 'draft' && 'Brouillon'}
+                      {tutorial.status === 'in_progress' && 'En chantier'}
+                      {tutorial.status === 'published' && 'Publié'}
+                      {tutorial.status === 'unpublished' && 'Dépublié'}
+                      {tutorial.status === 'coming-soon' && 'Bientôt disponible'}
                     </span>
                   </td>
                   <td className="tutorials-table__date">{tutorial.lastModified}</td>
@@ -246,7 +232,7 @@ export default function MyTutorialsPanel({
                       </button>
                       <div className="dropdown-menu__items">
                         <button
-                          onClick={() => handleDeleteDraft(tutorial.id, tutorial.status)}
+                          onClick={() => handleDeleteDraft(tutorial.id, tutorial)}
                           className="dropdown-menu__item"
                         >
                           Supprimer brouillon
