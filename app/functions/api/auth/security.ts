@@ -31,11 +31,12 @@ export function generateCsrfState(): string {
 
 /**
  * Generate recovery code
- * Format: EMERGENCY-XXXXXXXX-XXXXXXX (36 chars, human-readable)
+ * Format: EMERGENCY-XXXXXXXX-XXXXXXXX (32 chars total, human-readable)
+ * Each part is 4 bytes = 8 hex chars
  */
 export function generateRecoveryCode(): string {
-  const part1 = generateSecureRandom(8).toUpperCase();
-  const part2 = generateSecureRandom(8).toUpperCase();
+  const part1 = generateSecureRandom(4).toUpperCase();
+  const part2 = generateSecureRandom(4).toUpperCase();
   return `EMERGENCY-${part1}-${part2}`;
 }
 
