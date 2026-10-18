@@ -25,7 +25,7 @@
  */
 
 import { getStorageBackend } from '../storage'
-import { mergeTutorialStatuses } from '../src/utils/mergeTutorialStatuses'
+import { mergeTutorialStatuses } from '../../src/utils/mergeTutorialStatuses'
 
 export const onRequest: PagesFunction = async (context) => {
   const { request, env, params } = context
