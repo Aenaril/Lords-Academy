@@ -112,8 +112,8 @@ export async function handleRecoveryCode(
       )
       .run();
 
-    // Mark recovery code as used
-    await markRecoveryCodeUsed(env.DB, codeHash, tempUserId);
+    // Mark recovery code as consumed (already done by consumeRecoveryCodeAtomically)
+    // No need to mark again
 
     // Log successful recovery attempt
     await logAuditEvent(env.DB, "RECOVERY_USED", tempUserId, {

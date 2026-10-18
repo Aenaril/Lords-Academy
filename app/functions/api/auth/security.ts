@@ -57,73 +57,31 @@ export async function hashRecoveryCode(code: string): Promise<string> {
 }
 
 /**
- * Validate AND consume CSRF state atomically
- * Deletes state immediately after validation to prevent replay attacks
- * Even with concurrent requests, only one will succeed in consuming
+ * Validate AND consume CSRF state atomically using D1
+ * Moves consumption from KV to D1 for true atomicity
+ * Returns true only if consumption succeeded
  */
 export async function validateCsrfStateAtomically(
-  kv: KVNamespace,
-  state: string
-): Promise<boolean> {
-  if (!state || state.length !== 64) {
-    return false;
-  }
-
-  try {
-    // Strategy: Use a "consumed" flag in KV to ensure one-time use
-    // First, try to read the state
-    const stored = await kv.get(`csrf:${state}`, { type: "json" });
-    if (!stored) {
-      return false; // State not found (expired, invalid, or already consumed)
+  db: any // D1Database
+): Promise<(state: string) => Promise<boolean>> {
+  // Return a closure that captures db
+  return async (state: string): Promise<boolean> => {
+    if (!state || state.length !== 64) {
+      return false;
     }
 
-    const csrfData: CsrfState = stored;
-    const now = Date.now();
-
-    if (now > csrfData.expires_at) {
-      await kv.delete(`csrf:${state}`);
-      return false; // Expired
+    try {
+      const { consumeCsrfStateAtomically } = await import("./db");
+      const result = await consumeCsrfStateAtomically(db, state);
+      return result.success;
+    } catch (err) {
+      console.error("validateCsrfStateAtomically error:", err);
+      return false;
     }
-
-    // Atomic consumption: try to mark as consumed
-    // Use a second KV key to track consumption (prevents race condition)
-    const consumedKey = `csrf:${state}:consumed`;
-    const alreadyConsumed = await kv.get(consumedKey);
-    
-    if (alreadyConsumed) {
-      return false; // Already consumed by another request
-    }
-
-    // Mark as consumed (if this succeeds, we own this state)
-    await kv.put(consumedKey, "1", { expirationTtl: 5 * 60 });
-
-    // Delete original state
-    await kv.delete(`csrf:${state}`);
-    return true;
-  } catch (err) {
-    console.error("validateCsrfStateAtomically error:", err);
-    return false;
-  }
-}
-
-/**
- * Create CSRF state in KV
- * TTL: 5 minutes (standard OAuth2 flow duration)
- */
-export async function createCsrfState(kv: KVNamespace): Promise<string> {
-  const state = generateCsrfState();
-  const csrfData: CsrfState = {
-    nonce: state,
-    created_at: Date.now(),
-    expires_at: Date.now() + 5 * 60 * 1000, // 5 min
   };
-
-  await kv.put(`csrf:${state}`, JSON.stringify(csrfData), {
-    expirationTtl: 5 * 60, // KV TTL
-  });
-
-  return state;
 }
+
+
 
 /**
  * Validate CSRF state (OLD - non-atomic, kept for compatibility)

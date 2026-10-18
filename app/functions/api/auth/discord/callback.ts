@@ -5,7 +5,6 @@
 
 import { CloudflareEnv, DiscordTokenResponse, DiscordUser, DiscordGuildMember, CallbackSuccessResponse } from "../types";
 import {
-  validateCsrfStateAtomically,
   validateDiscordState,
   validateDiscordCode,
   generateSessionId,
@@ -13,7 +12,7 @@ import {
   errorResponse,
   getClientIp,
 } from "../security";
-import { upsertUser, createSession, logAuditEvent } from "../db";
+import { upsertUser, createSession, logAuditEvent, consumeCsrfStateAtomically } from "../db";
 
 /**
  * Handler for GET /api/auth/discord/callback
@@ -68,9 +67,9 @@ export async function handleDiscordCallback(
       );
     }
 
-    // Validate CSRF state atomically (one-time use enforcement)
-    const stateValid = await validateCsrfStateAtomically(env.KV, state as string);
-    if (!stateValid) {
+    // Validate CSRF state atomically using D1 (one-time use enforcement)
+    const stateResult = await consumeCsrfStateAtomically(env.DB, state as string);
+    if (!stateResult.success) {
       return new Response(
         JSON.stringify(errorResponse("Invalid or expired state (CSRF protection)", 403)),
         { status: 403 }

@@ -4,7 +4,8 @@
 // Date: October 2026
 
 import { CloudflareEnv, LoginInitResponse } from "../types";
-import { createCsrfState, errorResponse } from "../security";
+import { generateCsrfState, errorResponse } from "../security";
+import { storeCsrfState } from "../db";
 
 /**
  * Handler for GET /api/auth/discord/login
@@ -27,8 +28,9 @@ export async function handleDiscordLoginInit(
   }
 
   try {
-    // Generate CSRF state
-    const state = await createCsrfState(env.KV);
+    // Generate CSRF state (D1-backed)
+    const state = generateCsrfState();
+    await storeCsrfState(env.DB, state);
 
     // Build Discord OAuth URL
     const clientId = env.DISCORD_CLIENT_ID;

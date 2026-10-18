@@ -364,3 +364,79 @@ export async function cleanupExpiredAuditLogs(db: D1Database): Promise<number> {
 
   return result.meta?.duration || 0;
 }
+
+/**
+ * Store CSRF state in D1 (atomic storage)
+ * TTL: 5 minutes
+ */
+export async function storeCsrfState(
+  db: D1Database,
+  nonce: string
+): Promise<void> {
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 5 * 60 * 1000); // 5 min
+
+  await db
+    .prepare(
+      `INSERT INTO csrf_states (nonce, created_at, expires_at, is_consumed)
+       VALUES (?, ?, ?, 0)`
+    )
+    .bind(nonce, now.toISOString(), expiresAt.toISOString())
+    .run();
+}
+
+/**
+ * Consume CSRF state atomically from D1
+ * UPDATE WHERE is_consumed = 0 ensures only one request succeeds
+ * Returns true if consumption succeeded, false if already consumed or expired/not found
+ */
+export async function consumeCsrfStateAtomically(
+  db: D1Database,
+  nonce: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const now = new Date().toISOString();
+
+    // First, check if state exists and is valid
+    const state = await db
+      .prepare(
+        `SELECT id, is_consumed, expires_at FROM csrf_states WHERE nonce = ?`
+      )
+      .bind(nonce)
+      .first();
+
+    if (!state) {
+      return { success: false, error: "Invalid state" };
+    }
+
+    if (state.expires_at < now) {
+      // Expired, mark as consumed to prevent future use
+      await db
+        .prepare(`UPDATE csrf_states SET is_consumed = 1 WHERE nonce = ?`)
+        .bind(nonce)
+        .run();
+      return { success: false, error: "State expired" };
+    }
+
+    // Atomic UPDATE: only succeeds if is_consumed was 0
+    const result = await db
+      .prepare(
+        `UPDATE csrf_states 
+         SET is_consumed = 1
+         WHERE nonce = ? AND is_consumed = 0`
+      )
+      .bind(nonce)
+      .run();
+
+    const updated = result.meta?.changes ?? 0;
+
+    if (updated === 0) {
+      return { success: false, error: "State already consumed" };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("consumeCsrfStateAtomically error:", err);
+    return { success: false, error: "Database error" };
+  }
+}
