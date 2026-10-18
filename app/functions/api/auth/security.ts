@@ -1,0 +1,233 @@
+// LORDS MOBILE ACADEMY — Phase 2A Security Utilities
+// CSRF, Session IDs, Recovery Code Hashing, Rate Limiting
+// Date: October 2026
+
+import { CsrfState, KVNamespace } from "./types";
+
+/**
+ * Generate cryptographically secure random string
+ * Used for: session IDs, CSRF nonces, recovery codes
+ */
+export function generateSecureRandom(length: number = 32): string {
+  const array = new Uint8Array(length);
+  crypto.getRandomValues(array);
+  return Array.from(array, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Generate session ID (UUID-like)
+ * 32 random hex chars = 128 bits entropy
+ */
+export function generateSessionId(): string {
+  return generateSecureRandom(32);
+}
+
+/**
+ * Generate CSRF state nonce
+ */
+export function generateCsrfState(): string {
+  return generateSecureRandom(32);
+}
+
+/**
+ * Generate recovery code
+ * Format: EMERGENCY-XXXXXXXX-XXXXXXX (36 chars, human-readable)
+ */
+export function generateRecoveryCode(): string {
+  const part1 = generateSecureRandom(8).toUpperCase();
+  const part2 = generateSecureRandom(8).toUpperCase();
+  return `EMERGENCY-${part1}-${part2}`;
+}
+
+/**
+ * Hash recovery code using SHA256
+ * Phase 2A: store hashes in D1, never store plain codes
+ */
+export async function hashRecoveryCode(code: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(code);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * Create CSRF state in KV
+ * TTL: 5 minutes (standard OAuth2 flow duration)
+ */
+export async function createCsrfState(kv: KVNamespace): Promise<string> {
+  const state = generateCsrfState();
+  const csrfData: CsrfState = {
+    nonce: state,
+    created_at: Date.now(),
+    expires_at: Date.now() + 5 * 60 * 1000, // 5 min
+  };
+
+  await kv.put(`csrf:${state}`, JSON.stringify(csrfData), {
+    expirationTtl: 5 * 60, // KV TTL
+  });
+
+  return state;
+}
+
+/**
+ * Validate CSRF state
+ * Must exist in KV and not be expired
+ */
+export async function validateCsrfState(
+  kv: KVNamespace,
+  state: string
+): Promise<boolean> {
+  if (!state || state.length !== 64) {
+    return false;
+  }
+
+  const stored = await kv.get(`csrf:${state}`, { type: "json" });
+  if (!stored) {
+    return false; // State not found or expired
+  }
+
+  const csrfData: CsrfState = stored;
+  const now = Date.now();
+
+  if (now > csrfData.expires_at) {
+    await kv.delete(`csrf:${state}`); // Cleanup expired state
+    return false;
+  }
+
+  // Delete state after validation (one-time use)
+  await kv.delete(`csrf:${state}`);
+  return true;
+}
+
+/**
+ * Rate limiting for sensitive operations
+ * Tracks attempts by IP in KV
+ */
+export async function checkRateLimit(
+  kv: KVNamespace,
+  key: string,
+  maxAttempts: number = 5,
+  windowSeconds: number = 900 // 15 min
+): Promise<{ allowed: boolean; attemptsRemaining: number }> {
+  const rateLimitKey = `ratelimit:${key}`;
+  const current = await kv.get(rateLimitKey, { type: "text" });
+
+  let attempts = current ? parseInt(current) : 0;
+
+  if (attempts >= maxAttempts) {
+    return { allowed: false, attemptsRemaining: 0 };
+  }
+
+  attempts++;
+  await kv.put(rateLimitKey, attempts.toString(), {
+    expirationTtl: windowSeconds,
+  });
+
+  return {
+    allowed: true,
+    attemptsRemaining: maxAttempts - attempts,
+  };
+}
+
+/**
+ * Parse HTTP cookie from request
+ */
+export function parseCookie(cookieHeader: string | null, name: string): string | null {
+  if (!cookieHeader) return null;
+
+  const cookies = cookieHeader.split(";");
+  for (const cookie of cookies) {
+    const [cookieName, cookieValue] = cookie.trim().split("=");
+    if (cookieName === name) {
+      return decodeURIComponent(cookieValue);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Create HttpOnly, Secure, SameSite cookie header
+ */
+export function createSessionCookie(
+  sessionId: string,
+  expiresInSeconds: number = 28800 // 8 hours
+): string {
+  const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toUTCString();
+  return `session_id=${sessionId}; Path=/; Expires=${expiresAt}; HttpOnly; Secure; SameSite=Strict`;
+}
+
+/**
+ * Create logout cookie (delete)
+ */
+export function createLogoutCookie(): string {
+  return `session_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 UTC; HttpOnly; Secure; SameSite=Strict`;
+}
+
+/**
+ * Validate Discord OAuth2 state parameter
+ */
+export function validateDiscordState(
+  state: string | null
+): { valid: boolean; error?: string } {
+  if (!state) {
+    return { valid: false, error: "Missing state parameter" };
+  }
+
+  if (state.length !== 64) {
+    return { valid: false, error: "Invalid state format" };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Validate Discord authorization code
+ */
+export function validateDiscordCode(
+  code: string | null
+): { valid: boolean; error?: string } {
+  if (!code) {
+    return { valid: false, error: "Missing code parameter" };
+  }
+
+  if (code.length < 10) {
+    return { valid: false, error: "Invalid code format" };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Extract client IP from request
+ * Respects Cloudflare headers
+ */
+export function getClientIp(req: Request): string {
+  return (
+    req.headers.get("CF-Connecting-IP") ||
+    req.headers.get("X-Forwarded-For")?.split(",")[0] ||
+    "unknown"
+  );
+}
+
+/**
+ * Create error response JSON
+ */
+export function errorResponse(
+  message: string,
+  code: number = 400
+): { body: string; status: number } {
+  return {
+    body: JSON.stringify({ ok: false, error: message }),
+    status: code,
+  };
+}
+
+/**
+ * Create success response JSON
+ */
+export function successResponse(data: any): string {
+  return JSON.stringify({ ok: true, ...data });
+}
