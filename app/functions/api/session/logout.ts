@@ -8,6 +8,8 @@ import { parseCookie, errorResponse, createLogoutCookie } from "../auth/security
 import { validateSession, revokeSession, logAuditEvent } from "../auth/db";
 import { getClientIp } from "../auth/security";
 
+type PagesFunction = (context: { request: Request; env: any; params: any; data: any }) => Response | Promise<Response>;
+
 /**
  * Handler for POST /api/session/logout
  * Revokes session and clears authentication
@@ -86,6 +88,6 @@ export async function handleSessionLogout(
   }
 }
 
-export default async (context: { request: Request; env: any }): Promise<Response> => {
+export const onRequest: PagesFunction = async (context) => {
   return handleSessionLogout(context.request, context.env);
 };

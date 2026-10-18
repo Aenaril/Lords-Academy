@@ -7,6 +7,8 @@ import { CloudflareEnv, RecoveryValidationResponse } from "./types";
 import { generateSessionId, createSessionCookie, errorResponse, checkRateLimit, hashRecoveryCode, getClientIp } from "./security";
 import { consumeRecoveryCodeAtomically, createSession, logAuditEvent } from "./db";
 
+type PagesFunction = (context: { request: Request; env: any; params: any; data: any }) => Response | Promise<Response>;
+
 /**
  * Handler for POST /api/auth/recovery
  * Validates emergency recovery code and creates temporary session
@@ -147,6 +149,6 @@ export async function handleRecoveryCode(
   }
 }
 
-export default async (context: { request: Request; env: any }): Promise<Response> => {
+export const onRequest: PagesFunction = async (context) => {
   return handleRecoveryCode(context.request, context.env);
 };

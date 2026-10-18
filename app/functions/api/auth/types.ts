@@ -160,6 +160,7 @@ export interface CloudflareEnv {
   DISCORD_CLIENT_ID: string;
   DISCORD_CLIENT_SECRET: string;
   DISCORD_GUILD_ID: string;
+  DISCORD_OAUTH_REDIRECT_URI: string; // Explicitly configured per environment (staging/production)
 }
 
 /**

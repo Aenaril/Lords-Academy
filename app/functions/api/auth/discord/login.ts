@@ -7,6 +7,8 @@ import { CloudflareEnv, LoginInitResponse } from "../types";
 import { generateCsrfState, errorResponse } from "../security";
 import { storeCsrfState } from "../db";
 
+type PagesFunction = (context: { request: Request; env: any; params: any; data: any }) => Response | Promise<Response>;
+
 /**
  * Handler for GET /api/auth/discord/login
  * Initiates OAuth2 flow by generating authorization URL
@@ -34,7 +36,7 @@ export async function handleDiscordLoginInit(
 
     // Build Discord OAuth URL
     const clientId = env.DISCORD_CLIENT_ID;
-    const redirectUri = new URL(req.url).origin + "/api/auth/discord/callback";
+    const redirectUri = env.DISCORD_OAUTH_REDIRECT_URI; // Explicitly configured, not dynamically constructed
     const scopes = ["identify", "guilds.members.read"].join("%20");
 
     const authUrl = new URL("https://discord.com/api/oauth2/authorize");
@@ -62,6 +64,6 @@ export async function handleDiscordLoginInit(
   }
 }
 
-export default async (context: { request: Request; env: any }): Promise<Response> => {
+export const onRequest: PagesFunction = async (context) => {
   return handleDiscordLoginInit(context.request, context.env);
 };

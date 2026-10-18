@@ -7,6 +7,8 @@ import { CloudflareEnv, SessionValidationResponse } from "../auth/types";
 import { parseCookie, errorResponse } from "../auth/security";
 import { validateSession, getUser } from "../auth/db";
 
+type PagesFunction = (context: { request: Request; env: any; params: any; data: any }) => Response | Promise<Response>;
+
 /**
  * Handler for GET /api/session/validate
  * Returns current session info if valid
@@ -87,6 +89,6 @@ export async function handleSessionValidate(
   }
 }
 
-export default async (context: { request: Request; env: any }): Promise<Response> => {
+export const onRequest: PagesFunction = async (context) => {
   return handleSessionValidate(context.request, context.env);
 };

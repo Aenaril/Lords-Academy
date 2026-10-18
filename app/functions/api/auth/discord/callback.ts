@@ -14,6 +14,8 @@ import {
 } from "../security";
 import { upsertUser, createSession, logAuditEvent, consumeCsrfStateAtomically } from "../db";
 
+type PagesFunction = (context: { request: Request; env: any; params: any; data: any }) => Response | Promise<Response>;
+
 /**
  * Handler for GET /api/auth/discord/callback
  * Exchanges Discord authorization code for token + creates session
@@ -169,7 +171,7 @@ async function exchangeDiscordCode(
   env: CloudflareEnv
 ): Promise<DiscordTokenResponse | null> {
   try {
-    const redirectUri = new URL(req.url).origin + "/api/auth/discord/callback";
+    const redirectUri = env.DISCORD_OAUTH_REDIRECT_URI; // Use explicitly configured URI, not request origin
 
     const response = await fetch("https://discord.com/api/v10/oauth2/token", {
       method: "POST",
@@ -259,6 +261,6 @@ async function fetchDiscordGuildMember(
   }
 }
 
-export default async (context: { request: Request; env: any }): Promise<Response> => {
+export const onRequest: PagesFunction = async (context) => {
   return handleDiscordCallback(context.request, context.env);
 };

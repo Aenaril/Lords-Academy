@@ -26,6 +26,15 @@ new_classes = ["DraftsDoClass"]
 # Note: In production, KV is bound via Cloudflare Pages Dashboard
 # For local development with wrangler pages dev, use CLI flags: --kv KV
 
+# Environment Variables (Phase 2A OAuth2)
+# 
+# DISCORD_OAUTH_REDIRECT_URI is explicitly configured per environment:
+#   - Local: http://127.0.0.1:8788/api/auth/discord/callback
+#   - Staging (feature/phase2a-oauth): https://feature-phase2a-oauth--lords-academy.pages.dev/api/auth/discord/callback
+#   - Production: https://lords-academy.pages.dev/api/auth/discord/callback
+#
+# This prevents request origin from influencing the OAuth2 callback URL.
+
 # NOTE: Ce wrangler.toml est pour tests locaux uniquement
 # Les Pages Functions utilisent app/functions/api/[[path]].ts
 # Le Worker réel se trouve dans worker/wrangler.toml
