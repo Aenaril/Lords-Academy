@@ -43,7 +43,7 @@ describe("Phase 2A Security Utilities", () => {
 
     it("should generate recovery codes in correct format", () => {
       const code = generateRecoveryCode();
-      expect(/^EMERGENCY-[A-F0-9]{8}-[A-F0-9]{8}$/.test(code)).toBe(true);
+      expect(/^EMERGENCY-[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}$/i.test(code)).toBe(true);
     });
   });
 
