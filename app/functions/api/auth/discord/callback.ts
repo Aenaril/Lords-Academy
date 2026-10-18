@@ -5,7 +5,7 @@
 
 import { CloudflareEnv, DiscordTokenResponse, DiscordUser, DiscordGuildMember, CallbackSuccessResponse } from "../types";
 import {
-  validateCsrfState,
+  validateCsrfStateAtomically,
   validateDiscordState,
   validateDiscordCode,
   generateSessionId,
@@ -68,8 +68,8 @@ export async function handleDiscordCallback(
       );
     }
 
-    // Validate CSRF state (must exist in KV + not expired)
-    const stateValid = await validateCsrfState(env.KV, state as string);
+    // Validate CSRF state atomically (one-time use enforcement)
+    const stateValid = await validateCsrfStateAtomically(env.KV, state as string);
     if (!stateValid) {
       return new Response(
         JSON.stringify(errorResponse("Invalid or expired state (CSRF protection)", 403)),
