@@ -221,7 +221,8 @@ export async function storeRecoveryCode(
 }
 
 /**
- * Validate recovery code (one-time use)
+ * Validate recovery code (one-time use) — NON-ATOMIC (deprecated)
+ * Do not use directly; use consumeRecoveryCodeAtomically instead
  */
 export async function validateRecoveryCode(
   db: D1Database,
@@ -244,22 +245,54 @@ export async function validateRecoveryCode(
 }
 
 /**
- * Mark recovery code as used
+ * Consume recovery code atomically (one-time use enforcement)
+ * Uses UPDATE with WHERE is_used = 0 to ensure atomic operation
+ * Returns success only if code was previously unused
  */
-export async function markRecoveryCodeUsed(
+export async function consumeRecoveryCodeAtomically(
   db: D1Database,
   codeHash: string,
   usedByUserId: string
-): Promise<void> {
-  const now = new Date();
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const now = new Date().toISOString();
 
-  await db
-    .prepare(
-      `UPDATE recovery_codes SET is_used = 1, used_by_user_id = ?, used_at = ?
-       WHERE code_hash = ?`
-    )
-    .bind(usedByUserId, now.toISOString(), codeHash)
-    .run();
+    // Atomic UPDATE: only succeeds if is_used was 0
+    const result = await db
+      .prepare(
+        `UPDATE recovery_codes 
+         SET is_used = 1, used_by_user_id = ?, used_at = ?
+         WHERE code_hash = ? AND is_used = 0`
+      )
+      .bind(usedByUserId, now, codeHash)
+      .run();
+
+    // Check if row was actually updated
+    // result.meta.changes will be 1 if update succeeded, 0 if code already used or not found
+    const updated = result.meta?.changes ?? 0;
+
+    if (updated === 0) {
+      // Either code doesn't exist or already used
+      // Verify which by doing a SELECT
+      const existing = await db
+        .prepare("SELECT is_used FROM recovery_codes WHERE code_hash = ?")
+        .bind(codeHash)
+        .first();
+
+      if (!existing) {
+        return { success: false, error: "Invalid recovery code" };
+      }
+      if (existing.is_used) {
+        return { success: false, error: "Recovery code already used" };
+      }
+      return { success: false, error: "Failed to consume recovery code" };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("consumeRecoveryCodeAtomically error:", err);
+    return { success: false, error: "Database error" };
+  }
 }
 
 /**

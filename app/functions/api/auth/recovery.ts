@@ -5,7 +5,7 @@
 
 import { CloudflareEnv, RecoveryValidationResponse } from "./types";
 import { generateSessionId, createSessionCookie, errorResponse, checkRateLimit, hashRecoveryCode, getClientIp } from "./security";
-import { validateRecoveryCode, markRecoveryCodeUsed, createSession, logAuditEvent } from "./db";
+import { consumeRecoveryCodeAtomically, createSession, logAuditEvent } from "./db";
 
 /**
  * Handler for POST /api/auth/recovery
@@ -64,8 +64,8 @@ export async function handleRecoveryCode(
       );
     }
 
-    // Validate code format (EMERGENCY-XXXXXXXX-XXXXXXX)
-    if (!/^EMERGENCY-[A-F0-9]{8}-[A-F0-9]{8}$/i.test(code)) {
+    // Validate code format (EMERGENCY-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX)
+    if (!/^EMERGENCY-[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}$/i.test(code)) {
       return new Response(
         JSON.stringify(errorResponse("Invalid recovery code format", 400)),
         { status: 400 }
@@ -75,18 +75,18 @@ export async function handleRecoveryCode(
     // Hash code for lookup
     const codeHash = await hashRecoveryCode(code);
 
-    // Validate recovery code in D1
-    const validation = await validateRecoveryCode(env.DB, codeHash);
-    if (!validation.valid) {
+    // Consume recovery code atomically (one-time use)
+    const consumption = await consumeRecoveryCodeAtomically(env.DB, codeHash, `recovery:${Date.now()}`);
+    if (!consumption.success) {
       // Log failed attempt
       await logAuditEvent(env.DB, "RECOVERY_ATTEMPTED", null, {
         status: "failed",
-        reason: validation.error,
+        reason: consumption.error,
         ip: clientIp,
       });
 
       return new Response(
-        JSON.stringify(errorResponse(validation.error || "Invalid recovery code", 401)),
+        JSON.stringify(errorResponse(consumption.error || "Invalid recovery code", 401)),
         { status: 401 }
       );
     }
