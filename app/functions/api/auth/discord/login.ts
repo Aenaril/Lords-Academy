@@ -62,4 +62,6 @@ export async function handleDiscordLoginInit(
   }
 }
 
-export default handleDiscordLoginInit;
+export default async (context: { request: Request; env: any }): Promise<Response> => {
+  return handleDiscordLoginInit(context.request, context.env);
+};

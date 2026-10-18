@@ -87,4 +87,6 @@ export async function handleSessionValidate(
   }
 }
 
-export default handleSessionValidate;
+export default async (context: { request: Request; env: any }): Promise<Response> => {
+  return handleSessionValidate(context.request, context.env);
+};

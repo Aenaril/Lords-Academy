@@ -86,4 +86,6 @@ export async function handleSessionLogout(
   }
 }
 
-export default handleSessionLogout;
+export default async (context: { request: Request; env: any }): Promise<Response> => {
+  return handleSessionLogout(context.request, context.env);
+};

@@ -259,4 +259,6 @@ async function fetchDiscordGuildMember(
   }
 }
 
-export default handleDiscordCallback;
+export default async (context: { request: Request; env: any }): Promise<Response> => {
+  return handleDiscordCallback(context.request, context.env);
+};

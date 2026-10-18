@@ -147,4 +147,6 @@ export async function handleRecoveryCode(
   }
 }
 
-export default handleRecoveryCode;
+export default async (context: { request: Request; env: any }): Promise<Response> => {
+  return handleRecoveryCode(context.request, context.env);
+};

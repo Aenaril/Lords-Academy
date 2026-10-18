@@ -26,6 +26,12 @@
 
 import { getStorageBackend } from '../storage'
 import { mergeTutorialStatuses } from '../../src/utils/mergeTutorialStatuses'
+// Phase 2A OAuth2 & Session Handlers
+import { handleDiscordLoginInit } from './auth/discord/login'
+import { handleDiscordCallback } from './auth/discord/callback'
+import { handleRecoveryCode } from './auth/recovery'
+import { handleSessionValidate } from './session/validate'
+import { handleSessionLogout } from './session/logout'
 
 export const onRequest: PagesFunction = async (context) => {
   const { request, env, params } = context
@@ -103,6 +109,25 @@ export const onRequest: PagesFunction = async (context) => {
         break
       case 'POST /api/tutorial/status':
         response = await handleSetTutorialStatus(request, env as any)
+        break
+      // ===== Phase 2A OAuth2 & Session Routes =====
+      case 'GET /api/phase2a-health':
+        response = new Response(JSON.stringify({ ok: true, message: "Phase 2A health check passed", timestamp: new Date().toISOString() }), { status: 200, headers: { "Content-Type": "application/json" } })
+        break
+      case 'GET /api/auth/discord/login':
+        response = await handleDiscordLoginInit(request, env as any)
+        break
+      case 'GET /api/auth/discord/callback':
+        response = await handleDiscordCallback(request, env as any)
+        break
+      case 'POST /api/auth/recovery':
+        response = await handleRecoveryCode(request, env as any)
+        break
+      case 'POST /api/session/validate':
+        response = await handleSessionValidate(request, env as any)
+        break
+      case 'POST /api/session/logout':
+        response = await handleSessionLogout(request, env as any)
         break
       default:
         response = json({ error: 'Not found' }, 404)
