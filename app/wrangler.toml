@@ -1,5 +1,6 @@
-# Configuration Wrangler pour tests Cloudflare Workers
+# Configuration Wrangler pour tests Cloudflare Workers & Pages Functions
 # Utilisé uniquement pour les tests Vitest avec @cloudflare/vitest-plugin
+# Et pour les tests locaux d'endpoints Pages Functions
 
 name = "lords-mobile-academy-test"
 main = "src/index.ts"
@@ -16,6 +17,14 @@ script_name = "lords-mobile-academy-test"
 [[migrations]]
 tag = "v1"
 new_classes = ["DraftsDoClass"]
+
+# D1 Database for Pages Functions (local dev)
+# Note: In production, D1 is bound via Cloudflare Pages Dashboard
+# For local development with wrangler pages dev, use CLI flags: --d1 DB
+
+# KV Namespace for Pages Functions (local dev)
+# Note: In production, KV is bound via Cloudflare Pages Dashboard
+# For local development with wrangler pages dev, use CLI flags: --kv KV
 
 # NOTE: Ce wrangler.toml est pour tests locaux uniquement
 # Les Pages Functions utilisent app/functions/api/[[path]].ts

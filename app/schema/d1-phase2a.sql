@@ -14,7 +14,18 @@ CREATE TABLE users (
   is_blocked BOOLEAN DEFAULT 0
 );
 
--- Table 2: Sessions (revocable, 8h TTL)
+-- Table 2: CSRF States (temporary OAuth2 state for anti-CSRF, 5min TTL)
+CREATE TABLE csrf_states (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nonce TEXT NOT NULL UNIQUE,
+  is_consumed BOOLEAN DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME NOT NULL
+);
+CREATE INDEX idx_csrf_nonce ON csrf_states(nonce);
+CREATE INDEX idx_csrf_expires_at ON csrf_states(expires_at);
+
+-- Table 3: Sessions (revocable, 8h TTL)
 CREATE TABLE sessions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
@@ -31,7 +42,7 @@ CREATE INDEX idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX idx_sessions_id ON sessions(id);
 CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
 
--- Table 3: Permissions Matrix (skeleton Phase 2A, populated Phase 2B)
+-- Table 4: Permissions Matrix (skeleton Phase 2A, populated Phase 2B)
 CREATE TABLE permissions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   resource TEXT NOT NULL,
@@ -42,7 +53,7 @@ CREATE TABLE permissions (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Table 4: Audit Logs (sensible events only)
+-- Table 5: Audit Logs (sensible events only)
 CREATE TABLE audit_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   event_type TEXT NOT NULL,
@@ -55,7 +66,7 @@ CREATE INDEX idx_audit_user_id ON audit_logs(user_id);
 CREATE INDEX idx_audit_created_at ON audit_logs(created_at);
 CREATE INDEX idx_audit_expires_at ON audit_logs(expires_at);
 
--- Table 5: Recovery Codes (emergency access, independent of Discord)
+-- Table 6: Recovery Codes (emergency access, independent of Discord)
 CREATE TABLE recovery_codes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   code_hash TEXT NOT NULL UNIQUE,
@@ -74,6 +85,11 @@ CREATE INDEX idx_recovery_is_used ON recovery_codes(is_used);
 -- - Stores Discord user IDs + basic info
 -- - is_blocked: admin can block user (emergency)
 -- - No password stored (Discord OAuth only in Phase 2A/2B)
+
+-- CSRF States Table:
+-- - nonce: unique CSRF state token (32 bytes hex)
+-- - is_consumed: atomicity flag for replay attack prevention
+-- - expires_at: 5 minutes from creation (auto-cleanup cron Phase 2B)
 
 -- Sessions Table:
 -- - id: UUID session identifier (HttpOnly cookie)
