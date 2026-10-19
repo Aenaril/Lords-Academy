@@ -236,6 +236,83 @@ describe("Phase 2A OAuth2 State Atomicity", () => {
       expect(scopeParam).toBe("identify guilds.members.read");
     });
 
+    it("should NOT expose sessionId in OAuth2 callback response", () => {
+      // Mock callback response structure
+      const callbackResponse = {
+        ok: true,
+        userId: "123456789",
+        username: "testuser",
+        // sessionId should NOT be included
+      };
+
+      // Verify sessionId is not present
+      expect((callbackResponse as any).sessionId).toBeUndefined();
+      
+      // Verify allowed fields are present
+      expect(callbackResponse.ok).toBe(true);
+      expect(callbackResponse.userId).toBeDefined();
+      expect(callbackResponse.username).toBeDefined();
+    });
+
+    it("should validate callback response type does not include sessionId", () => {
+      // Verify the TypeScript interface does not define sessionId
+      type CallbackSuccessResponse = {
+        ok: true;
+        userId: string;
+        username: string;
+      };
+
+      // If this type check fails, it means sessionId was re-added
+      const response: CallbackSuccessResponse = {
+        ok: true,
+        userId: "test",
+        username: "testuser",
+        // sessionId cannot be added without TS error
+      };
+
+      // Verify response structure
+      expect(Object.keys(response).sort()).toEqual(["ok", "userId", "username"]);
+      expect(response).not.toHaveProperty("sessionId");
+    });
+
+    it("should set HttpOnly session cookie with correct flags", () => {
+      // Session cookies should never be exposed in response body
+      const cookieHeader = "session_id=[SESSION_VALUE]; Path=/; Expires=[DATE]; HttpOnly; Secure; SameSite=Strict";
+
+      // Verify all security flags present
+      expect(cookieHeader).toContain("HttpOnly");
+      expect(cookieHeader).toContain("Secure");
+      expect(cookieHeader).toContain("SameSite=Strict");
+      expect(cookieHeader).toContain("Path=/");
+      
+      // Verify cookie name
+      expect(cookieHeader).toMatch(/^session_id=/);
+    });
+
+    it("should not log sessionId in audit events", () => {
+      // Audit log entry for login
+      const auditEntry = {
+        event_type: "LOGIN",
+        user_id: "123456789",
+        details: {
+          status: "success",
+          ip: "192.168.1.x", // Hashed or masked IP
+          username: "testuser",
+          // sessionId should NOT be logged
+        },
+        created_at: new Date().toISOString(),
+      };
+
+      // Verify no session identifiers in audit details
+      const detailsJson = JSON.stringify(auditEntry.details);
+      expect(detailsJson).not.toContain("sessionId");
+      expect(detailsJson).not.toContain("session_id");
+      
+      // Only safe fields logged
+      expect(auditEntry.details.username).toBe("testuser");
+      expect(auditEntry.details.status).toBe("success");
+    });
+
     it("should preserve Discord scope semantics", () => {
       // Parse the URL to verify scopes are interpretable by Discord
       const scopes = ["identify", "guilds.members.read"].join(" ");

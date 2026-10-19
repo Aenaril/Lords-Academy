@@ -133,12 +133,13 @@ export interface LoginInitResponse {
 
 /**
  * API Response for OAuth callback success
+ * NOTE: sessionId is NEVER exposed in response — only set in HttpOnly cookie
+ * This prevents JavaScript access to session identifiers
  */
 export interface CallbackSuccessResponse {
   ok: true;
   userId: string;
   username: string;
-  sessionId: string;
 }
 
 /**

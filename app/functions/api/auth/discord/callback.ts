@@ -132,11 +132,11 @@ export async function handleDiscordCallback(
     });
 
     // Prepare response
+    // NOTE: sessionId is NOT included — it's set only in HttpOnly cookie for security
     const response: CallbackSuccessResponse = {
       ok: true,
       userId: userInfo.id,
       username: userInfo.username,
-      sessionId: sessionId,
     };
 
     // Set HttpOnly session cookie
