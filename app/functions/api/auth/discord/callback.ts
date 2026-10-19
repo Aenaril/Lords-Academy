@@ -11,6 +11,8 @@ import {
   createSessionCookie,
   errorResponse,
   getClientIp,
+  parseOAuthStateCookie,
+  clearOAuthStateCookie,
 } from "../security";
 import { upsertUser, createSession, logAuditEvent, consumeCsrfStateAtomically } from "../db";
 
@@ -69,7 +71,40 @@ export async function handleDiscordCallback(
       );
     }
 
+    // NEW: CSRF Protection — Double-Submit Cookie Pattern
+    // Validate that state parameter matches state cookie
+    // This ensures the callback came from the same browser that initiated login
+    const stateFromCookie = parseOAuthStateCookie(req);
+    if (!stateFromCookie) {
+      // Missing cookie = different browser or cookie expired
+      await logAuditEvent(env.DB, "LOGIN", null, {
+        reason: "missing_oauth_cookie",
+        ip: getClientIp(req),
+        error: "CSRF protection: missing state cookie",
+      });
+
+      return new Response(
+        JSON.stringify(errorResponse("Missing OAuth state cookie (CSRF protection)", 403)),
+        { status: 403 }
+      );
+    }
+
+    if (stateFromCookie !== state) {
+      // State mismatch = CSRF attack or cookie from different browser
+      await logAuditEvent(env.DB, "LOGIN", null, {
+        reason: "state_mismatch",
+        ip: getClientIp(req),
+        error: "CSRF protection: state cookie ≠ state parameter",
+      });
+
+      return new Response(
+        JSON.stringify(errorResponse("OAuth state mismatch (CSRF attack detected)", 403)),
+        { status: 403 }
+      );
+    }
+
     // Validate CSRF state atomically using D1 (one-time use enforcement)
+    // Both cookie AND D1 must validate (defense in depth)
     const stateResult = await consumeCsrfStateAtomically(env.DB, state as string);
     if (!stateResult.success) {
       return new Response(
@@ -140,7 +175,10 @@ export async function handleDiscordCallback(
     };
 
     // Set HttpOnly session cookie
-    const cookie = createSessionCookie(sessionId);
+    const sessionCookie = createSessionCookie(sessionId);
+
+    // NEW: Clear OAuth state cookie (it was temporary for CSRF protection)
+    const clearOAuthCookie = clearOAuthStateCookie();
 
     // Redirect to admin page (or referrer if available)
     const redirectUrl = url.searchParams.get("referrer") || "/admin";
@@ -149,7 +187,7 @@ export async function handleDiscordCallback(
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Set-Cookie": cookie,
+        "Set-Cookie": [sessionCookie, clearOAuthCookie].join("\n"),
         "Location": redirectUrl, // Browser will handle redirect if needed
       },
     });

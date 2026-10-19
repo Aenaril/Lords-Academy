@@ -4,7 +4,7 @@
 // Date: October 2026
 
 import { CloudflareEnv, LoginInitResponse } from "../types";
-import { generateCsrfState, errorResponse } from "../security";
+import { generateCsrfState, errorResponse, createOAuthStateCookie } from "../security";
 import { storeCsrfState } from "../db";
 
 type PagesFunction = (context: { request: Request; env: any; params: any; data: any }) => Response | Promise<Response>;
@@ -34,6 +34,9 @@ export async function handleDiscordLoginInit(
     const state = generateCsrfState();
     await storeCsrfState(env.DB, state);
 
+    // NEW: Generate OAuth state cookie (browser association for CSRF protection)
+    const oauthCookie = createOAuthStateCookie(state);
+
     // Build Discord OAuth URL
     const clientId = env.DISCORD_CLIENT_ID;
     const redirectUri = env.DISCORD_OAUTH_REDIRECT_URI; // Explicitly configured, not dynamically constructed
@@ -54,7 +57,10 @@ export async function handleDiscordLoginInit(
 
     return new Response(JSON.stringify(response), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Set-Cookie": oauthCookie, // Return OAuth state cookie
+      },
     });
   } catch (err) {
     console.error("Discord login init error:", err);

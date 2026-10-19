@@ -68,15 +68,16 @@ export async function createSession(
 
   await db
     .prepare(
-      `INSERT INTO sessions (id, user_id, roles, created_at, expires_at, is_revoked)
-       VALUES (?, ?, ?, ?, ?, 0)`
+      `INSERT INTO sessions (id, user_id, roles, created_at, expires_at, last_role_check, is_revoked)
+       VALUES (?, ?, ?, ?, ?, ?, 0)`
     )
     .bind(
       sessionId,
       userId,
       JSON.stringify(roles),
       now.toISOString(),
-      expiresAt.toISOString()
+      expiresAt.toISOString(),
+      now.toISOString() // NEW: Initialize last_role_check = now (roles are fresh at creation)
     )
     .run();
 
@@ -86,7 +87,7 @@ export async function createSession(
     roles,
     created_at: now.toISOString(),
     expires_at: expiresAt.toISOString(),
-    last_role_check: null,
+    last_role_check: now.toISOString(), // NEW: Track initial verification
     is_revoked: false,
   };
 }
@@ -438,5 +439,220 @@ export async function consumeCsrfStateAtomically(
   } catch (err) {
     console.error("consumeCsrfStateAtomically error:", err);
     return { success: false, error: "Database error" };
+  }
+}
+
+
+/**
+ * Refresh user roles from Discord API (via bot token)
+ * Calls Discord GET /guilds/{guildId}/members/{userId} endpoint
+ * Returns updated roles array
+ * 
+ * Approach: Bot token (server-side secret)
+ * - Avoids storing user access tokens
+ * - One token for all users
+ * - Compliant with OAuth2 spec (no long-term credential storage)
+ */
+export async function refreshUserRolesFromDiscordBot(
+  guildId: string,
+  userId: string,
+  botToken: string
+): Promise<{ success: boolean; roles?: string[]; error?: string }> {
+  if (!botToken) {
+    return { success: false, error: "Bot token not configured" };
+  }
+
+  try {
+    const response = await fetch(
+      `https://discord.com/api/v10/guilds/${guildId}/members/${userId}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bot ${botToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    if (response.status === 404) {
+      return { success: false, error: "User not in guild" };
+    }
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error(`Discord API error ${response.status}:`, error);
+      return { success: false, error: `Discord API error: ${response.status}` };
+    }
+
+    const member = (await response.json()) as any;
+    const roles = member.roles || [];
+
+    return { success: true, roles };
+  } catch (err) {
+    console.error("Failed to refresh roles from Discord:", err);
+    return { success: false, error: "Discord API unreachable" };
+  }
+}
+
+/**
+ * Update session's cached roles and refresh timestamp
+ * Called after successful Discord API refresh
+ */
+export async function updateSessionRoles(
+  db: D1Database,
+  sessionId: string,
+  newRoles: string[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const now = new Date().toISOString();
+    const rolesJson = JSON.stringify(newRoles);
+
+    const result = await db
+      .prepare(
+        `UPDATE sessions
+         SET roles = ?, last_role_check = ?
+         WHERE id = ?`
+      )
+      .bind(rolesJson, now, sessionId)
+      .run();
+
+    if ((result.meta as any).changes === 0) {
+      return { success: false, error: "Session not found" };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("Failed to update session roles:", err);
+    return { success: false, error: "Database error" };
+  }
+}
+
+/**
+ * Validate session AND verify roles are not stale (5 min max)
+ * Replaces validateSession for permission checks
+ * 
+ * Flow:
+ * 1. Validate session exists, not revoked, not expired
+ * 2. Check role age: if > 5 min, call Discord API to refresh
+ * 3. If Discord unavailable and roles > 5 min old: DENY access
+ * 4. Return validation result with verified roles
+ * 
+ * Params:
+ * - db: D1Database
+ * - sessionId: Session UUID (from cookie)
+ * - guildId: Discord guild ID
+ * - botToken: Discord bot token
+ * 
+ * Returns:
+ * - valid: true if session + roles verified
+ * - session: Session object with fresh roles (if valid)
+ * - error: string (if valid=false)
+ */
+export async function validateSessionAndRoles(
+  db: D1Database,
+  sessionId: string,
+  guildId: string,
+  botToken: string
+): Promise<{ valid: boolean; session?: Session; error?: string }> {
+  try {
+    // 1. Basic session validation
+    const session = await getSession(db, sessionId);
+
+    if (!session) {
+      return { valid: false, error: "Session not found" };
+    }
+
+    if (session.is_revoked) {
+      return { valid: false, error: "Session revoked" };
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(session.expires_at);
+
+    if (now > expiresAt) {
+      return { valid: false, error: "Session expired" };
+    }
+
+    // 2. Check role staleness
+    const lastRoleCheck = session.last_role_check
+      ? new Date(session.last_role_check)
+      : null;
+
+    const roleAgeMs = lastRoleCheck
+      ? now.getTime() - lastRoleCheck.getTime()
+      : Infinity; // Never checked = infinite age (trigger refresh)
+
+    const MAX_ROLE_AGE_MS = 5 * 60 * 1000; // 5 minutes
+
+    if (roleAgeMs > MAX_ROLE_AGE_MS) {
+      // Roles are stale — attempt refresh via Discord API
+      if (!botToken) {
+        // Bot token not available — cannot verify roles, deny access
+        await logAuditEvent(db, "ROLE_REFRESH_FAILED", session.user_id, {
+          sessionId: sessionId,
+          error: "Bot token not configured",
+          roleAgeMinutes: Math.floor(roleAgeMs / 1000 / 60),
+        });
+
+        return {
+          valid: false,
+          error: "Role verification unavailable (bot token missing)",
+        };
+      }
+
+      // Call Discord API
+      const refreshResult = await refreshUserRolesFromDiscordBot(
+        guildId,
+        session.user_id,
+        botToken
+      );
+
+      if (!refreshResult.success) {
+        // Discord API failed — deny access (security: assume worst case)
+        // User's roles might have changed, better to deny than allow
+        await logAuditEvent(db, "ROLE_REFRESH_FAILED", session.user_id, {
+          sessionId: sessionId,
+          error: refreshResult.error,
+          roleAgeMinutes: Math.floor(roleAgeMs / 1000 / 60),
+        });
+
+        return {
+          valid: false,
+          error: `Could not verify roles: ${refreshResult.error}`,
+        };
+      }
+
+      // Update session with fresh roles
+      const updateResult = await updateSessionRoles(
+        db,
+        sessionId,
+        refreshResult.roles || []
+      );
+
+      if (!updateResult.success) {
+        return { valid: false, error: "Failed to update cached roles" };
+      }
+
+      // Log successful refresh
+      await logAuditEvent(db, "ROLE_REFRESH_SUCCESS", session.user_id, {
+        sessionId: sessionId,
+        rolesCount: (refreshResult.roles || []).length,
+        roleAgeMinutes: Math.floor(roleAgeMs / 1000 / 60),
+      });
+
+      // Re-fetch session with updated roles
+      const updatedSession = await getSession(db, sessionId);
+      if (!updatedSession) {
+        return { valid: false, error: "Session lost after role update" };
+      }
+
+      return { valid: true, session: updatedSession };
+    }
+
+    // Roles are fresh (< 5min) — use cached, no Discord API call needed
+    return { valid: true, session };
+  } catch (err) {
+    console.error("validateSessionAndRoles error:", err);
+    return { valid: false, error: "Internal validation error" };
   }
 }

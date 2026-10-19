@@ -1,0 +1,4738 @@
+------formdata-undici-021148874604
+Content-Disposition: form-data; name="metadata"
+
+{"main_module":"functionsWorker-0.7431847708312538.js"}
+------formdata-undici-021148874604
+Content-Disposition: form-data; name="functionsWorker-0.7431847708312538.js"; filename="functionsWorker-0.7431847708312538.js"
+Content-Type: application/javascript+module
+
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
+var __esm = (fn, res, err) => function __init() {
+  if (err) throw err[0];
+  try {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  } catch (e) {
+    throw err = [e], e;
+  }
+};
+
+// api/auth/security.ts
+function generateSecureRandom(length = 32) {
+  const array = new Uint8Array(length);
+  crypto.getRandomValues(array);
+  return Array.from(array, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+function generateSessionId() {
+  return generateSecureRandom(32);
+}
+function generateCsrfState() {
+  return generateSecureRandom(32);
+}
+async function hashRecoveryCode(code) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(code);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+async function checkRateLimit(kv, key, maxAttempts = 5, windowSeconds = 900) {
+  const rateLimitKey = `ratelimit:${key}`;
+  const current = await kv.get(rateLimitKey, { type: "text" });
+  let attempts = current ? parseInt(current) : 0;
+  if (attempts >= maxAttempts) {
+    return { allowed: false, attemptsRemaining: 0 };
+  }
+  attempts++;
+  await kv.put(rateLimitKey, attempts.toString(), {
+    expirationTtl: windowSeconds
+  });
+  return {
+    allowed: true,
+    attemptsRemaining: maxAttempts - attempts
+  };
+}
+function parseCookie(cookieHeader, name) {
+  if (!cookieHeader) return null;
+  const cookies = cookieHeader.split(";");
+  for (const cookie of cookies) {
+    const [cookieName, cookieValue] = cookie.trim().split("=");
+    if (cookieName === name) {
+      return decodeURIComponent(cookieValue);
+    }
+  }
+  return null;
+}
+function createSessionCookie(sessionId, expiresInSeconds = 28800) {
+  const expiresAt = new Date(Date.now() + expiresInSeconds * 1e3).toUTCString();
+  return `session_id=${sessionId}; Path=/; Expires=${expiresAt}; HttpOnly; Secure; SameSite=Strict`;
+}
+function createLogoutCookie() {
+  return `session_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 UTC; HttpOnly; Secure; SameSite=Strict`;
+}
+function validateDiscordState(state) {
+  if (!state) {
+    return { valid: false, error: "Missing state parameter" };
+  }
+  if (state.length !== 64) {
+    return { valid: false, error: "Invalid state format" };
+  }
+  return { valid: true };
+}
+function validateDiscordCode(code) {
+  if (!code) {
+    return { valid: false, error: "Missing code parameter" };
+  }
+  if (code.length < 10) {
+    return { valid: false, error: "Invalid code format" };
+  }
+  return { valid: true };
+}
+function getClientIp(req) {
+  return req.headers.get("CF-Connecting-IP") || req.headers.get("X-Forwarded-For")?.split(",")[0] || "unknown";
+}
+function errorResponse(message, code = 400) {
+  return {
+    body: JSON.stringify({ ok: false, error: message }),
+    status: code
+  };
+}
+var init_security = __esm({
+  "api/auth/security.ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    __name(generateSecureRandom, "generateSecureRandom");
+    __name(generateSessionId, "generateSessionId");
+    __name(generateCsrfState, "generateCsrfState");
+    __name(hashRecoveryCode, "hashRecoveryCode");
+    __name(checkRateLimit, "checkRateLimit");
+    __name(parseCookie, "parseCookie");
+    __name(createSessionCookie, "createSessionCookie");
+    __name(createLogoutCookie, "createLogoutCookie");
+    __name(validateDiscordState, "validateDiscordState");
+    __name(validateDiscordCode, "validateDiscordCode");
+    __name(getClientIp, "getClientIp");
+    __name(errorResponse, "errorResponse");
+  }
+});
+
+// api/auth/db.ts
+async function upsertUser(db, userId, username, avatar, email) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const existing = await db.prepare("SELECT id FROM users WHERE id = ?").bind(userId).first();
+  if (existing) {
+    await db.prepare(
+      `UPDATE users SET username = ?, avatar = ?, email = ?, updated_at = ?
+         WHERE id = ?`
+    ).bind(username, avatar, email, now, userId).run();
+  } else {
+    await db.prepare(
+      `INSERT INTO users (id, username, avatar, email, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(userId, username, avatar, email, now, now).run();
+  }
+  return {
+    id: userId,
+    username,
+    avatar,
+    email,
+    created_at: now,
+    updated_at: now,
+    is_blocked: false
+  };
+}
+async function createSession(db, sessionId, userId, roles) {
+  const now = /* @__PURE__ */ new Date();
+  const expiresAt = new Date(now.getTime() + 8 * 60 * 60 * 1e3);
+  await db.prepare(
+    `INSERT INTO sessions (id, user_id, roles, created_at, expires_at, is_revoked)
+       VALUES (?, ?, ?, ?, ?, 0)`
+  ).bind(
+    sessionId,
+    userId,
+    JSON.stringify(roles),
+    now.toISOString(),
+    expiresAt.toISOString()
+  ).run();
+  return {
+    id: sessionId,
+    user_id: userId,
+    roles,
+    created_at: now.toISOString(),
+    expires_at: expiresAt.toISOString(),
+    last_role_check: null,
+    is_revoked: false
+  };
+}
+async function getSession(db, sessionId) {
+  const result = await db.prepare(
+    `SELECT id, user_id, roles, created_at, expires_at, last_role_check, is_revoked
+       FROM sessions WHERE id = ?`
+  ).bind(sessionId).first();
+  if (!result) return null;
+  return {
+    id: result.id,
+    user_id: result.user_id,
+    roles: JSON.parse(result.roles || "[]"),
+    created_at: result.created_at,
+    expires_at: result.expires_at,
+    last_role_check: result.last_role_check,
+    is_revoked: result.is_revoked
+  };
+}
+async function validateSession(db, sessionId) {
+  const session = await getSession(db, sessionId);
+  if (!session) {
+    return { valid: false, error: "Session not found" };
+  }
+  if (session.is_revoked) {
+    return { valid: false, error: "Session revoked" };
+  }
+  const now = /* @__PURE__ */ new Date();
+  const expiresAt = new Date(session.expires_at);
+  if (now > expiresAt) {
+    return { valid: false, error: "Session expired" };
+  }
+  return { valid: true, session };
+}
+async function revokeSession(db, sessionId) {
+  await db.prepare("UPDATE sessions SET is_revoked = 1 WHERE id = ?").bind(sessionId).run();
+}
+async function logAuditEvent(db, eventType, userId, details) {
+  const now = /* @__PURE__ */ new Date();
+  const expiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1e3);
+  await db.prepare(
+    `INSERT INTO audit_logs (event_type, user_id, details, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?)`
+  ).bind(
+    eventType,
+    userId,
+    details ? JSON.stringify(details) : null,
+    now.toISOString(),
+    expiresAt.toISOString()
+  ).run();
+}
+async function consumeRecoveryCodeAtomically(db, codeHash, usedByUserId) {
+  try {
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const result = await db.prepare(
+      `UPDATE recovery_codes 
+         SET is_used = 1, used_by_user_id = ?, used_at = ?
+         WHERE code_hash = ? AND is_used = 0`
+    ).bind(usedByUserId, now, codeHash).run();
+    const updated = result.meta?.changes ?? 0;
+    if (updated === 0) {
+      const existing = await db.prepare("SELECT is_used FROM recovery_codes WHERE code_hash = ?").bind(codeHash).first();
+      if (!existing) {
+        return { success: false, error: "Invalid recovery code" };
+      }
+      if (existing.is_used) {
+        return { success: false, error: "Recovery code already used" };
+      }
+      return { success: false, error: "Failed to consume recovery code" };
+    }
+    return { success: true };
+  } catch (err) {
+    console.error("consumeRecoveryCodeAtomically error:", err);
+    return { success: false, error: "Database error" };
+  }
+}
+async function getUser(db, userId) {
+  const result = await db.prepare(
+    `SELECT id, username, avatar, email, created_at, updated_at, is_blocked
+       FROM users WHERE id = ?`
+  ).bind(userId).first();
+  if (!result) return null;
+  return {
+    id: result.id,
+    username: result.username,
+    avatar: result.avatar,
+    email: result.email,
+    created_at: result.created_at,
+    updated_at: result.updated_at,
+    is_blocked: result.is_blocked
+  };
+}
+async function storeCsrfState(db, nonce) {
+  const now = /* @__PURE__ */ new Date();
+  const expiresAt = new Date(now.getTime() + 5 * 60 * 1e3);
+  await db.prepare(
+    `INSERT INTO csrf_states (nonce, created_at, expires_at, is_consumed)
+       VALUES (?, ?, ?, 0)`
+  ).bind(nonce, now.toISOString(), expiresAt.toISOString()).run();
+}
+async function consumeCsrfStateAtomically(db, nonce) {
+  try {
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const state = await db.prepare(
+      `SELECT id, is_consumed, expires_at FROM csrf_states WHERE nonce = ?`
+    ).bind(nonce).first();
+    if (!state) {
+      return { success: false, error: "Invalid state" };
+    }
+    if (state.expires_at < now) {
+      await db.prepare(`UPDATE csrf_states SET is_consumed = 1 WHERE nonce = ?`).bind(nonce).run();
+      return { success: false, error: "State expired" };
+    }
+    const result = await db.prepare(
+      `UPDATE csrf_states 
+         SET is_consumed = 1
+         WHERE nonce = ? AND is_consumed = 0`
+    ).bind(nonce).run();
+    const updated = result.meta?.changes ?? 0;
+    if (updated === 0) {
+      return { success: false, error: "State already consumed" };
+    }
+    return { success: true };
+  } catch (err) {
+    console.error("consumeCsrfStateAtomically error:", err);
+    return { success: false, error: "Database error" };
+  }
+}
+var init_db = __esm({
+  "api/auth/db.ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    __name(upsertUser, "upsertUser");
+    __name(createSession, "createSession");
+    __name(getSession, "getSession");
+    __name(validateSession, "validateSession");
+    __name(revokeSession, "revokeSession");
+    __name(logAuditEvent, "logAuditEvent");
+    __name(consumeRecoveryCodeAtomically, "consumeRecoveryCodeAtomically");
+    __name(getUser, "getUser");
+    __name(storeCsrfState, "storeCsrfState");
+    __name(consumeCsrfStateAtomically, "consumeCsrfStateAtomically");
+  }
+});
+
+// api/auth/discord/callback.ts
+async function handleDiscordCallback(req, env) {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204 });
+  }
+  if (req.method !== "GET") {
+    return new Response(
+      JSON.stringify(errorResponse("Method not allowed")),
+      { status: 405 }
+    );
+  }
+  try {
+    const url = new URL(req.url);
+    const code = url.searchParams.get("code");
+    const state = url.searchParams.get("state");
+    const error = url.searchParams.get("error");
+    if (error) {
+      console.warn("Discord OAuth error:", error);
+      return new Response(
+        JSON.stringify(errorResponse(`Discord denied authorization: ${error}`, 403)),
+        { status: 403 }
+      );
+    }
+    const codeValidation = validateDiscordCode(code);
+    if (!codeValidation.valid) {
+      return new Response(
+        JSON.stringify(errorResponse(codeValidation.error || "Invalid code", 400)),
+        { status: 400 }
+      );
+    }
+    const stateValidation = validateDiscordState(state);
+    if (!stateValidation.valid) {
+      return new Response(
+        JSON.stringify(errorResponse(stateValidation.error || "Invalid state", 400)),
+        { status: 400 }
+      );
+    }
+    const stateResult = await consumeCsrfStateAtomically(env.DB, state);
+    if (!stateResult.success) {
+      return new Response(
+        JSON.stringify(errorResponse("Invalid or expired state (CSRF protection)", 403)),
+        { status: 403 }
+      );
+    }
+    const tokenData = await exchangeDiscordCode(code, req, env);
+    if (!tokenData) {
+      return new Response(
+        JSON.stringify(errorResponse("Failed to exchange code for token", 500)),
+        { status: 500 }
+      );
+    }
+    const userInfo = await fetchDiscordUserInfo(tokenData.access_token);
+    if (!userInfo) {
+      return new Response(
+        JSON.stringify(errorResponse("Failed to fetch user info", 500)),
+        { status: 500 }
+      );
+    }
+    const guildMember = await fetchDiscordGuildMember(
+      userInfo.id,
+      tokenData.access_token,
+      env.DISCORD_GUILD_ID
+    );
+    if (!guildMember) {
+      await logAuditEvent(env.DB, "LOGIN", userInfo.id, {
+        reason: "not_in_guild",
+        ip: getClientIp(req)
+      });
+      return new Response(
+        JSON.stringify(errorResponse("You are not a member of the required guild", 403)),
+        { status: 403 }
+      );
+    }
+    await upsertUser(env.DB, userInfo.id, userInfo.username, userInfo.avatar, userInfo.email || null);
+    const sessionId = generateSessionId();
+    const roleIds = guildMember.roles || [];
+    await createSession(env.DB, sessionId, userInfo.id, roleIds);
+    await logAuditEvent(env.DB, "LOGIN", userInfo.id, {
+      status: "success",
+      ip: getClientIp(req),
+      username: userInfo.username
+    });
+    const response = {
+      ok: true,
+      userId: userInfo.id,
+      username: userInfo.username
+    };
+    const cookie = createSessionCookie(sessionId);
+    const redirectUrl = url.searchParams.get("referrer") || "/admin";
+    return new Response(JSON.stringify(response), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Set-Cookie": cookie,
+        "Location": redirectUrl
+        // Browser will handle redirect if needed
+      }
+    });
+  } catch (err) {
+    console.error("Discord callback error:", err);
+    return new Response(
+      JSON.stringify(errorResponse("Internal server error", 500)),
+      { status: 500 }
+    );
+  }
+}
+async function exchangeDiscordCode(code, req, env) {
+  try {
+    const redirectUri = env.DISCORD_OAUTH_REDIRECT_URI;
+    const response = await fetch("https://discord.com/api/v10/oauth2/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        client_id: env.DISCORD_CLIENT_ID,
+        client_secret: env.DISCORD_CLIENT_SECRET,
+        code,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code"
+      }).toString()
+    });
+    if (!response.ok) {
+      const error = await response.text();
+      console.error("Discord token exchange failed:", error);
+      return null;
+    }
+    const tokenData = await response.json();
+    return tokenData;
+  } catch (err) {
+    console.error("Token exchange error:", err);
+    return null;
+  }
+}
+async function fetchDiscordUserInfo(accessToken) {
+  try {
+    const response = await fetch("https://discord.com/api/v10/users/@me", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+    if (!response.ok) {
+      console.error("Failed to fetch Discord user info:", response.status);
+      return null;
+    }
+    const user = await response.json();
+    return user;
+  } catch (err) {
+    console.error("Fetch user info error:", err);
+    return null;
+  }
+}
+async function fetchDiscordGuildMember(userId, userToken, guildId) {
+  try {
+    const response = await fetch(
+      `https://discord.com/api/v10/users/@me/guilds/${guildId}/member`,
+      {
+        headers: {
+          Authorization: `Bearer ${userToken}`
+        }
+      }
+    );
+    if (response.status === 404) {
+      console.warn("User not in guild:", userId);
+      return null;
+    }
+    if (!response.ok) {
+      console.error("Failed to fetch guild member info:", response.status);
+      return null;
+    }
+    const member = await response.json();
+    return member;
+  } catch (err) {
+    console.error("Fetch guild member error:", err);
+    return null;
+  }
+}
+var onRequest;
+var init_callback = __esm({
+  "api/auth/discord/callback.ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    init_security();
+    init_db();
+    __name(handleDiscordCallback, "handleDiscordCallback");
+    __name(exchangeDiscordCode, "exchangeDiscordCode");
+    __name(fetchDiscordUserInfo, "fetchDiscordUserInfo");
+    __name(fetchDiscordGuildMember, "fetchDiscordGuildMember");
+    onRequest = /* @__PURE__ */ __name(async (context) => {
+      return handleDiscordCallback(context.request, context.env);
+    }, "onRequest");
+  }
+});
+
+// api/auth/discord/login.ts
+async function handleDiscordLoginInit(req, env) {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204 });
+  }
+  if (req.method !== "GET") {
+    return new Response(
+      JSON.stringify(errorResponse("Method not allowed")),
+      { status: 405 }
+    );
+  }
+  try {
+    const state = generateCsrfState();
+    await storeCsrfState(env.DB, state);
+    const clientId = env.DISCORD_CLIENT_ID;
+    const redirectUri = env.DISCORD_OAUTH_REDIRECT_URI;
+    const scopes = ["identify", "guilds.members.read"].join(" ");
+    const authUrl = new URL("https://discord.com/api/oauth2/authorize");
+    authUrl.searchParams.set("client_id", clientId);
+    authUrl.searchParams.set("redirect_uri", redirectUri);
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("scope", scopes);
+    authUrl.searchParams.set("state", state);
+    const response = {
+      ok: true,
+      authUrl: authUrl.toString()
+    };
+    return new Response(JSON.stringify(response), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  } catch (err) {
+    console.error("Discord login init error:", err);
+    return new Response(
+      JSON.stringify(errorResponse("Internal server error", 500)),
+      { status: 500 }
+    );
+  }
+}
+var onRequest2;
+var init_login = __esm({
+  "api/auth/discord/login.ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    init_security();
+    init_db();
+    __name(handleDiscordLoginInit, "handleDiscordLoginInit");
+    onRequest2 = /* @__PURE__ */ __name(async (context) => {
+      return handleDiscordLoginInit(context.request, context.env);
+    }, "onRequest");
+  }
+});
+
+// api/auth/recovery.ts
+async function handleRecoveryCode(req, env) {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204 });
+  }
+  if (req.method !== "POST") {
+    return new Response(
+      JSON.stringify(errorResponse("Method not allowed")),
+      { status: 405 }
+    );
+  }
+  try {
+    const clientIp = getClientIp(req);
+    const rateLimit = await checkRateLimit(env.KV, `recovery:${clientIp}`, 3, 3600);
+    if (!rateLimit.allowed) {
+      return new Response(
+        JSON.stringify(errorResponse("Too many recovery attempts. Try again later.", 429)),
+        { status: 429 }
+      );
+    }
+    let body;
+    try {
+      body = await req.json();
+    } catch {
+      return new Response(
+        JSON.stringify(errorResponse("Invalid JSON", 400)),
+        { status: 400 }
+      );
+    }
+    const code = body.code;
+    if (!code || typeof code !== "string") {
+      return new Response(
+        JSON.stringify(errorResponse("Missing recovery code", 400)),
+        { status: 400 }
+      );
+    }
+    if (!/^EMERGENCY-[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}$/i.test(code)) {
+      return new Response(
+        JSON.stringify(errorResponse("Invalid recovery code format", 400)),
+        { status: 400 }
+      );
+    }
+    const codeHash = await hashRecoveryCode(code);
+    const consumption = await consumeRecoveryCodeAtomically(env.DB, codeHash, `recovery:${Date.now()}`);
+    if (!consumption.success) {
+      await logAuditEvent(env.DB, "RECOVERY_ATTEMPTED", null, {
+        status: "failed",
+        reason: consumption.error,
+        ip: clientIp
+      });
+      return new Response(
+        JSON.stringify(errorResponse(consumption.error || "Invalid recovery code", 401)),
+        { status: 401 }
+      );
+    }
+    const tempSessionId = generateSessionId();
+    const tempUserId = `recovery:${Date.now()}`;
+    await env.DB.prepare(
+      `INSERT INTO sessions (id, user_id, roles, created_at, expires_at, is_revoked)
+         VALUES (?, ?, ?, ?, ?, 0)`
+    ).bind(
+      tempSessionId,
+      tempUserId,
+      JSON.stringify(["recovery"]),
+      // Special role indicating recovery mode
+      (/* @__PURE__ */ new Date()).toISOString(),
+      new Date(Date.now() + 30 * 60 * 1e3).toISOString()
+      // 30 min only
+    ).run();
+    await logAuditEvent(env.DB, "RECOVERY_USED", tempUserId, {
+      status: "success",
+      ip: clientIp,
+      note: "Temporary recovery session created, password reset required"
+    });
+    const response = {
+      ok: true,
+      temporary: true,
+      mustResetPassword: true
+    };
+    const cookie = createSessionCookie(tempSessionId, 30 * 60);
+    return new Response(JSON.stringify(response), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Set-Cookie": cookie
+      }
+    });
+  } catch (err) {
+    console.error("Recovery code error:", err);
+    return new Response(
+      JSON.stringify(errorResponse("Internal server error", 500)),
+      { status: 500 }
+    );
+  }
+}
+var onRequest3;
+var init_recovery = __esm({
+  "api/auth/recovery.ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    init_security();
+    init_db();
+    __name(handleRecoveryCode, "handleRecoveryCode");
+    onRequest3 = /* @__PURE__ */ __name(async (context) => {
+      return handleRecoveryCode(context.request, context.env);
+    }, "onRequest");
+  }
+});
+
+// api/session/logout.ts
+async function handleSessionLogout(req, env) {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204 });
+  }
+  if (req.method !== "POST") {
+    return new Response(
+      JSON.stringify(errorResponse("Method not allowed")),
+      { status: 405 }
+    );
+  }
+  try {
+    const cookieHeader = req.headers.get("Cookie");
+    const sessionId = parseCookie(cookieHeader, "session_id");
+    if (!sessionId) {
+      return new Response(
+        JSON.stringify({ ok: true, message: "Already logged out" }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Set-Cookie": createLogoutCookie()
+          }
+        }
+      );
+    }
+    const validation = await validateSession(env.DB, sessionId);
+    const userId = validation.session?.user_id || null;
+    await revokeSession(env.DB, sessionId);
+    if (userId) {
+      await logAuditEvent(env.DB, "LOGOUT", userId, {
+        ip: getClientIp(req)
+      });
+    }
+    return new Response(
+      JSON.stringify({ ok: true, message: "Logged out successfully" }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Set-Cookie": createLogoutCookie()
+        }
+      }
+    );
+  } catch (err) {
+    console.error("Session logout error:", err);
+    return new Response(
+      JSON.stringify(errorResponse("Internal server error", 500)),
+      {
+        status: 500,
+        headers: {
+          "Set-Cookie": createLogoutCookie()
+        }
+      }
+    );
+  }
+}
+var onRequest4;
+var init_logout = __esm({
+  "api/session/logout.ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    init_security();
+    init_db();
+    init_security();
+    __name(handleSessionLogout, "handleSessionLogout");
+    onRequest4 = /* @__PURE__ */ __name(async (context) => {
+      return handleSessionLogout(context.request, context.env);
+    }, "onRequest");
+  }
+});
+
+// api/session/validate.ts
+async function handleSessionValidate(req, env) {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204 });
+  }
+  if (req.method !== "GET") {
+    return new Response(
+      JSON.stringify(errorResponse("Method not allowed")),
+      { status: 405 }
+    );
+  }
+  try {
+    const cookieHeader = req.headers.get("Cookie");
+    const sessionId = parseCookie(cookieHeader, "session_id");
+    if (!sessionId) {
+      return new Response(
+        JSON.stringify(errorResponse("No session cookie", 401)),
+        { status: 401 }
+      );
+    }
+    const validation = await validateSession(env.DB, sessionId);
+    if (!validation.valid) {
+      return new Response(
+        JSON.stringify(errorResponse(validation.error || "Invalid session", 401)),
+        { status: 401 }
+      );
+    }
+    const session = validation.session;
+    const user = await getUser(env.DB, session.user_id);
+    if (!user) {
+      return new Response(
+        JSON.stringify(errorResponse("User not found", 401)),
+        { status: 401 }
+      );
+    }
+    if (user.is_blocked) {
+      return new Response(
+        JSON.stringify(errorResponse("User account blocked", 403)),
+        { status: 403 }
+      );
+    }
+    const response = {
+      ok: true,
+      userId: user.id,
+      username: user.username,
+      roles: session.roles,
+      expiresAt: session.expires_at
+    };
+    return new Response(JSON.stringify(response), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  } catch (err) {
+    console.error("Session validate error:", err);
+    return new Response(
+      JSON.stringify(errorResponse("Internal server error", 500)),
+      { status: 500 }
+    );
+  }
+}
+var onRequest5;
+var init_validate = __esm({
+  "api/session/validate.ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    init_security();
+    init_db();
+    __name(handleSessionValidate, "handleSessionValidate");
+    onRequest5 = /* @__PURE__ */ __name(async (context) => {
+      return handleSessionValidate(context.request, context.env);
+    }, "onRequest");
+  }
+});
+
+// api/web-push/subscribe.ts
+async function hashEndpoint(endpoint) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(endpoint);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hashHex.substring(0, 32);
+}
+function generateRevocationSecret() {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return Array.from(array, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+async function hashRevocationSecret(secret) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(secret);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hashHex.substring(0, 32);
+}
+async function onRequest6(context) {
+  const { request, env } = context;
+  if (request.method === "OPTIONS") {
+    const origin2 = request.headers.get("Origin") || "";
+    const allowedOrigins2 = [
+      "https://lords-academy.pages.dev",
+      "https://lords-mobile-academy.pages.dev",
+      "http://localhost:5173",
+      "http://localhost:3000"
+    ];
+    const isAllowedOrigin = allowedOrigins2.some((allowed) => origin2 === allowed);
+    return new Response(null, {
+      headers: {
+        "Access-Control-Allow-Origin": isAllowedOrigin ? origin2 : "null",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Max-Age": "86400"
+      }
+    });
+  }
+  if (request.method !== "POST") {
+    return new Response(JSON.stringify({ ok: false, error: "Method not allowed" }), {
+      status: 405,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  const origin = request.headers.get("Origin") || "";
+  const allowedOrigins = [
+    "https://lords-academy.pages.dev",
+    "https://lords-mobile-academy.pages.dev",
+    "http://localhost:5173",
+    "http://localhost:3000"
+  ];
+  if (origin && !allowedOrigins.some((allowed) => origin === allowed)) {
+    return new Response(JSON.stringify({ ok: false, error: "Origin not allowed" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  try {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Invalid JSON" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    const { endpoint, p256dh, auth } = body;
+    if (!endpoint || typeof endpoint !== "string") {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Missing or invalid endpoint" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (!p256dh || typeof p256dh !== "string" || p256dh.length < 10) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Invalid p256dh key" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (!auth || typeof auth !== "string" || auth.length < 8) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Invalid auth key" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    try {
+      new URL(endpoint);
+    } catch {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Endpoint is not a valid URL" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    const endpointURL = new URL(endpoint);
+    if (endpointURL.protocol !== "https:") {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Endpoint must use HTTPS" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    const allowedDomains = [
+      "fcm.googleapis.com",
+      "updates.push.services.mozilla.com",
+      "wns2-dm2p.notify.windows.com",
+      "notify.apple.com"
+    ];
+    const isAllowedDomain = allowedDomains.some(
+      (domain) => endpointURL.hostname === domain
+      // ✅ Exact match, not includes
+    );
+    if (!isAllowedDomain) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Endpoint from unauthorized push service" }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (!env.NOTIFICATIONS_SUBSCRIPTIONS) {
+      console.error("[WebPush] NOTIFICATIONS_SUBSCRIPTIONS KV not configured");
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "Notifications storage not configured",
+          code: "STORAGE_NOT_CONFIGURED"
+        }),
+        { status: 503, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    const endpointHash = await hashEndpoint(endpoint);
+    const lookupKey = `endpoint:${endpointHash}`;
+    let existingSubscription = null;
+    try {
+      const existing = await env.NOTIFICATIONS_SUBSCRIPTIONS.get(lookupKey, "json");
+      if (existing && existing.id) {
+        existingSubscription = existing;
+      }
+    } catch (err) {
+      console.warn("[WebPush] KV lookup failed (continue):", err);
+    }
+    let subscriptionId = existingSubscription?.id;
+    let isNewSubscription = !existingSubscription;
+    let revocationSecret;
+    if (!isNewSubscription && existingSubscription) {
+      const { oldRevocationSecret } = body;
+      if (!oldRevocationSecret || typeof oldRevocationSecret !== "string") {
+        console.warn("[WebPush] Resubscription attempt WITHOUT proof for endpoint:", endpointHash);
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: "Resubscription requires proof of possession (oldRevocationSecret)",
+            code: "UNAUTHORIZED"
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      const providedSecretHash = await hashRevocationSecret(oldRevocationSecret);
+      if (providedSecretHash !== existingSubscription.revocationSecretHash) {
+        console.warn("[WebPush] Invalid revocation secret for resubscription");
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: "Invalid revocation secret",
+            code: "UNAUTHORIZED"
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      revocationSecret = generateRevocationSecret();
+    } else {
+      revocationSecret = generateRevocationSecret();
+    }
+    if (isNewSubscription) {
+      subscriptionId = `sub-${crypto.randomUUID()}`;
+    }
+    const revocationSecretHash = await hashRevocationSecret(revocationSecret);
+    const subscriptionPayload = {
+      id: subscriptionId,
+      endpoint,
+      p256dh,
+      auth,
+      revocationSecretHash,
+      // ✅ Hash uniquement, jamais le secret brut
+      createdAt: existingSubscription?.createdAt || Date.now(),
+      updatedAt: Date.now(),
+      userAgent: request.headers.get("user-agent") || "unknown"
+    };
+    try {
+      await env.NOTIFICATIONS_SUBSCRIPTIONS.put(
+        subscriptionId,
+        JSON.stringify(subscriptionPayload),
+        { expirationTtl: 90 * 24 * 60 * 60 }
+      );
+      await env.NOTIFICATIONS_SUBSCRIPTIONS.put(
+        lookupKey,
+        JSON.stringify(subscriptionPayload),
+        { expirationTtl: 90 * 24 * 60 * 60 }
+      );
+    } catch (err) {
+      console.error("[WebPush] KV.put failed (CRITICAL):", err);
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "Failed to store subscription",
+          code: "STORAGE_ERROR"
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        subscriptionId,
+        revocationSecret,
+        // ✅ SEULEMENT au navigateur, jamais stocké en clair
+        isNewSubscription
+      }),
+      { status: isNewSubscription ? 201 : 200, headers: { "Content-Type": "application/json" } }
+    );
+  } catch (err) {
+    console.error("[WebPush] Subscribe error:", err);
+    return new Response(
+      JSON.stringify({ ok: false, error: "Internal server error" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+}
+var init_subscribe = __esm({
+  "api/web-push/subscribe.ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    __name(hashEndpoint, "hashEndpoint");
+    __name(generateRevocationSecret, "generateRevocationSecret");
+    __name(hashRevocationSecret, "hashRevocationSecret");
+    __name(onRequest6, "onRequest");
+  }
+});
+
+// ../node_modules/@pushforge/builder/dist/lib/crypto.js
+var isomorphicCrypto, crypto2;
+var init_crypto = __esm({
+  "../node_modules/@pushforge/builder/dist/lib/crypto.js"() {
+    init_functionsRoutes_0_6040694825216862();
+    if (!globalThis.crypto?.subtle) {
+      throw new Error("Web Crypto API not available. Ensure you are using Node.js 20+ or a modern runtime with globalThis.crypto support.");
+    }
+    isomorphicCrypto = globalThis.crypto;
+    crypto2 = {
+      /**
+       * Fills the given typed array with cryptographically secure random values.
+       *
+       * @param {T} array - The typed array to fill with random values.
+       * @returns {T} The filled typed array.
+       * @template T - The type of the typed array (e.g., Uint8Array).
+       */
+      getRandomValues(array) {
+        return isomorphicCrypto.getRandomValues(array);
+      },
+      /**
+       * Provides access to subtle cryptographic operations.
+       *
+       * @type {SubtleCrypto} The subtle cryptographic interface.
+       */
+      subtle: isomorphicCrypto.subtle
+    };
+  }
+});
+
+// ../node_modules/@pushforge/builder/dist/lib/utils.js
+var stringFromArrayBuffer, base64Decode, getPublicKeyFromJwk, concatTypedArrays;
+var init_utils = __esm({
+  "../node_modules/@pushforge/builder/dist/lib/utils.js"() {
+    init_functionsRoutes_0_6040694825216862();
+    init_base64();
+    stringFromArrayBuffer = /* @__PURE__ */ __name((s) => {
+      let result = "";
+      for (const code of new Uint8Array(s))
+        result += String.fromCharCode(code);
+      return result;
+    }, "stringFromArrayBuffer");
+    base64Decode = /* @__PURE__ */ __name((base64String) => {
+      const paddedBase64 = base64String.padEnd(base64String.length + (4 - (base64String.length % 4 || 4)) % 4, "=");
+      if (typeof Buffer !== "undefined") {
+        return Buffer.from(paddedBase64, "base64").toString("binary");
+      }
+      if (typeof atob === "function") {
+        return atob(paddedBase64);
+      }
+      const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+      let result = "";
+      let i = 0;
+      while (i < paddedBase64.length) {
+        const enc1 = characters.indexOf(paddedBase64.charAt(i++));
+        const enc2 = characters.indexOf(paddedBase64.charAt(i++));
+        const enc3 = characters.indexOf(paddedBase64.charAt(i++));
+        const enc4 = characters.indexOf(paddedBase64.charAt(i++));
+        const char1 = enc1 << 2 | enc2 >> 4;
+        const char2 = (enc2 & 15) << 4 | enc3 >> 2;
+        const char3 = (enc3 & 3) << 6 | enc4;
+        result += String.fromCharCode(char1);
+        if (enc3 !== 64)
+          result += String.fromCharCode(char2);
+        if (enc4 !== 64)
+          result += String.fromCharCode(char3);
+      }
+      return result;
+    }, "base64Decode");
+    getPublicKeyFromJwk = /* @__PURE__ */ __name((jwk) => base64UrlEncode(`${base64Decode(base64UrlDecodeString(jwk.x))}${base64Decode(base64UrlDecodeString(jwk.y))}`), "getPublicKeyFromJwk");
+    concatTypedArrays = /* @__PURE__ */ __name((arrays) => {
+      const length = arrays.reduce((accumulator, current) => accumulator + current.byteLength, 0);
+      let index = 0;
+      const targetArray = new Uint8Array(length);
+      for (const array of arrays) {
+        targetArray.set(array, index);
+        index += array.byteLength;
+      }
+      return targetArray;
+    }, "concatTypedArrays");
+  }
+});
+
+// ../node_modules/@pushforge/builder/dist/lib/base64.js
+var base64UrlEncode, base64UrlDecodeString, base64UrlDecode;
+var init_base64 = __esm({
+  "../node_modules/@pushforge/builder/dist/lib/base64.js"() {
+    init_functionsRoutes_0_6040694825216862();
+    init_utils();
+    base64UrlEncode = /* @__PURE__ */ __name((input) => {
+      const text = typeof input === "string" ? input : stringFromArrayBuffer(input);
+      let base64;
+      if (typeof globalThis !== "undefined" && "btoa" in globalThis) {
+        base64 = globalThis.btoa(text);
+      } else {
+        base64 = Buffer.from(text, "binary").toString("base64");
+      }
+      return base64.replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+    }, "base64UrlEncode");
+    base64UrlDecodeString = /* @__PURE__ */ __name((s) => {
+      if (!s)
+        throw new Error("Invalid input");
+      return s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - s.length % 4) % 4);
+    }, "base64UrlDecodeString");
+    base64UrlDecode = /* @__PURE__ */ __name((input) => {
+      const base64 = base64UrlDecodeString(input);
+      if (typeof globalThis !== "undefined" && "atob" in globalThis) {
+        const binaryString = globalThis.atob(base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+      }
+      return Buffer.from(base64, "base64").buffer;
+    }, "base64UrlDecode");
+  }
+});
+
+// ../node_modules/@pushforge/builder/dist/lib/shared-secret.js
+var deriveSharedSecret;
+var init_shared_secret = __esm({
+  "../node_modules/@pushforge/builder/dist/lib/shared-secret.js"() {
+    init_functionsRoutes_0_6040694825216862();
+    init_crypto();
+    deriveSharedSecret = /* @__PURE__ */ __name(async (clientPublicKey, localPrivateKey) => {
+      const sharedSecretBytes = await crypto2.subtle.deriveBits({ name: "ECDH", public: clientPublicKey }, localPrivateKey, 256);
+      return crypto2.subtle.importKey("raw", sharedSecretBytes, { name: "HKDF" }, false, ["deriveBits", "deriveKey"]);
+    }, "deriveSharedSecret");
+  }
+});
+
+// ../node_modules/@pushforge/builder/dist/lib/payload.js
+var importClientKeys, derivePseudoRandomKey, createContext, deriveNonce, deriveContentEncryptionKey, MAX_PAYLOAD_SIZE, PADDING_LENGTH_PREFIX_SIZE, padPayload, encryptPayload;
+var init_payload = __esm({
+  "../node_modules/@pushforge/builder/dist/lib/payload.js"() {
+    init_functionsRoutes_0_6040694825216862();
+    init_base64();
+    init_crypto();
+    init_shared_secret();
+    init_utils();
+    importClientKeys = /* @__PURE__ */ __name(async (keys) => {
+      const auth = base64UrlDecode(keys.auth);
+      if (auth.byteLength !== 16) {
+        throw new Error(`Incorrect auth length, expected 16 bytes but got ${auth.byteLength}`);
+      }
+      let decodedKey;
+      const base64Key = base64UrlDecodeString(keys.p256dh);
+      if (typeof globalThis !== "undefined" && "atob" in globalThis) {
+        const binaryStr = globalThis.atob(base64Key);
+        decodedKey = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          decodedKey[i] = binaryStr.charCodeAt(i);
+        }
+      } else {
+        decodedKey = new Uint8Array(Buffer.from(base64Key, "base64"));
+      }
+      if (decodedKey.byteLength !== 65) {
+        throw new Error(`Invalid p256dh key: expected 65 bytes but got ${decodedKey.byteLength} bytes`);
+      }
+      if (decodedKey[0] !== 4) {
+        throw new Error(`Invalid p256dh key: expected uncompressed point format (0x04 prefix) but got 0x${decodedKey[0].toString(16).padStart(2, "0")}`);
+      }
+      const p256 = await crypto2.subtle.importKey("jwk", {
+        kty: "EC",
+        crv: "P-256",
+        x: base64UrlEncode(decodedKey.slice(1, 33)),
+        y: base64UrlEncode(decodedKey.slice(33, 65)),
+        ext: true
+      }, { name: "ECDH", namedCurve: "P-256" }, true, []);
+      return { auth, p256 };
+    }, "importClientKeys");
+    derivePseudoRandomKey = /* @__PURE__ */ __name(async (auth, sharedSecret) => {
+      const pseudoRandomKeyBytes = await crypto2.subtle.deriveBits({
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: auth,
+        // Adding Content-Encoding data info here is required by the Web Push API
+        info: new TextEncoder().encode("Content-Encoding: auth\0")
+      }, sharedSecret, 256);
+      return crypto2.subtle.importKey("raw", pseudoRandomKeyBytes, "HKDF", false, [
+        "deriveBits"
+      ]);
+    }, "derivePseudoRandomKey");
+    createContext = /* @__PURE__ */ __name(async (clientPublicKey, localPublicKey) => {
+      const [clientKeyBytes, localKeyBytes] = await Promise.all([
+        crypto2.subtle.exportKey("raw", clientPublicKey),
+        crypto2.subtle.exportKey("raw", localPublicKey)
+      ]);
+      return concatTypedArrays([
+        new TextEncoder().encode("P-256\0"),
+        new Uint8Array([0, clientKeyBytes.byteLength]),
+        new Uint8Array(clientKeyBytes),
+        new Uint8Array([0, localKeyBytes.byteLength]),
+        new Uint8Array(localKeyBytes)
+      ]);
+    }, "createContext");
+    deriveNonce = /* @__PURE__ */ __name(async (pseudoRandomKey, salt, context) => {
+      const nonceInfo = concatTypedArrays([
+        new TextEncoder().encode("Content-Encoding: nonce\0"),
+        context
+      ]);
+      return crypto2.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info: nonceInfo }, pseudoRandomKey, 12 * 8);
+    }, "deriveNonce");
+    deriveContentEncryptionKey = /* @__PURE__ */ __name(async (pseudoRandomKey, salt, context) => {
+      const info = concatTypedArrays([
+        new TextEncoder().encode("Content-Encoding: aesgcm\0"),
+        context
+      ]);
+      const bits = await crypto2.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info }, pseudoRandomKey, 16 * 8);
+      return crypto2.subtle.importKey("raw", bits, "AES-GCM", false, ["encrypt"]);
+    }, "deriveContentEncryptionKey");
+    MAX_PAYLOAD_SIZE = 4078;
+    PADDING_LENGTH_PREFIX_SIZE = 2;
+    padPayload = /* @__PURE__ */ __name((payload) => {
+      const maxPayloadContentSize = MAX_PAYLOAD_SIZE - PADDING_LENGTH_PREFIX_SIZE;
+      if (payload.byteLength > maxPayloadContentSize) {
+        throw new Error(`Payload too large. Maximum size is ${maxPayloadContentSize} bytes, but received ${payload.byteLength} bytes`);
+      }
+      const availableSpace = MAX_PAYLOAD_SIZE - PADDING_LENGTH_PREFIX_SIZE - payload.byteLength;
+      const maxRandomPadding = Math.min(100, availableSpace);
+      const paddingSize = maxRandomPadding > 0 ? Math.floor(Math.random() * (maxRandomPadding + 1)) : 0;
+      const paddingArray = new ArrayBuffer(PADDING_LENGTH_PREFIX_SIZE + paddingSize);
+      new DataView(paddingArray).setUint16(0, paddingSize);
+      return concatTypedArrays([new Uint8Array(paddingArray), payload]);
+    }, "padPayload");
+    encryptPayload = /* @__PURE__ */ __name(async (localKeys, salt, payload, target) => {
+      const clientKeys = await importClientKeys(target.keys);
+      const sharedSecret = await deriveSharedSecret(clientKeys.p256, localKeys.privateKey);
+      const pseudoRandomKey = await derivePseudoRandomKey(clientKeys.auth, sharedSecret);
+      const context = await createContext(clientKeys.p256, localKeys.publicKey);
+      const nonce = await deriveNonce(pseudoRandomKey, salt, context);
+      const contentEncryptionKey = await deriveContentEncryptionKey(pseudoRandomKey, salt, context);
+      const encodedPayload = new TextEncoder().encode(payload);
+      const paddedPayload = padPayload(encodedPayload);
+      return crypto2.subtle.encrypt({ name: "AES-GCM", iv: nonce }, contentEncryptionKey, paddedPayload);
+    }, "encryptPayload");
+  }
+});
+
+// ../node_modules/@pushforge/builder/dist/lib/jwt.js
+var createJwt;
+var init_jwt = __esm({
+  "../node_modules/@pushforge/builder/dist/lib/jwt.js"() {
+    init_functionsRoutes_0_6040694825216862();
+    init_base64();
+    init_crypto();
+    createJwt = /* @__PURE__ */ __name(async (jwk, jwtData) => {
+      const jwtInfo = {
+        typ: "JWT",
+        // Type of the token
+        alg: "ES256"
+        // Algorithm used for signing
+      };
+      const base64JwtInfo = base64UrlEncode(JSON.stringify(jwtInfo));
+      const base64JwtData = base64UrlEncode(JSON.stringify(jwtData));
+      const unsignedToken = `${base64JwtInfo}.${base64JwtData}`;
+      const privateKey = await crypto2.subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
+      const signature = await crypto2.subtle.sign({ name: "ECDSA", hash: { name: "SHA-256" } }, privateKey, new TextEncoder().encode(unsignedToken)).then((token) => base64UrlEncode(token));
+      return `${base64JwtInfo}.${base64JwtData}.${signature}`;
+    }, "createJwt");
+  }
+});
+
+// ../node_modules/@pushforge/builder/dist/lib/vapid.js
+var vapidHeaders;
+var init_vapid = __esm({
+  "../node_modules/@pushforge/builder/dist/lib/vapid.js"() {
+    init_functionsRoutes_0_6040694825216862();
+    init_base64();
+    init_crypto();
+    init_jwt();
+    init_utils();
+    vapidHeaders = /* @__PURE__ */ __name(async (options, payloadLength, salt, localPublicKey) => {
+      const localPublicKeyBase64 = await crypto2.subtle.exportKey("raw", localPublicKey).then((bytes) => base64UrlEncode(bytes));
+      const serverPublicKey = getPublicKeyFromJwk(options.jwk);
+      const jwt = await createJwt(options.jwk, options.jwt);
+      const headerValues = {
+        Encryption: `salt=${base64UrlEncode(salt)}`,
+        "Crypto-Key": `dh=${localPublicKeyBase64}`,
+        "Content-Length": payloadLength.toString(),
+        "Content-Type": "application/octet-stream",
+        "Content-Encoding": "aesgcm",
+        Authorization: `vapid t=${jwt}, k=${serverPublicKey}`
+      };
+      let headers;
+      if (options.ttl !== void 0)
+        headerValues.TTL = options.ttl.toString();
+      if (options.topic !== void 0)
+        headerValues.Topic = options.topic;
+      if (options.urgency !== void 0)
+        headerValues.Urgency = options.urgency;
+      if (typeof Headers !== "undefined") {
+        headers = new Headers(headerValues);
+      } else {
+        headers = headerValues;
+      }
+      return headers;
+    }, "vapidHeaders");
+  }
+});
+
+// ../node_modules/@pushforge/builder/dist/lib/request.js
+async function buildPushHTTPRequest({ privateJWK, message, subscription }) {
+  let jwk;
+  try {
+    jwk = typeof privateJWK === "string" ? JSON.parse(privateJWK) : privateJWK;
+  } catch {
+    throw new Error("Invalid privateJWK: failed to parse JSON string");
+  }
+  validatePrivateJWK(jwk);
+  validateEndpoint(subscription.endpoint);
+  const MAX_TTL = 24 * 60 * 60;
+  if (message.options?.ttl && message.options.ttl > MAX_TTL) {
+    throw new Error("TTL must be less than 24 hours");
+  }
+  const ttl = message.options?.ttl && message.options.ttl > 0 ? message.options.ttl : MAX_TTL;
+  const jwt = {
+    aud: new URL(subscription.endpoint).origin,
+    exp: Math.floor(Date.now() / 1e3) + ttl,
+    sub: message.adminContact
+  };
+  const options = {
+    jwk,
+    jwt,
+    payload: JSON.stringify(message.payload),
+    ttl,
+    ...message.options?.urgency && {
+      urgency: message.options.urgency
+    },
+    ...message.options?.topic && {
+      topic: message.options.topic
+    }
+  };
+  const salt = crypto2.getRandomValues(new Uint8Array(16));
+  const localKeys = await crypto2.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+  const body = await encryptPayload(localKeys, salt, options.payload, subscription);
+  const headers = await vapidHeaders(options, body.byteLength, salt, localKeys.publicKey);
+  return { endpoint: subscription.endpoint, body, headers };
+}
+var validatePrivateJWK, validateEndpoint;
+var init_request = __esm({
+  "../node_modules/@pushforge/builder/dist/lib/request.js"() {
+    init_functionsRoutes_0_6040694825216862();
+    init_crypto();
+    init_payload();
+    init_vapid();
+    validatePrivateJWK = /* @__PURE__ */ __name((jwk) => {
+      if (jwk.kty !== "EC") {
+        throw new Error(`Invalid JWK: 'kty' must be 'EC', received '${jwk.kty ?? "undefined"}'`);
+      }
+      if (jwk.crv !== "P-256") {
+        throw new Error(`Invalid JWK: 'crv' must be 'P-256', received '${jwk.crv ?? "undefined"}'`);
+      }
+      if (!jwk.x || typeof jwk.x !== "string") {
+        throw new Error("Invalid JWK: missing or invalid 'x' coordinate");
+      }
+      if (!jwk.y || typeof jwk.y !== "string") {
+        throw new Error("Invalid JWK: missing or invalid 'y' coordinate");
+      }
+      if (!jwk.d || typeof jwk.d !== "string") {
+        throw new Error("Invalid JWK: missing or invalid 'd' (private key)");
+      }
+    }, "validatePrivateJWK");
+    validateEndpoint = /* @__PURE__ */ __name((endpoint) => {
+      let url;
+      try {
+        url = new URL(endpoint);
+      } catch {
+        throw new Error(`Invalid subscription endpoint: '${endpoint}' is not a valid URL`);
+      }
+      if (url.protocol !== "https:") {
+        throw new Error(`Invalid subscription endpoint: push endpoints must use HTTPS, received '${url.protocol}'`);
+      }
+    }, "validateEndpoint");
+    __name(buildPushHTTPRequest, "buildPushHTTPRequest");
+  }
+});
+
+// ../node_modules/@pushforge/builder/dist/lib/main.js
+var init_main = __esm({
+  "../node_modules/@pushforge/builder/dist/lib/main.js"() {
+    init_functionsRoutes_0_6040694825216862();
+    init_request();
+  }
+});
+
+// api/web-push/test-send.ts
+function base64urlToUint8Array(base64url) {
+  const base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = (4 - base64.length % 4) % 4;
+  const base64Padded = base64 + "=".repeat(padding);
+  const binaryString = atob(base64Padded);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+function uint8ArrayToBase64url(bytes) {
+  let binaryString = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binaryString += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binaryString).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+function buildVAPIDPrivateKeyJWK(base64urlPrivateKey, base64urlPublicKey) {
+  try {
+    const privateKeyBytes = base64urlToUint8Array(base64urlPrivateKey);
+    if (privateKeyBytes.length !== 32) {
+      throw new Error(`Private key must be 32 bytes, got ${privateKeyBytes.length}`);
+    }
+    const publicKeyBytes = base64urlToUint8Array(base64urlPublicKey);
+    if (publicKeyBytes.length !== 65) {
+      throw new Error(`Public key must be 65 bytes, got ${publicKeyBytes.length}`);
+    }
+    if (publicKeyBytes[0] !== 4) {
+      throw new Error(`Public key must start with 0x04, got 0x${publicKeyBytes[0].toString(16)}`);
+    }
+    const x_bytes = publicKeyBytes.slice(1, 33);
+    const y_bytes = publicKeyBytes.slice(33, 65);
+    const x_base64url = uint8ArrayToBase64url(x_bytes);
+    const y_base64url = uint8ArrayToBase64url(y_bytes);
+    const d_base64url = base64urlPrivateKey;
+    const jwk = {
+      kty: "EC",
+      crv: "P-256",
+      d: d_base64url,
+      x: x_base64url,
+      y: y_base64url
+    };
+    console.log("[Phase C] VAPID JWK built successfully from Phase B keys");
+    return jwk;
+  } catch (error) {
+    console.error("[Phase C] JWK build error:", error);
+    throw error;
+  }
+}
+async function sendNotification(notification, subscription, vapidKeys, env) {
+  try {
+    const dedupKey = `${NOTIF_SENT_PREFIX}${subscription.id}:${notification.scheduleId}:${notification.reminderId}`;
+    const alreadySent = await env.NOTIFICATIONS_SUBSCRIPTIONS?.get(dedupKey, "json");
+    if (alreadySent) {
+      console.log(`[Phase C] Notification already sent (dedup): ${dedupKey}`);
+      return;
+    }
+    let privateJWK;
+    if (typeof vapidKeys.privateKey === "string") {
+      try {
+        privateJWK = JSON.parse(vapidKeys.privateKey);
+      } catch {
+        try {
+          const decoded = atob(vapidKeys.privateKey);
+          privateJWK = JSON.parse(decoded);
+        } catch {
+          if (vapidKeys.privateKey.length === 43 || vapidKeys.privateKey.length === 44) {
+            privateJWK = buildVAPIDPrivateKeyJWK(vapidKeys.privateKey, vapidKeys.publicKey);
+          } else {
+            throw new Error(
+              "VAPID private key must be: JWK JSON, base64-encoded JWK, or base64url 32-byte raw key"
+            );
+          }
+        }
+      }
+    } else {
+      privateJWK = vapidKeys.privateKey;
+    }
+    const notificationData = {
+      scheduleId: notification.scheduleId,
+      reminderId: notification.reminderId
+    };
+    if (notification.tutorialId) {
+      notificationData.tutorialId = notification.tutorialId;
+    }
+    const payloadData = {
+      title: notification.title,
+      body: notification.message,
+      // Changed from 'message' to 'body' for Service Worker compatibility
+      tag: `lma-${notification.scheduleId}`,
+      data: notificationData
+    };
+    if (notification.imageUrl) {
+      payloadData.icon = notification.imageUrl;
+      payloadData.badge = notification.imageUrl;
+    }
+    const { endpoint, headers, body } = await buildPushHTTPRequest({
+      privateJWK,
+      subscription: {
+        endpoint: subscription.endpoint,
+        keys: {
+          p256dh: subscription.p256dh,
+          auth: subscription.auth
+        }
+      },
+      message: {
+        payload: payloadData,
+        adminContact: "mailto:academy@lords-mobile-academy.local",
+        options: {
+          ttl: 86400,
+          urgency: "high",
+          topic: `lma-${notification.scheduleId}`
+        }
+      }
+    });
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Push service error: ${response.status} ${response.statusText} - ${text}`);
+    }
+    if (env.NOTIFICATIONS_SUBSCRIPTIONS) {
+      await env.NOTIFICATIONS_SUBSCRIPTIONS.put(
+        dedupKey,
+        JSON.stringify({ sentAt: Date.now(), subscriptionId: subscription.id }),
+        { expirationTtl: KV_TTL_SECONDS }
+      );
+    }
+    console.log(`[Phase C] Notification sent successfully to ${subscription.id}`);
+  } catch (error) {
+    console.error(`[Phase C] Send notification error:`, error);
+    throw error;
+  }
+}
+var NOTIF_SENT_PREFIX, KV_TTL_DAYS, KV_TTL_SECONDS, onRequest7;
+var init_test_send = __esm({
+  "api/web-push/test-send.ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    init_main();
+    NOTIF_SENT_PREFIX = "notif-sent:";
+    KV_TTL_DAYS = 7;
+    KV_TTL_SECONDS = KV_TTL_DAYS * 24 * 60 * 60;
+    __name(base64urlToUint8Array, "base64urlToUint8Array");
+    __name(uint8ArrayToBase64url, "uint8ArrayToBase64url");
+    __name(buildVAPIDPrivateKeyJWK, "buildVAPIDPrivateKeyJWK");
+    __name(sendNotification, "sendNotification");
+    onRequest7 = /* @__PURE__ */ __name(async (context) => {
+      if (context.request.method !== "POST") {
+        return new Response(
+          JSON.stringify({ error: "Method not allowed" }),
+          {
+            status: 405,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      if (!context.env.TEST_TOKEN) {
+        console.warn("[Phase C] TEST_TOKEN not configured");
+        return new Response(
+          JSON.stringify({ error: "Test mode not configured (TEST_TOKEN missing)" }),
+          {
+            status: 503,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      const authHeader = context.request.headers.get("Authorization");
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return new Response(
+          JSON.stringify({ error: "Missing or invalid Authorization header" }),
+          {
+            status: 401,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      const token = authHeader.substring(7);
+      if (token !== context.env.TEST_TOKEN) {
+        return new Response(
+          JSON.stringify({ error: "Invalid Bearer token" }),
+          {
+            status: 403,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      try {
+        const body = await context.request.json();
+        if (!body.subscriptionId || typeof body.subscriptionId !== "string") {
+          return new Response(
+            JSON.stringify({ error: "Missing or invalid subscriptionId" }),
+            {
+              status: 400,
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+        }
+        if (!context.env.NOTIFICATIONS_SUBSCRIPTIONS) {
+          return new Response(
+            JSON.stringify({ error: "Subscriptions storage not configured" }),
+            {
+              status: 503,
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+        }
+        const subscriptionData = await context.env.NOTIFICATIONS_SUBSCRIPTIONS.get(body.subscriptionId, "json");
+        if (!subscriptionData) {
+          return new Response(
+            JSON.stringify({ error: "Subscription not found" }),
+            {
+              status: 404,
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+        }
+        const subscription = subscriptionData;
+        const testRunId = crypto.randomUUID();
+        const testNotification = {
+          scheduleId: `test-event-${testRunId}`,
+          // Unique per test run
+          reminderId: `test-${testRunId}`,
+          // Unique per test run
+          title: body.title || "Test Notification",
+          message: body.message || "This is a test notification from Lords Mobile Academy",
+          imageUrl: body.imageUrl,
+          tutorialId: body.tutorialId
+        };
+        const vapidKeys = {
+          publicKey: context.env.VAPID_PUBLIC_KEY || "",
+          privateKey: context.env.VAPID_PRIVATE_KEY || ""
+        };
+        if (!vapidKeys.privateKey || !vapidKeys.publicKey) {
+          return new Response(
+            JSON.stringify({ error: "VAPID keys not configured" }),
+            {
+              status: 503,
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+        }
+        await sendNotification(testNotification, subscription, vapidKeys, context.env);
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            message: `Test notification sent to ${body.subscriptionId}`,
+            testRunId,
+            scheduleId: `test-event-${testRunId}`,
+            reminderId: `test-${testRunId}`,
+            note: "Each test uses a unique ID to bypass deduplication for testing purposes"
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      } catch (error) {
+        console.error("[Phase C] Test notification error:", error);
+        return new Response(
+          JSON.stringify({ error: "Failed to send test notification", details: String(error) }),
+          {
+            status: 500,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+    }, "onRequest");
+  }
+});
+
+// api/web-push/unsubscribe.ts
+async function hashEndpoint2(endpoint) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(endpoint);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hashHex.substring(0, 32);
+}
+async function hashRevocationSecret2(secret) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(secret);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hashHex.substring(0, 32);
+}
+async function onRequest8(context) {
+  const { request, env } = context;
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      headers: {
+        "Access-Control-Allow-Origin": env.CLIENT_ORIGIN || "https://lords-academy.pages.dev",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+      }
+    });
+  }
+  if (request.method !== "POST") {
+    return new Response(JSON.stringify({ ok: false, error: "Method not allowed" }), {
+      status: 405,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  const origin = request.headers.get("Origin");
+  const allowedOrigin = env.CLIENT_ORIGIN || "https://lords-academy.pages.dev";
+  if (origin && origin !== allowedOrigin) {
+    console.warn("[WebPush] Unsubscribe: Origin mismatch. Received:", origin, "Expected:", allowedOrigin);
+    return new Response(JSON.stringify({ ok: false, error: "Origin not allowed" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  try {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Invalid JSON" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    const { subscriptionId, revocationSecret } = body;
+    if (!subscriptionId || typeof subscriptionId !== "string") {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Missing or invalid subscriptionId" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (!revocationSecret || typeof revocationSecret !== "string" || revocationSecret.length < 32) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Missing or invalid revocationSecret" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (!subscriptionId.match(/^sub-[a-f0-9-]{36}$/)) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Invalid subscriptionId format" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (!env.NOTIFICATIONS_SUBSCRIPTIONS) {
+      console.error("[WebPush] NOTIFICATIONS_SUBSCRIPTIONS KV not configured");
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "Notifications storage not configured",
+          code: "STORAGE_NOT_CONFIGURED"
+        }),
+        { status: 503, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    let subscription = null;
+    try {
+      const stored = await env.NOTIFICATIONS_SUBSCRIPTIONS.get(subscriptionId, "json");
+      if (stored) {
+        subscription = stored;
+      }
+    } catch (err) {
+      console.error("[WebPush] KV get failed:", err);
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "Failed to retrieve subscription",
+          code: "STORAGE_ERROR"
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (!subscription) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          alreadyDeleted: true
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    const secretHash = await hashRevocationSecret2(revocationSecret);
+    if (secretHash !== subscription.revocationSecretHash) {
+      console.warn("[WebPush] Invalid revocation secret provided for:", subscriptionId);
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "Invalid revocation secret",
+          code: "UNAUTHORIZED"
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    try {
+      await env.NOTIFICATIONS_SUBSCRIPTIONS.delete(subscriptionId);
+      if (subscription.endpoint) {
+        const endpointHash = await hashEndpoint2(subscription.endpoint);
+        const lookupKey = `endpoint:${endpointHash}`;
+        try {
+          await env.NOTIFICATIONS_SUBSCRIPTIONS.delete(lookupKey);
+        } catch (err) {
+          console.warn("[WebPush] Failed to delete lookup key:", err);
+        }
+      }
+    } catch (err) {
+      console.error("[WebPush] KV delete failed (CRITICAL):", err);
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "Failed to delete subscription",
+          code: "STORAGE_ERROR"
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        ok: true
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  } catch (err) {
+    console.error("[WebPush] Unsubscribe error:", err);
+    return new Response(
+      JSON.stringify({ ok: false, error: "Internal server error" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+}
+var init_unsubscribe = __esm({
+  "api/web-push/unsubscribe.ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    __name(hashEndpoint2, "hashEndpoint");
+    __name(hashRevocationSecret2, "hashRevocationSecret");
+    __name(onRequest8, "onRequest");
+  }
+});
+
+// storage.ts
+function getStorageBackend(env, tutorialId) {
+  const backend = (env.STORAGE_BACKEND ?? "do").toLowerCase();
+  if (backend === "kv") {
+    if (!env.DRAFTS) {
+      throw new Error(
+        "STORAGE_BACKEND=kv configured but DRAFTS KV binding not found. Configure the binding in Cloudflare Dashboard \u2192 Pages Settings \u2192 Functions \u2192 Bindings"
+      );
+    }
+    const idLabel = tutorialId ? ` [${tutorialId}]` : "";
+    console.log(`\u{1F4E6}${idLabel} Utilisation : KV (fallback explicite)`);
+    return new KVStorage(env.DRAFTS);
+  }
+  if (backend === "do") {
+    if (!env.DRAFTS_DO) {
+      throw new Error(
+        "STORAGE_BACKEND=do (default) configured but DRAFTS_DO binding not found. Configure the binding in Cloudflare Dashboard \u2192 Pages Settings \u2192 Functions \u2192 Bindings. To use KV fallback, set STORAGE_BACKEND=kv."
+      );
+    }
+    const idLabel = tutorialId ? ` [${tutorialId}]` : "";
+    console.log(`\u{1F4E6}${idLabel} Utilisation : Durable Objects (d\xE9faut)`);
+    return new DOStorage(env.DRAFTS_DO);
+  }
+  throw new Error(
+    `Unknown STORAGE_BACKEND value: "${backend}". Expected: "do" (default) or "kv" (fallback).`
+  );
+}
+function getCmsDocStore(env) {
+  const backend = (env.STORAGE_BACKEND ?? "do").toLowerCase();
+  if (backend === "kv") {
+    if (!env.DRAFTS) {
+      throw new Error(
+        "STORAGE_BACKEND=kv configured but DRAFTS KV binding not found. Configure the binding in Cloudflare Dashboard \u2192 Pages Settings \u2192 Functions \u2192 Bindings"
+      );
+    }
+    return new KVCmsDocStore(env.DRAFTS);
+  }
+  if (backend === "do") {
+    if (!env.DRAFTS_DO) {
+      throw new Error(
+        "STORAGE_BACKEND=do (default) configured but DRAFTS_DO binding not found. Configure the binding in Cloudflare Dashboard \u2192 Pages Settings \u2192 Functions \u2192 Bindings. To use KV fallback, set STORAGE_BACKEND=kv."
+      );
+    }
+    return new DOCmsDocStore(env.DRAFTS_DO);
+  }
+  throw new Error(
+    `Unknown STORAGE_BACKEND value: "${backend}". Expected: "do" (default) or "kv" (fallback).`
+  );
+}
+var KVStorage, DOStorage, KVCmsDocStore, DOCmsDocStore;
+var init_storage = __esm({
+  "storage.ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    KVStorage = class {
+      constructor(kv) {
+        this.kv = kv;
+      }
+      kv;
+      static {
+        __name(this, "KVStorage");
+      }
+      async get(tutorialId) {
+        const raw = await this.kv.get(`draft:${tutorialId}`);
+        if (!raw) return null;
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      }
+      async save(tutorialId, content, baseRevision) {
+        if (baseRevision) {
+          const existing = await this.kv.get(`draft:${tutorialId}`);
+          if (existing) {
+            const existingData = JSON.parse(existing);
+            const serverRevision = existingData.revision;
+            if (baseRevision !== serverRevision) {
+              return {
+                ok: false,
+                conflict: true,
+                serverRevision,
+                message: "Le brouillon a \xE9t\xE9 modifi\xE9 par un autre administrateur. Rechargez avant de r\xE9essayer."
+              };
+            }
+          }
+        }
+        const revision = crypto.randomUUID();
+        await this.kv.put(
+          `draft:${tutorialId}`,
+          JSON.stringify({
+            content,
+            revision,
+            updatedAt: Date.now(),
+            lastEditedLabel: "R4"
+          })
+        );
+        return { ok: true, revision };
+      }
+      async delete(tutorialId) {
+        await this.kv.delete(`draft:${tutorialId}`);
+        return { ok: true };
+      }
+    };
+    DOStorage = class {
+      constructor(doNamespace) {
+        this.doNamespace = doNamespace;
+      }
+      doNamespace;
+      static {
+        __name(this, "DOStorage");
+      }
+      async get(tutorialId) {
+        const doId = this.doNamespace.idFromName(tutorialId);
+        const stub = this.doNamespace.get(doId);
+        return await stub.load();
+      }
+      async save(tutorialId, content, baseRevision) {
+        const doId = this.doNamespace.idFromName(tutorialId);
+        const stub = this.doNamespace.get(doId);
+        return await stub.save({ content, baseRevision });
+      }
+      async delete(tutorialId) {
+        const doId = this.doNamespace.idFromName(tutorialId);
+        const stub = this.doNamespace.get(doId);
+        return stub.delete();
+      }
+    };
+    __name(getStorageBackend, "getStorageBackend");
+    KVCmsDocStore = class {
+      constructor(kv) {
+        this.kv = kv;
+      }
+      kv;
+      static {
+        __name(this, "KVCmsDocStore");
+      }
+      async getDoc(key) {
+        const raw = await this.kv.get(key);
+        if (!raw) return null;
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      }
+      async putDoc(key, value) {
+        try {
+          await this.kv.put(key, JSON.stringify(value));
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, error: String(err) };
+        }
+      }
+    };
+    DOCmsDocStore = class {
+      constructor(doNamespace) {
+        this.doNamespace = doNamespace;
+      }
+      doNamespace;
+      static {
+        __name(this, "DOCmsDocStore");
+      }
+      async getDoc(key) {
+        const doId = this.doNamespace.idFromName(key);
+        const stub = this.doNamespace.get(doId);
+        const data = await stub.load();
+        if (!data) return null;
+        return data.content ?? null;
+      }
+      async putDoc(key, value) {
+        const doId = this.doNamespace.idFromName(key);
+        const stub = this.doNamespace.get(doId);
+        const current = await stub.load().catch(() => null);
+        const baseRevision = current?.revision;
+        const result = await stub.save({ content: value, baseRevision });
+        if (result?.ok) return { ok: true };
+        if (result?.conflict && result?.serverRevision !== void 0) {
+          const retry = await stub.save({ content: value, baseRevision: result.serverRevision });
+          if (retry?.ok) return { ok: true };
+          return { ok: false, error: "conflict" };
+        }
+        return { ok: false, error: result?.error ?? "save failed" };
+      }
+    };
+    __name(getCmsDocStore, "getCmsDocStore");
+  }
+});
+
+// cms-storage.ts
+function cmsStore(env) {
+  return getCmsDocStore(env);
+}
+async function loadThemeLibrary(store) {
+  return store.getDoc("cms:themes:library");
+}
+async function saveThemeLibrary(store, library) {
+  return store.putDoc("cms:themes:library", library);
+}
+async function loadAnnouncementsDraft(store) {
+  return await store.getDoc("cms:announcements:draft") ?? [];
+}
+async function saveAnnouncementsDraft(store, announcements) {
+  return store.putDoc("cms:announcements:draft", announcements);
+}
+async function loadEventsDraft(store) {
+  return await store.getDoc("cms:events:draft") ?? [];
+}
+async function saveEventsDraft(store, events) {
+  return store.putDoc("cms:events:draft", events);
+}
+async function loadNotificationSchedules(store) {
+  return await store.getDoc("cms:notifications:schedules") ?? [];
+}
+async function saveNotificationSchedules(store, schedules) {
+  return store.putDoc("cms:notifications:schedules", schedules);
+}
+async function loadSiteSettings(store) {
+  return store.getDoc("cms:settings:draft");
+}
+async function saveSiteSettings(store, settings) {
+  return store.putDoc("cms:settings:draft", settings);
+}
+var init_cms_storage = __esm({
+  "cms-storage.ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    init_storage();
+    __name(cmsStore, "cmsStore");
+    __name(loadThemeLibrary, "loadThemeLibrary");
+    __name(saveThemeLibrary, "saveThemeLibrary");
+    __name(loadAnnouncementsDraft, "loadAnnouncementsDraft");
+    __name(saveAnnouncementsDraft, "saveAnnouncementsDraft");
+    __name(loadEventsDraft, "loadEventsDraft");
+    __name(saveEventsDraft, "saveEventsDraft");
+    __name(loadNotificationSchedules, "loadNotificationSchedules");
+    __name(saveNotificationSchedules, "saveNotificationSchedules");
+    __name(loadSiteSettings, "loadSiteSettings");
+    __name(saveSiteSettings, "saveSiteSettings");
+  }
+});
+
+// api/cms-storage/[[route]].ts
+async function readSession(req, env) {
+  const cookie = req.headers.get("Cookie") ?? "";
+  const match2 = cookie.match(/lma_session=([^;]+)/);
+  if (!match2) return null;
+  const [payloadB64, sig] = match2[1].split(".");
+  if (!payloadB64 || !sig) return null;
+  try {
+    const payload = atob(payloadB64);
+    const expected = await hmac(payload, env.SESSION_SIGNING_KEY);
+    if (!timingSafeEqual(sig, expected)) return null;
+    const expiresAt = Number(payload);
+    if (!expiresAt || Date.now() > expiresAt) return null;
+    return { expiresAt };
+  } catch {
+    return null;
+  }
+}
+async function hmac(data, key) {
+  const enc = new TextEncoder();
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(key),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", cryptoKey, enc.encode(data));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function timingSafeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+function csrfOk(req) {
+  return req.headers.get("X-Requested-With") === "lma-admin";
+}
+function originAllowed(req, env) {
+  const origin = req.headers.get("Origin");
+  return !origin || origin === env.ALLOWED_ORIGIN;
+}
+function corsHeaders(req, env) {
+  const origin = req.headers.get("Origin") ?? "";
+  const headers = {
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Requested-With",
+    "Access-Control-Allow-Credentials": "true",
+    Vary: "Origin"
+  };
+  if (origin && origin === env.ALLOWED_ORIGIN) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
+}
+function json(data, status = 200, extra = {}) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json", ...extra }
+  });
+}
+function isArray(v) {
+  return Array.isArray(v);
+}
+function isObject(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+function validateCronToken(req, env) {
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const match2 = authHeader.match(/^Bearer\s+(.+)$/);
+  if (!match2) return false;
+  const token = match2[1];
+  const expectedToken = env.CRON_CMS_READ_TOKEN;
+  if (!expectedToken) {
+    console.error("\u26A0\uFE0F  CRON_CMS_READ_TOKEN not configured");
+    return false;
+  }
+  return timingSafeEqual(token, expectedToken);
+}
+var onRequest9;
+var init_route = __esm({
+  "api/cms-storage/[[route]].ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    init_cms_storage();
+    __name(readSession, "readSession");
+    __name(hmac, "hmac");
+    __name(timingSafeEqual, "timingSafeEqual");
+    __name(csrfOk, "csrfOk");
+    __name(originAllowed, "originAllowed");
+    __name(corsHeaders, "corsHeaders");
+    __name(json, "json");
+    __name(isArray, "isArray");
+    __name(isObject, "isObject");
+    __name(validateCronToken, "validateCronToken");
+    onRequest9 = /* @__PURE__ */ __name(async (context) => {
+      const { request, env, params } = context;
+      const parts = params.route ?? [];
+      const resource = parts[0] ?? "";
+      const action = parts[1] ?? "";
+      const cors = corsHeaders(request, env);
+      if (request.method === "OPTIONS") {
+        return new Response(null, { status: 204, headers: cors });
+      }
+      if (resource === "notifications" && action === "cron-read" && request.method === "GET") {
+        if (!validateCronToken(request, env)) {
+          return json({ error: "Unauthorized" }, 401, cors);
+        }
+        let store2;
+        try {
+          store2 = cmsStore(env);
+        } catch (err) {
+          console.error("\u274C CMS Storage: backend indisponible (Cron)");
+          return json({ error: "Service de stockage indisponible" }, 502, cors);
+        }
+        try {
+          const schedules = await loadNotificationSchedules(store2);
+          return json(
+            {
+              ok: true,
+              schedules,
+              timestamp: Date.now()
+            },
+            200,
+            cors
+          );
+        } catch (err) {
+          console.error("\u274C CMS: erreur lecture notifications (Cron):", err);
+          return json({ ok: false, error: "Failed to load schedules" }, 500, cors);
+        }
+      }
+      if (request.method !== "POST") {
+        return json({ error: "Method not allowed" }, 405, cors);
+      }
+      if (!originAllowed(request, env)) {
+        return json({ error: "Origine refus\xE9e" }, 403, cors);
+      }
+      const session = await readSession(request, env);
+      if (!session) {
+        return json({ error: "Authentification requise" }, 401, cors);
+      }
+      if (!csrfOk(request)) {
+        return json({ error: "CSRF invalide" }, 403, cors);
+      }
+      let store;
+      try {
+        store = cmsStore(env);
+      } catch (err) {
+        console.error("\u274C CMS Storage: backend indisponible");
+        return json({ error: "Service de stockage indisponible" }, 502, cors);
+      }
+      try {
+        if (resource === "themes") {
+          if (action === "load") {
+            const library = await loadThemeLibrary(store);
+            return json({ ok: true, library }, 200, cors);
+          }
+          if (action === "save") {
+            const body = await request.json().catch(() => null);
+            if (!isObject(body?.library)) {
+              return json({ ok: false, error: "Invalid library" }, 400, cors);
+            }
+            const result = await saveThemeLibrary(store, body.library);
+            return json(result, result.ok ? 200 : 502, cors);
+          }
+        }
+        if (resource === "announcements") {
+          if (action === "load") {
+            const announcements = await loadAnnouncementsDraft(store);
+            return json({ ok: true, announcements }, 200, cors);
+          }
+          if (action === "save") {
+            const body = await request.json().catch(() => null);
+            if (!isArray(body?.announcements)) {
+              return json({ ok: false, error: "Invalid announcements" }, 400, cors);
+            }
+            const result = await saveAnnouncementsDraft(store, body.announcements);
+            return json(result, result.ok ? 200 : 502, cors);
+          }
+        }
+        if (resource === "events") {
+          if (action === "load") {
+            const events = await loadEventsDraft(store);
+            return json({ ok: true, events }, 200, cors);
+          }
+          if (action === "save") {
+            const body = await request.json().catch(() => null);
+            if (!isArray(body?.events)) {
+              return json({ ok: false, error: "Invalid events" }, 400, cors);
+            }
+            const result = await saveEventsDraft(store, body.events);
+            return json(result, result.ok ? 200 : 502, cors);
+          }
+        }
+        if (resource === "notifications") {
+          if (action === "load") {
+            const schedules = await loadNotificationSchedules(store);
+            return json({ ok: true, schedules }, 200, cors);
+          }
+          if (action === "save") {
+            const body = await request.json().catch(() => null);
+            if (!isArray(body?.schedules)) {
+              return json({ ok: false, error: "Invalid schedules" }, 400, cors);
+            }
+            const result = await saveNotificationSchedules(store, body.schedules);
+            return json(result, result.ok ? 200 : 502, cors);
+          }
+        }
+        if (resource === "settings") {
+          if (action === "load") {
+            const settings = await loadSiteSettings(store);
+            return json({ ok: true, settings }, 200, cors);
+          }
+          if (action === "save") {
+            const body = await request.json().catch(() => null);
+            if (!isObject(body?.settings)) {
+              return json({ ok: false, error: "Invalid settings" }, 400, cors);
+            }
+            const result = await saveSiteSettings(store, body.settings);
+            return json(result, result.ok ? 200 : 502, cors);
+          }
+        }
+        return json({ error: "Unknown CMS storage route" }, 404, cors);
+      } catch (err) {
+        console.error("\u274C CMS Storage error");
+        return json({ error: "Internal server error" }, 500, cors);
+      }
+    }, "onRequest");
+  }
+});
+
+// cms.ts
+function decodeBase64ToJSON(base64String) {
+  const cleanBase64 = base64String.replace(/\s/g, "");
+  const binaryString = atob(cleanBase64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  const decoder = new TextDecoder("utf-8");
+  const jsonString = decoder.decode(bytes);
+  return JSON.parse(jsonString);
+}
+function encodeJSONToBase64(obj) {
+  const jsonString = JSON.stringify(obj, null, 2);
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(jsonString);
+  let binaryString = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binaryString += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binaryString);
+}
+function hashContent(obj) {
+  const json4 = JSON.stringify(obj, null, 2);
+  let hash = 0;
+  for (let i = 0; i < json4.length; i++) {
+    const char = json4.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(16);
+}
+async function publishCmsConfig(env, filename, content, maxRetries = 3) {
+  const path = `app/public/cms/${filename}`;
+  const apiBase = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}`;
+  const headers = {
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    "User-Agent": "lma-cms-function",
+    Accept: "application/vnd.github+json"
+  };
+  let lastError = "";
+  let writeSucceeded = false;
+  let writtenSha = "";
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      let currentRevision = 0;
+      let currentSha;
+      let currentPublishedContent = null;
+      try {
+        const apiRes = await fetch(`${apiBase}?ref=${env.GITHUB_BRANCH}`, { headers });
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          currentSha = apiData.sha;
+          if (apiData.content) {
+            currentPublishedContent = decodeBase64ToJSON(apiData.content);
+            currentRevision = currentPublishedContent?._rev || 0;
+            console.info(
+              `\u{1F4D6} \xC9tat GitHub coh\xE9rent: rev=${currentRevision}, theme=${currentPublishedContent?.activeThemeId}, sha=${currentSha.slice(0, 7)}`
+            );
+          }
+        }
+      } catch (e) {
+        console.warn(
+          `\u26A0\uFE0F Impossible de lire depuis API GitHub (${e.message}), en supposant premier d\xE9ploiement`
+        );
+        currentRevision = 0;
+        currentSha = void 0;
+      }
+      const newRevision = currentRevision + 1;
+      const wrappedContent = {
+        ...content,
+        _rev: newRevision,
+        _publishedAt: Date.now()
+      };
+      const newContentHash = hashContent(wrappedContent);
+      const contentB64 = encodeJSONToBase64(wrappedContent);
+      console.info(
+        `\u{1F4E4} Tentative d'\xE9criture ${attempt + 1}/${maxRetries}: rev=${newRevision}, hash=${newContentHash.slice(0, 7)}, currentSha=${currentSha?.slice(0, 7)}`
+      );
+      const putRes = await fetch(apiBase, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          message: `Mise \xE0 jour ${filename} (CMS) \u2014 rev ${newRevision} \u2014 ${(/* @__PURE__ */ new Date()).toISOString()}`,
+          content: contentB64,
+          branch: env.GITHUB_BRANCH,
+          sha: currentSha || void 0
+        })
+      });
+      if (!putRes.ok) {
+        const errText = await putRes.text();
+        lastError = `GitHub PUT failed: ${putRes.status} ${errText}`;
+        if (putRes.status === 409) {
+          console.warn(
+            `\u26A0\uFE0F Conflit SHA (409): le fichier a chang\xE9 entre la lecture et l'\xE9criture. Relecture et retry...`
+          );
+          if (attempt < maxRetries - 1) {
+            await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+            continue;
+          }
+          return {
+            ok: false,
+            status: "conflict" /* CONFLICT */,
+            error: "SHA conflict after retries",
+            details: lastError
+          };
+        }
+        if (putRes.status === 401) {
+          return {
+            ok: false,
+            status: "write_failed" /* WRITE_FAILED */,
+            error: "GitHub authentication failed",
+            details: lastError
+          };
+        }
+        if (attempt < maxRetries - 1) {
+          await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+          continue;
+        }
+        return {
+          ok: false,
+          status: "write_failed" /* WRITE_FAILED */,
+          error: "GitHub write failed after retries",
+          details: lastError
+        };
+      }
+      const putResult = await putRes.json();
+      const newSha = putResult.content?.sha;
+      writeSucceeded = true;
+      writtenSha = newSha;
+      console.info(
+        `\u{1F4DD} \u2705 \xC9criture GitHub r\xE9ussie: nouveau SHA=${newSha?.slice(0, 7)}, attente propagation...`
+      );
+      await new Promise((r) => setTimeout(r, 500));
+      let verified = false;
+      let publishedContent = null;
+      let publishedHash = "";
+      for (let verifyAttempt = 0; verifyAttempt < 5; verifyAttempt++) {
+        try {
+          const verifyRes = await fetch(`${apiBase}?ref=${env.GITHUB_BRANCH}`, { headers });
+          if (verifyRes.ok) {
+            const verifyData = await verifyRes.json();
+            const verifySha = verifyData.sha;
+            if (verifyData.content) {
+              publishedContent = decodeBase64ToJSON(verifyData.content);
+              publishedHash = hashContent(publishedContent);
+              const hasThemeId = filename === "themes.json";
+              const themeIdMatches = !hasThemeId || publishedContent.activeThemeId === content.activeThemeId;
+              if (verifySha === newSha && publishedContent._rev === newRevision && themeIdMatches && publishedHash === newContentHash) {
+                verified = true;
+                console.info(
+                  `\u2705 Publication v\xE9rifi\xE9e: rev=${newRevision}, sha=${newSha?.slice(0, 7)}, hash=${publishedHash.slice(0, 7)}`
+                );
+                return {
+                  ok: true,
+                  revision: newSha,
+                  revisionNumber: newRevision,
+                  status: "verify_success" /* VERIFY_SUCCESS */
+                };
+              }
+              console.warn(
+                `\u26A0\uFE0F V\xE9rif. tentative ${verifyAttempt + 1}/5: mismatch d\xE9tect\xE9`
+              );
+              if (verifySha !== newSha)
+                console.warn(`  SHA: ${verifySha?.slice(0, 7)} vs attendu ${newSha?.slice(0, 7)}`);
+              if (publishedContent._rev !== newRevision)
+                console.warn(`  Rev: ${publishedContent._rev} vs attendu ${newRevision}`);
+              if (filename === "themes.json" && publishedContent.activeThemeId !== content.activeThemeId)
+                console.warn(
+                  `  Theme: ${publishedContent.activeThemeId} vs attendu ${content.activeThemeId}`
+                );
+              if (publishedHash !== newContentHash)
+                console.warn(
+                  `  Hash: ${publishedHash.slice(0, 7)} vs attendu ${newContentHash.slice(0, 7)}`
+                );
+            }
+          }
+        } catch (e) {
+          console.warn(
+            `\u26A0\uFE0F V\xE9rif. tentative ${verifyAttempt + 1}/5 \xE9chou\xE9e: ${e.message}`
+          );
+        }
+        if (verifyAttempt < 4) {
+          await new Promise((r) => setTimeout(r, 300 * (verifyAttempt + 1)));
+        }
+      }
+      if (!verified) {
+        lastError = `Publication verification failed: expected rev ${newRevision} sha ${newSha?.slice(0, 7)} hash ${newContentHash.slice(0, 7)}, got rev ${publishedContent?._rev} hash ${publishedHash.slice(0, 7)}`;
+        console.error(`\u274C ${lastError}`);
+        return {
+          ok: false,
+          status: "verify_failed" /* VERIFY_FAILED */,
+          error: "GitHub write succeeded but verification failed",
+          details: lastError,
+          revision: newSha,
+          revisionNumber: newRevision
+        };
+      }
+      return {
+        ok: true,
+        revision: newSha,
+        revisionNumber: newRevision,
+        status: "verify_success" /* VERIFY_SUCCESS */
+      };
+    } catch (err) {
+      lastError = `Exception: ${err.message}`;
+      if (attempt === maxRetries - 1) {
+        if (writeSucceeded) {
+          return {
+            ok: false,
+            status: "expired_verify" /* EXPIRED_VERIFY */,
+            error: "Verification expired after write success",
+            details: lastError,
+            revision: writtenSha
+          };
+        }
+        return {
+          ok: false,
+          status: "write_failed" /* WRITE_FAILED */,
+          error: "Unexpected error",
+          details: lastError
+        };
+      }
+      await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+    }
+  }
+  if (writeSucceeded) {
+    return {
+      ok: false,
+      status: "expired_verify" /* EXPIRED_VERIFY */,
+      error: "Verification expired after write success",
+      details: lastError,
+      revision: writtenSha
+    };
+  }
+  return {
+    ok: false,
+    status: "write_failed" /* WRITE_FAILED */,
+    error: "Publication failed after all retries",
+    details: lastError
+  };
+}
+function validateTheme(theme) {
+  if (!theme || typeof theme !== "object") return false;
+  if (typeof theme.id !== "string" || !theme.id.trim()) return false;
+  if (typeof theme.name !== "string" || !theme.name.trim()) return false;
+  if (!theme.colors || typeof theme.colors !== "object") return false;
+  if (!theme.typography || typeof theme.typography !== "object") return false;
+  return true;
+}
+function validateAnnouncement(ann) {
+  if (!ann || typeof ann !== "object") return false;
+  if (typeof ann.id !== "string" || !ann.id.trim()) return false;
+  if (typeof ann.title !== "string" || !ann.title.trim()) return false;
+  if (typeof ann.description !== "string") return false;
+  if (typeof ann.buttonText !== "string" || !ann.buttonText.trim()) return false;
+  if (typeof ann.bgColor !== "string" || !ann.bgColor.trim()) return false;
+  return true;
+}
+function validateEvent(evt) {
+  if (!evt || typeof evt !== "object") return false;
+  if (typeof evt.id !== "string" || !evt.id.trim()) return false;
+  if (typeof evt.name !== "string" || !evt.name.trim()) return false;
+  if (typeof evt.startAt !== "number" || evt.startAt <= 0) return false;
+  if (typeof evt.tutorialId !== "string") return false;
+  return true;
+}
+function validateHomeConfig(config) {
+  if (!config || typeof config !== "object") return false;
+  if (typeof config.title !== "string" || !config.title.trim()) return false;
+  if (typeof config.subtitle !== "string") return false;
+  if (!config.sections || typeof config.sections !== "object") return false;
+  return true;
+}
+function validateSiteSettings(settings) {
+  if (!settings || typeof settings !== "object") return false;
+  if (typeof settings.siteName !== "string" || !settings.siteName.trim()) return false;
+  if (typeof settings.siteDescription !== "string") return false;
+  return true;
+}
+var init_cms = __esm({
+  "cms.ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    __name(decodeBase64ToJSON, "decodeBase64ToJSON");
+    __name(encodeJSONToBase64, "encodeJSONToBase64");
+    __name(hashContent, "hashContent");
+    __name(publishCmsConfig, "publishCmsConfig");
+    __name(validateTheme, "validateTheme");
+    __name(validateAnnouncement, "validateAnnouncement");
+    __name(validateEvent, "validateEvent");
+    __name(validateHomeConfig, "validateHomeConfig");
+    __name(validateSiteSettings, "validateSiteSettings");
+  }
+});
+
+// api/cms/[[route]].ts
+async function readSession2(req, env) {
+  const cookie = req.headers.get("Cookie") ?? "";
+  const match2 = cookie.match(/lma_session=([^;]+)/);
+  if (!match2) {
+    return null;
+  }
+  const [payloadB64, sig] = match2[1].split(".");
+  if (!payloadB64 || !sig) {
+    return null;
+  }
+  try {
+    const payload = atob(payloadB64);
+    const expected = await hmac2(payload, env.SESSION_SIGNING_KEY);
+    if (!timingSafeEqual2(sig, expected)) {
+      console.warn("\u274C CMS: Signature session invalide");
+      return null;
+    }
+    const expiresAt = Number(payload);
+    if (!expiresAt || Date.now() > expiresAt) {
+      console.warn("\u274C CMS: Session expir\xE9e ou invalide");
+      return null;
+    }
+    return { expiresAt };
+  } catch (err) {
+    console.warn("\u274C CMS: Erreur parsing session:", err);
+    return null;
+  }
+}
+async function hmac2(data, key) {
+  const enc = new TextEncoder();
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(key),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", cryptoKey, enc.encode(data));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function timingSafeEqual2(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+function csrfOk2(req) {
+  return req.headers.get("X-Requested-With") === "lma-admin";
+}
+async function handleCmsThemes(req, env) {
+  if (req.method !== "POST") return json2({ error: "Method not allowed" }, 405);
+  if (!originAllowed2(req, env)) {
+    console.warn("\u274C CMS themes: Origine refus\xE9e");
+    return json2({ error: "Origine refus\xE9e" }, 403);
+  }
+  const session = await readSession2(req, env);
+  if (!session) {
+    console.warn("\u274C CMS themes: Tentative sans authentification");
+    return json2({ error: "Authentification requise" }, 401);
+  }
+  if (!csrfOk2(req)) {
+    console.warn("\u274C CMS themes: CSRF invalide");
+    return json2({ error: "CSRF invalide" }, 403);
+  }
+  const body = await req.json().catch(() => null);
+  const action = body?.action;
+  if (action === "publish") {
+    const theme = body?.theme;
+    if (!validateTheme(theme)) {
+      return json2({ ok: false, error: "Invalid theme" }, 400);
+    }
+    console.info(
+      `\u2705 CMS publish theme: ${theme.id} (user authenticated, server will compute revision)`
+    );
+    const result = await publishCmsConfig(env, "themes.json", {
+      activeThemeId: theme.id,
+      publishedAt: Date.now(),
+      theme
+    });
+    if (!result.ok) {
+      let httpStatus = 502;
+      let userMessage = "Erreur de publication";
+      switch (result.status) {
+        case "write_failed":
+          httpStatus = 502;
+          userMessage = "Impossible d'\xE9crire sur GitHub. V\xE9rifiez votre authentification.";
+          break;
+        case "conflict":
+          httpStatus = 409;
+          userMessage = "Conflit lors de la publication. Le fichier a chang\xE9. Veuillez r\xE9essayer.";
+          break;
+        case "verify_failed":
+          httpStatus = 202;
+          userMessage = "\xC9criture GitHub r\xE9ussie, mais v\xE9rification du contenu \xE9chou\xE9e. \xC9tat incertain.";
+          break;
+        case "expired_verify":
+          httpStatus = 202;
+          userMessage = "\xC9criture GitHub r\xE9ussie. V\xE9rification expir\xE9e. V\xE9rifiez manuellement.";
+          break;
+      }
+      return json2(
+        {
+          ok: false,
+          status: result.status,
+          revision: result.revision,
+          revisionNumber: result.revisionNumber,
+          error: result.error,
+          userMessage
+        },
+        httpStatus
+      );
+    }
+    return json2({
+      ok: true,
+      status: result.status || "verify_success",
+      revision: result.revision,
+      revisionNumber: result.revisionNumber,
+      userMessage: "Th\xE8me publi\xE9 avec succ\xE8s. D\xE9ploiement sur Cloudflare en cours."
+    });
+  }
+  return json2({ ok: false, error: "Unknown action" }, 400);
+}
+async function handleCmsAnnouncements(req, env) {
+  if (req.method !== "POST") return json2({ error: "Method not allowed" }, 405);
+  if (!originAllowed2(req, env)) {
+    console.warn("\u274C CMS announcements: Origine refus\xE9e");
+    return json2({ error: "Origine refus\xE9e" }, 403);
+  }
+  const session = await readSession2(req, env);
+  if (!session) {
+    console.warn("\u274C CMS announcements: Tentative sans authentification");
+    return json2({ error: "Authentification requise" }, 401);
+  }
+  if (!csrfOk2(req)) {
+    console.warn("\u274C CMS announcements: CSRF invalide");
+    return json2({ error: "CSRF invalide" }, 403);
+  }
+  const body = await req.json().catch(() => null);
+  const action = body?.action;
+  if (action === "publish") {
+    const announcements = body?.announcements;
+    if (!Array.isArray(announcements)) {
+      return json2({ ok: false, error: "Invalid announcements" }, 400);
+    }
+    for (const ann of announcements) {
+      if (!validateAnnouncement(ann)) {
+        return json2({ ok: false, error: `Invalid announcement: ${ann?.id}` }, 400);
+      }
+    }
+    console.info(`\u2705 CMS publish announcements: ${announcements.length} items`);
+    const result = await publishCmsConfig(env, "announcements.json", {
+      announcements,
+      publishedAt: Date.now()
+    });
+    if (!result.ok) {
+      return json2({ ok: false, error: result.error }, 502);
+    }
+    return json2({ ok: true, revision: result.revision });
+  }
+  return json2({ ok: false, error: "Unknown action" }, 400);
+}
+async function handleCmsEvents(req, env) {
+  if (req.method !== "POST") return json2({ error: "Method not allowed" }, 405);
+  if (!originAllowed2(req, env)) {
+    console.warn("\u274C CMS events: Origine refus\xE9e");
+    return json2({ error: "Origine refus\xE9e" }, 403);
+  }
+  const session = await readSession2(req, env);
+  if (!session) {
+    console.warn("\u274C CMS events: Tentative sans authentification");
+    return json2({ error: "Authentification requise" }, 401);
+  }
+  if (!csrfOk2(req)) {
+    console.warn("\u274C CMS events: CSRF invalide");
+    return json2({ error: "CSRF invalide" }, 403);
+  }
+  const body = await req.json().catch(() => null);
+  const action = body?.action;
+  if (action === "publish") {
+    const events = body?.events;
+    if (!Array.isArray(events)) {
+      return json2({ ok: false, error: "Invalid events" }, 400);
+    }
+    for (const evt of events) {
+      if (!validateEvent(evt)) {
+        return json2({ ok: false, error: `Invalid event: ${evt?.id}` }, 400);
+      }
+    }
+    console.info(`\u2705 CMS publish events: ${events.length} items`);
+    const result = await publishCmsConfig(env, "events.json", {
+      events,
+      publishedAt: Date.now()
+    });
+    if (!result.ok) {
+      return json2({ ok: false, error: result.error }, 502);
+    }
+    return json2({ ok: true, revision: result.revision });
+  }
+  return json2({ ok: false, error: "Unknown action" }, 400);
+}
+async function handleCmsHome(req, env) {
+  if (req.method !== "POST") return json2({ error: "Method not allowed" }, 405);
+  if (!originAllowed2(req, env)) {
+    console.warn("\u274C CMS home: Origine refus\xE9e");
+    return json2({ error: "Origine refus\xE9e" }, 403);
+  }
+  const session = await readSession2(req, env);
+  if (!session) {
+    console.warn("\u274C CMS home: Tentative sans authentification");
+    return json2({ error: "Authentification requise" }, 401);
+  }
+  if (!csrfOk2(req)) {
+    console.warn("\u274C CMS home: CSRF invalide");
+    return json2({ error: "CSRF invalide" }, 403);
+  }
+  const body = await req.json().catch(() => null);
+  const action = body?.action;
+  if (action === "save") {
+    const config = body?.config;
+    if (!validateHomeConfig(config)) {
+      return json2({ ok: false, error: "Invalid home config" }, 400);
+    }
+    console.info(`\u2705 CMS save home config`);
+    const result = await publishCmsConfig(env, "home.json", {
+      config,
+      publishedAt: Date.now()
+    });
+    return json2({
+      ok: result.ok,
+      error: result.error,
+      revision: result.revision,
+      revisionNumber: result.revisionNumber,
+      status: result.status,
+      details: result.details
+    }, result.ok ? 200 : 200);
+  }
+  return json2({ ok: false, error: "Unknown action" }, 400);
+}
+async function handleCmsSettings(req, env) {
+  if (req.method !== "POST") return json2({ error: "Method not allowed" }, 405);
+  if (!originAllowed2(req, env)) {
+    console.warn("\u274C CMS settings: Origine refus\xE9e");
+    return json2({ error: "Origine refus\xE9e" }, 403);
+  }
+  const session = await readSession2(req, env);
+  if (!session) {
+    console.warn("\u274C CMS settings: Tentative sans authentification");
+    return json2({ error: "Authentification requise" }, 401);
+  }
+  if (!csrfOk2(req)) {
+    console.warn("\u274C CMS settings: CSRF invalide");
+    return json2({ error: "CSRF invalide" }, 403);
+  }
+  const body = await req.json().catch(() => null);
+  const action = body?.action;
+  if (action === "save") {
+    const settings = body?.settings;
+    if (!validateSiteSettings(settings)) {
+      return json2({ ok: false, error: "Invalid settings" }, 400);
+    }
+    console.info(`\u2705 CMS save site settings`);
+    const result = await publishCmsConfig(env, "settings.json", {
+      settings,
+      publishedAt: Date.now()
+    });
+    if (!result.ok) {
+      return json2({ ok: false, error: result.error }, 502);
+    }
+    return json2({ ok: true, revision: result.revision });
+  }
+  return json2({ ok: false, error: "Unknown action" }, 400);
+}
+async function handleCmsNotifications(req, env) {
+  if (req.method !== "POST") return json2({ error: "Method not allowed" }, 405);
+  const body = await req.json().catch(() => null);
+  const action = body?.action;
+  if (action === "test") {
+    if (!originAllowed2(req, env)) {
+      console.warn("\u274C CMS notifications test: Origine refus\xE9e");
+      return json2({ error: "Origine refus\xE9e" }, 403);
+    }
+    const session = await readSession2(req, env);
+    if (!session) {
+      console.warn("\u274C CMS notifications test: Tentative sans authentification");
+      return json2({ error: "Authentification requise" }, 401);
+    }
+    if (!csrfOk2(req)) {
+      console.warn("\u274C CMS notifications test: CSRF invalide");
+      return json2({ error: "CSRF invalide" }, 403);
+    }
+    const schedule = body?.schedule;
+    if (!schedule || typeof schedule.title !== "string") {
+      return json2({ ok: false, error: "Invalid schedule" }, 400);
+    }
+    console.info(`\u2705 CMS test notification: ${schedule.title}`);
+    return json2({ ok: true, message: "Test notification structure validated" });
+  }
+  if (action === "subscribe") {
+    const subscription = body?.subscription;
+    if (!subscription || typeof subscription !== "object") {
+      return json2(
+        {
+          ok: false,
+          error: "Invalid subscription: must be an object",
+          code: "INVALID_SUBSCRIPTION_TYPE"
+        },
+        400
+      );
+    }
+    if (!subscription.endpoint || typeof subscription.endpoint !== "string") {
+      return json2(
+        {
+          ok: false,
+          error: "Invalid subscription: endpoint is required and must be a string",
+          code: "INVALID_ENDPOINT"
+        },
+        400
+      );
+    }
+    if (!subscription.keys || typeof subscription.keys !== "object") {
+      return json2(
+        {
+          ok: false,
+          error: "Invalid subscription: keys (p256dh, auth) are required",
+          code: "INVALID_KEYS"
+        },
+        400
+      );
+    }
+    const { p256dh, auth } = subscription.keys;
+    if (!p256dh || !auth) {
+      return json2(
+        {
+          ok: false,
+          error: "Invalid subscription: p256dh and auth keys are required",
+          code: "MISSING_CRYPTO_KEYS"
+        },
+        400
+      );
+    }
+    const endpointHash = await hashEndpoint3(subscription.endpoint);
+    console.info(`[Phase A] Subscribe validation OK (endpoint hash: ${endpointHash})`);
+    return json2(
+      {
+        ok: false,
+        error: "Subscription service not yet available",
+        message: "Web Push subscriptions will be implemented in Phase B (after KV namespace is configured)",
+        code: "NOT_IMPLEMENTED_PHASE_B",
+        details: {
+          validationStatus: "passed",
+          persistenceStatus: "pending_kv_setup"
+        }
+      },
+      503
+      // Service Unavailable — indicates temporary unavailability pending infrastructure
+    );
+  }
+  if (action === "unsubscribe") {
+    const subscription = body?.subscription;
+    if (!subscription || !subscription.endpoint || typeof subscription.endpoint !== "string") {
+      return json2(
+        {
+          ok: false,
+          error: "Invalid subscription: endpoint is required and must be a string",
+          code: "INVALID_ENDPOINT"
+        },
+        400
+      );
+    }
+    console.info(`[Phase A] Unsubscribe validation OK (endpoint hash: ${await hashEndpoint3(subscription.endpoint)})`);
+    return json2(
+      {
+        ok: false,
+        error: "Unsubscribe service not yet available",
+        message: "Web Push unsubscriptions will be implemented in Phase B (after KV namespace is configured)",
+        code: "NOT_IMPLEMENTED_PHASE_B",
+        details: {
+          validationStatus: "passed",
+          persistenceStatus: "pending_kv_setup"
+        }
+      },
+      503
+    );
+  }
+  if (action === "schedules") {
+    if (!originAllowed2(req, env)) {
+      console.warn("\u274C CMS schedules: Origine refus\xE9e");
+      return json2({ error: "Origine refus\xE9e" }, 403);
+    }
+    const session = await readSession2(req, env);
+    if (!session) {
+      console.warn("\u274C CMS schedules: Tentative sans authentification");
+      return json2({ error: "Authentification requise" }, 401);
+    }
+    if (!csrfOk2(req)) {
+      console.warn("\u274C CMS schedules: CSRF invalide");
+      return json2({ error: "CSRF invalide" }, 403);
+    }
+    const schedules = body?.schedules;
+    if (!Array.isArray(schedules)) {
+      return json2({ ok: false, error: "Invalid schedules" }, 400);
+    }
+    console.info(`\u2705 CMS save schedules: ${schedules.length} items`);
+    return json2({ ok: true, count: schedules.length });
+  }
+  return json2({ ok: false, error: "Unknown action" }, 400);
+}
+async function hashEndpoint3(endpoint) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(endpoint);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hashHex.slice(0, 8);
+}
+function json2(data, status = 200, headers = {}) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json", ...headers }
+  });
+}
+function corsHeadersRestricted(req, env) {
+  const origin = req.headers.get("Origin") ?? "";
+  const isAllowed = !origin || origin === env.ALLOWED_ORIGIN;
+  if (!isAllowed) {
+    console.warn(`\u274C CORS: Origine refus\xE9e: ${origin}`);
+    return {
+      "Access-Control-Allow-Origin": "",
+      "Access-Control-Allow-Credentials": "false"
+    };
+  }
+  return {
+    "Access-Control-Allow-Origin": origin || env.ALLOWED_ORIGIN,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Requested-With",
+    "Access-Control-Allow-Credentials": "true",
+    "Vary": "Origin"
+  };
+}
+function originAllowed2(req, env) {
+  const origin = req.headers.get("Origin");
+  return !origin || origin === env.ALLOWED_ORIGIN;
+}
+function withCors(response, cors) {
+  const newHeaders = new Headers(response.headers);
+  Object.entries(cors).forEach(([k, v]) => {
+    if (v) newHeaders.set(k, v);
+  });
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: newHeaders
+  });
+}
+var onRequest10;
+var init_route2 = __esm({
+  "api/cms/[[route]].ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    init_cms();
+    __name(readSession2, "readSession");
+    __name(hmac2, "hmac");
+    __name(timingSafeEqual2, "timingSafeEqual");
+    __name(csrfOk2, "csrfOk");
+    onRequest10 = /* @__PURE__ */ __name(async (context) => {
+      const { request, env, params } = context;
+      const url = new URL(request.url);
+      const pathParts = params.route ?? [];
+      const route = pathParts[0] || "";
+      const cors = corsHeadersRestricted(request, env);
+      if (request.method === "OPTIONS") {
+        return new Response(null, { status: 204, headers: cors });
+      }
+      try {
+        let response;
+        switch (route) {
+          case "themes":
+            response = await handleCmsThemes(request, env);
+            break;
+          case "announcements":
+            response = await handleCmsAnnouncements(request, env);
+            break;
+          case "events":
+            response = await handleCmsEvents(request, env);
+            break;
+          case "home":
+            response = await handleCmsHome(request, env);
+            break;
+          case "settings":
+            response = await handleCmsSettings(request, env);
+            break;
+          case "notifications":
+            response = await handleCmsNotifications(request, env);
+            break;
+          default:
+            response = json2({ error: "CMS route not found" }, 404);
+        }
+        return withCors(response, cors);
+      } catch (err) {
+        console.error("CMS API error:", err);
+        return withCors(json2({ error: "CMS error" }, 500), cors);
+      }
+    }, "onRequest");
+    __name(handleCmsThemes, "handleCmsThemes");
+    __name(handleCmsAnnouncements, "handleCmsAnnouncements");
+    __name(handleCmsEvents, "handleCmsEvents");
+    __name(handleCmsHome, "handleCmsHome");
+    __name(handleCmsSettings, "handleCmsSettings");
+    __name(handleCmsNotifications, "handleCmsNotifications");
+    __name(hashEndpoint3, "hashEndpoint");
+    __name(json2, "json");
+    __name(corsHeadersRestricted, "corsHeadersRestricted");
+    __name(originAllowed2, "originAllowed");
+    __name(withCors, "withCors");
+  }
+});
+
+// ../src/utils/mergeTutorialStatuses.ts
+function mergeTutorialStatuses(indexTutorials, draftIds) {
+  const result = [];
+  const processedIds = /* @__PURE__ */ new Set();
+  indexTutorials.forEach((t) => {
+    result.push({
+      id: t.id,
+      title: t.title || t.id,
+      category: t.category || null,
+      status: t.status || "draft",
+      hasDraft: draftIds.has(t.id),
+      lastModified: t.lastModified || null,
+      inIndex: true
+    });
+    processedIds.add(t.id);
+  });
+  draftIds.forEach((draftId) => {
+    if (!processedIds.has(draftId)) {
+      result.push({
+        id: draftId,
+        title: null,
+        // Pas de métadonnées
+        category: null,
+        status: "draft",
+        hasDraft: true,
+        lastModified: null,
+        inIndex: false
+      });
+      processedIds.add(draftId);
+    }
+  });
+  return result;
+}
+var init_mergeTutorialStatuses = __esm({
+  "../src/utils/mergeTutorialStatuses.ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    __name(mergeTutorialStatuses, "mergeTutorialStatuses");
+  }
+});
+
+// api/[[path]].ts
+async function rebuildPublishedIndex(env) {
+  const headers = {
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    "User-Agent": "lma-pages-function",
+    Accept: "application/vnd.github+json"
+  };
+  const indexUrl = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/app/public/content/index.json`;
+  const currentIndexRes = await fetch(`${indexUrl}?ref=${env.GITHUB_BRANCH}`, { headers });
+  let currentIndex = { tutorials: [] };
+  let currentIndexSha;
+  if (currentIndexRes.ok) {
+    const indexData = await currentIndexRes.json();
+    currentIndexSha = indexData.sha;
+    try {
+      const decoded = decodeURIComponent(escape(atob(indexData.content.replace(/\n/g, ""))));
+      currentIndex = JSON.parse(decoded);
+    } catch {
+      console.warn("Impossible de parser index.json existant, reconstruction compl\xE8te");
+    }
+  }
+  const treeUrl = `https://api.github.com/repos/${env.GITHUB_REPO}/git/trees/${env.GITHUB_BRANCH}?recursive=1`;
+  const treeRes = await fetch(treeUrl, { headers });
+  if (!treeRes.ok) {
+    console.warn(`Cannot fetch tree: ${treeRes.status}`);
+    return;
+  }
+  const treeData = await treeRes.json();
+  const contentFiles = (treeData.tree ?? []).filter(
+    (item) => item.path.startsWith("app/public/content/") && item.path.endsWith(".json") && item.path !== "app/public/content/index.json"
+  );
+  const tutorials = [];
+  const existingMap = new Map((currentIndex.tutorials ?? []).map((t) => [t.id, t]));
+  for (const file of contentFiles) {
+    try {
+      const fileUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${file.path}`;
+      const fileRes = await fetch(fileUrl);
+      if (!fileRes.ok) continue;
+      const content = await fileRes.json();
+      if (content && typeof content.id === "string") {
+        const existingEntry = existingMap.get(content.id);
+        const status = existingEntry?.status ?? "draft";
+        tutorials.push({
+          id: content.id,
+          title: content.title || "Sans titre",
+          description: content.description || "",
+          category: content.category || "Autre",
+          difficulty: content.difficulty || "medium",
+          estimatedDuration: content.estimatedDuration || "10",
+          coverIcon: content.coverIcon || "\u{1F4DA}",
+          status,
+          // ← Préserver ou 'draft' pour nouveaux
+          order: content.order ?? 999
+        });
+      }
+    } catch (err) {
+      console.warn(`Erreur lors du traitement du fichier ${file.path}:`, err);
+    }
+  }
+  tutorials.sort((a, b) => a.order - b.order);
+  const indexContent = btoa(unescape(encodeURIComponent(JSON.stringify({ tutorials }, null, 2))));
+  const publishRes = await fetch(indexUrl, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({
+      message: `Mise \xE0 jour index.json (statuts + m\xE9tadonn\xE9es) \u2014 ${(/* @__PURE__ */ new Date()).toISOString()}`,
+      content: indexContent,
+      branch: env.GITHUB_BRANCH,
+      sha: currentIndexSha
+    })
+  });
+  if (!publishRes.ok) {
+    console.error(`Erreur lors de la mise \xE0 jour de l'index: ${publishRes.status}`);
+  }
+}
+async function handleLogin(req, env) {
+  if (!originAllowed3(req, env)) return json3({ error: "Origine refus\xE9e" }, 403);
+  const ip = req.headers.get("CF-Connecting-IP") ?? "unknown";
+  const rateKey = `login:${ip}`;
+  const attempts = Number(await env.RATE.get(rateKey) ?? "0");
+  const LOGIN_MAX = 5;
+  const LOGIN_WINDOW = 15 * 60;
+  if (attempts >= LOGIN_MAX) {
+    return json3(
+      { ok: false, error: "Trop de tentatives", retryAfter: LOGIN_WINDOW },
+      429,
+      { "Retry-After": String(LOGIN_WINDOW) }
+    );
+  }
+  const body = await req.json().catch(() => null);
+  const password = body?.password ?? "";
+  const ok = password.length > 0 && timingSafeEqual3(password, env.ADMIN_PASSWORD);
+  if (!ok) {
+    await env.RATE.put(rateKey, String(attempts + 1), { expirationTtl: LOGIN_WINDOW });
+    return json3({ ok: false, error: "Identifiants invalides" }, 401);
+  }
+  await env.RATE.delete(rateKey);
+  const SESSION_TTL = 2 * 60 * 60;
+  const expiresAt = Date.now() + SESSION_TTL * 1e3;
+  const token = await signSession(expiresAt, env.SESSION_SIGNING_KEY);
+  return json3(
+    { ok: true, session: { authenticated: true, expiresAt } },
+    200,
+    { "Set-Cookie": sessionCookie(token, SESSION_TTL) }
+  );
+}
+function handleLogout(_env) {
+  return json3({ ok: true }, 200, { "Set-Cookie": sessionCookie("", 0) });
+}
+async function handleSession(req, env) {
+  const session = await readSession3(req, env);
+  return json3({ authenticated: !!session, expiresAt: session?.expiresAt });
+}
+async function handleGetDraft(req, env, url) {
+  if (!await readSession3(req, env)) return json3({ error: "Non authentifi\xE9" }, 401);
+  const tutorialId = sanitizeId(url.searchParams.get("tutorialId"));
+  if (!tutorialId) return json3({ error: "tutorialId invalide" }, 400);
+  const storage = getStorageBackend(env, tutorialId);
+  const draft = await storage.get(tutorialId);
+  if (!draft) return json3({ content: null });
+  return json3({
+    content: draft.content,
+    revision: draft.revision,
+    lastEditedLabel: draft.lastEditedLabel,
+    updatedAt: draft.updatedAt
+  });
+}
+async function handleSaveDraft(req, env) {
+  if (!originAllowed3(req, env)) return json3({ error: "Origine refus\xE9e" }, 403);
+  if (!csrfOk3(req)) return json3({ error: "CSRF" }, 403);
+  if (!await readSession3(req, env)) return json3({ error: "Non authentifi\xE9" }, 401);
+  const body = await req.json().catch(() => null);
+  const tutorialId = sanitizeId(body?.tutorialId);
+  if (!tutorialId || !validateTutorial(body?.content)) {
+    return json3({ ok: false, error: "Donn\xE9es invalides" }, 400);
+  }
+  const storage = getStorageBackend(env, tutorialId);
+  const result = await storage.save(tutorialId, body.content, body.baseRevision);
+  if (!result.ok) {
+    return json3(result, result.conflict ? 409 : 500);
+  }
+  return json3({ ok: true, revision: result.revision });
+}
+async function handleDeleteDraft(req, env, url) {
+  if (!originAllowed3(req, env)) return json3({ error: "Origine refus\xE9e" }, 403);
+  if (!csrfOk3(req)) return json3({ error: "CSRF" }, 403);
+  if (!await readSession3(req, env)) return json3({ error: "Non authentifi\xE9" }, 401);
+  const tutorialId = sanitizeId(url.searchParams.get("tutorialId"));
+  if (!tutorialId) return json3({ error: "tutorialId invalide" }, 400);
+  const storage = getStorageBackend(env, tutorialId);
+  const result = await storage.delete(tutorialId);
+  if (!result.ok) {
+    return json3(result, 500);
+  }
+  return json3({ ok: true });
+}
+async function handlePublish(req, env) {
+  if (!originAllowed3(req, env)) return json3({ error: "Origine refus\xE9e" }, 403);
+  if (!csrfOk3(req)) return json3({ error: "CSRF" }, 403);
+  if (!await readSession3(req, env)) return json3({ error: "Non authentifi\xE9" }, 401);
+  const body = await req.json().catch(() => null);
+  const tutorialId = sanitizeId(body?.tutorialId);
+  if (!tutorialId) {
+    return json3({ ok: false, error: "tutorialId invalide" }, 400);
+  }
+  const content = body?.content;
+  if (!content || typeof content !== "object") {
+    return json3({ ok: false, error: "Contenu manquant ou invalide" }, 400);
+  }
+  if (content.id !== tutorialId) {
+    return json3({ ok: false, error: "L'ID du tutoriel ne correspond pas" }, 422);
+  }
+  if (!content.title?.trim()) {
+    return json3({ ok: false, error: "Titre du tutoriel manquant" }, 422);
+  }
+  if (!content.category?.trim()) {
+    return json3({ ok: false, error: "Cat\xE9gorie du tutoriel manquante" }, 422);
+  }
+  if (!Array.isArray(content.sections) || content.sections.length === 0) {
+    return json3({ ok: false, error: "Au moins une section est requise" }, 422);
+  }
+  for (let i = 0; i < content.sections.length; i++) {
+    const section = content.sections[i];
+    if (!section || typeof section !== "object") {
+      return json3({ ok: false, error: `Section ${i} invalide` }, 422);
+    }
+    if (typeof section.title !== "string" || !section.title.trim()) {
+      return json3({ ok: false, error: `Section ${i} : titre manquant` }, 422);
+    }
+    if (typeof section.sourceSlide !== "number") {
+      return json3({ ok: false, error: `Section ${i} : sourceSlide invalide` }, 422);
+    }
+    if (!Array.isArray(section.blocks) || section.blocks.length === 0) {
+      return json3({ ok: false, error: `Section ${i} : au moins un bloc requis` }, 422);
+    }
+    for (let j = 0; j < section.blocks.length; j++) {
+      const block = section.blocks[j];
+      if (!block || !block.type || typeof block.type !== "string") {
+        return json3({ ok: false, error: `Section ${i}, bloc ${j} : type manquant` }, 422);
+      }
+    }
+  }
+  if (!validateTutorial(content)) {
+    return json3({ ok: false, error: "Structure tutoriel invalide" }, 400);
+  }
+  const path = `app/public/content/${tutorialId}.json`;
+  const apiBase = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}`;
+  const headers = {
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    "User-Agent": "lma-pages-function",
+    Accept: "application/vnd.github+json"
+  };
+  const current = await fetch(`${apiBase}?ref=${env.GITHUB_BRANCH}`, { headers });
+  let sha;
+  if (current.ok) sha = (await current.json()).sha;
+  if (body.baseRevision && sha && body.baseRevision !== sha) {
+    return json3({ ok: false, conflict: { serverRevision: sha } }, 409);
+  }
+  const contentB64 = btoa(unescape(encodeURIComponent(JSON.stringify(content, null, 2))));
+  const commit = await fetch(apiBase, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({
+      message: `Publication tutoriel ${tutorialId} (R4) \u2014 ${(/* @__PURE__ */ new Date()).toISOString()}`,
+      content: contentB64,
+      branch: env.GITHUB_BRANCH,
+      sha
+    })
+  });
+  if (!commit.ok) return json3({ ok: false, error: "\xC9chec publication" }, 502);
+  const result = await commit.json();
+  try {
+    await rebuildPublishedIndex(env);
+  } catch (err) {
+    console.error("Erreur lors de la reconstruction de l'index:", err);
+    return json3({
+      ok: true,
+      revision: result.content?.sha,
+      warning: "Tutoriel publi\xE9, mais la mise \xE0 jour du catalogue peut \xEAtre retard\xE9e."
+    });
+  }
+  return json3({ ok: true, revision: result.content?.sha });
+}
+async function handleUpload(req, env) {
+  if (!originAllowed3(req, env)) return json3({ error: "Origine refus\xE9e" }, 403);
+  if (!csrfOk3(req)) return json3({ error: "CSRF" }, 403);
+  if (!await readSession3(req, env)) return json3({ error: "Non authentifi\xE9" }, 401);
+  const formData = await req.formData().catch(() => null);
+  if (!formData) return json3({ ok: false, error: "FormData invalide" }, 400);
+  const file = formData.get("file");
+  if (!file) return json3({ ok: false, error: "Fichier manquant" }, 400);
+  const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  if (!allowedTypes.includes(file.type)) {
+    return json3({ ok: false, error: "Type d'image non support\xE9" }, 400);
+  }
+  const maxSize = 3 * 1024 * 1024;
+  if (file.size > maxSize) {
+    return json3({ ok: false, error: "Fichier trop volumineux" }, 400);
+  }
+  const bytes = await file.arrayBuffer();
+  const base64 = btoa(String.fromCharCode(...new Uint8Array(bytes)));
+  const ext = file.name.split(".").pop() || "png";
+  const filename = `image-${Date.now()}.${ext}`;
+  const path = `app/public/images/${filename}`;
+  const headers = {
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    "User-Agent": "lma-pages-function",
+    Accept: "application/vnd.github+json"
+  };
+  const apiBase = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}`;
+  const commitRes = await fetch(apiBase, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({
+      message: `Upload image ${filename} (R4) \u2014 ${(/* @__PURE__ */ new Date()).toISOString()}`,
+      content: base64,
+      branch: env.GITHUB_BRANCH
+    })
+  });
+  if (!commitRes.ok) {
+    return json3({ ok: false, error: "\xC9chec upload" }, 502);
+  }
+  const imageUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${path}`;
+  return json3({ ok: true, url: imageUrl });
+}
+function contentPath(tutorialId) {
+  return `app/public/content/${tutorialId}.json`;
+}
+function ghHeaders(env) {
+  return {
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    "User-Agent": "lma-pages-function",
+    Accept: "application/vnd.github+json"
+  };
+}
+async function handleHistory(req, env, url) {
+  if (!await readSession3(req, env)) return json3({ error: "Non authentifi\xE9" }, 401);
+  const tutorialId = sanitizeId(url.searchParams.get("tutorialId"));
+  if (!tutorialId) return json3({ error: "tutorialId invalide" }, 400);
+  const path = contentPath(tutorialId);
+  const cacheHeaders = {
+    "Cache-Control": "no-cache, max-age=0, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0"
+  };
+  const PER_PAGE = 100;
+  const MAX_PAGES = 20;
+  const collected = [];
+  try {
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const baseApi = `https://api.github.com/repos/${env.GITHUB_REPO}/commits?path=${encodeURIComponent(path)}&sha=${env.GITHUB_BRANCH}&per_page=${PER_PAGE}&page=${page}`;
+      const api = `${baseApi}&t=${Date.now()}`;
+      const res = await fetch(api, { headers: ghHeaders(env), cache: "no-store" });
+      if (!res.ok) {
+        if (page === 1) {
+          console.error(`GitHub /commits API error for ${path}:`, res.status, res.statusText);
+          return json3({ error: "Historique indisponible (erreur GitHub)" }, 502, cacheHeaders);
+        }
+        break;
+      }
+      const batch = await res.json();
+      if (!Array.isArray(batch) || batch.length === 0) break;
+      collected.push(...batch);
+      if (batch.length < PER_PAGE) break;
+    }
+  } catch (err) {
+    console.error("Error fetching history for", path, ":", err);
+    if (collected.length === 0) {
+      return json3({ error: "Historique indisponible (erreur r\xE9seau)" }, 502, cacheHeaders);
+    }
+    console.warn("Incomplete history retrieved for", path, "\u2014 returning", collected.length, "commits");
+  }
+  const entries = collected.map((c) => ({
+    revision: c.sha,
+    date: c.commit?.committer?.date ?? c.commit?.author?.date ?? "",
+    message: c.commit?.message ?? "",
+    authorLabel: "R4"
+  })).sort((a, b) => {
+    const ta = Date.parse(a.date) || 0;
+    const tb = Date.parse(b.date) || 0;
+    return tb - ta;
+  });
+  return json3({ tutorialId, entries }, 200, cacheHeaders);
+}
+async function handleVersion(req, env, url) {
+  if (!await readSession3(req, env)) return json3({ error: "Non authentifi\xE9" }, 401);
+  const tutorialId = sanitizeId(url.searchParams.get("tutorialId"));
+  const revision = (url.searchParams.get("revision") ?? "").replace(/[^a-f0-9]/gi, "");
+  if (!tutorialId || !revision) return json3({ error: "Param\xE8tres invalides" }, 400);
+  const path = contentPath(tutorialId);
+  const api = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}?ref=${revision}`;
+  const res = await fetch(api, { headers: ghHeaders(env) });
+  if (!res.ok) return json3({ error: "Version introuvable" }, 404);
+  const data = await res.json();
+  let content = null;
+  try {
+    const decoded = decodeURIComponent(escape(atob((data.content ?? "").replace(/\n/g, ""))));
+    content = JSON.parse(decoded);
+  } catch {
+    content = null;
+  }
+  return json3({ revision, content });
+}
+async function handleRestore(req, env) {
+  if (!originAllowed3(req, env)) return json3({ error: "Origine refus\xE9e" }, 403);
+  if (!csrfOk3(req)) return json3({ error: "CSRF" }, 403);
+  if (!await readSession3(req, env)) return json3({ error: "Non authentifi\xE9" }, 401);
+  const body = await req.json().catch(() => null);
+  const tutorialId = sanitizeId(body?.tutorialId);
+  const revision = (body?.revision ?? "").replace(/[^a-f0-9]/gi, "");
+  if (!tutorialId || !revision) return json3({ ok: false, error: "Param\xE8tres invalides" }, 400);
+  const path = contentPath(tutorialId);
+  const oldRes = await fetch(
+    `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}?ref=${revision}`,
+    { headers: ghHeaders(env) }
+  );
+  if (!oldRes.ok) return json3({ ok: false, error: "Version introuvable" }, 404);
+  const oldData = await oldRes.json();
+  let parsed = null;
+  try {
+    parsed = JSON.parse(decodeURIComponent(escape(atob((oldData.content ?? "").replace(/\n/g, "")))));
+  } catch {
+    return json3({ ok: false, error: "Contenu de version illisible" }, 422);
+  }
+  if (!validateTutorial(parsed)) {
+    return json3({ ok: false, error: "Version invalide (structure)" }, 422);
+  }
+  const headRes = await fetch(
+    `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}?ref=${env.GITHUB_BRANCH}`,
+    { headers: ghHeaders(env) }
+  );
+  const currentSha = headRes.ok ? (await headRes.json()).sha : void 0;
+  const commit = await fetch(
+    `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}`,
+    {
+      method: "PUT",
+      headers: ghHeaders(env),
+      body: JSON.stringify({
+        message: `Restauration tutoriel ${tutorialId} depuis ${revision.slice(0, 7)} (R4) \u2014 ${(/* @__PURE__ */ new Date()).toISOString()}`,
+        content: oldData.content,
+        branch: env.GITHUB_BRANCH,
+        sha: currentSha
+      })
+    }
+  );
+  if (!commit.ok) return json3({ ok: false, error: "\xC9chec restauration" }, 502);
+  const result = await commit.json();
+  return json3({ ok: true, revision: result.content?.sha });
+}
+function generateTutorialId(title, existingIds) {
+  const base = title.toLowerCase().replace(/[éèê]/g, "e").replace(/[àâä]/g, "a").replace(/[ùû]/g, "u").replace(/[ôö]/g, "o").replace(/[îï]/g, "i").replace(/[ç]/g, "c").replace(/[^a-z0-9-]/g, "-").replace(/--+/g, "-").replace(/^-|-$/g, "").slice(0, 32);
+  if (!existingIds.includes(base)) {
+    return base;
+  }
+  const ts = Date.now().toString(36);
+  return `${base}-${ts}`.slice(0, 48);
+}
+async function handleTutorialCreate(req, env) {
+  if (!originAllowed3(req, env)) return json3({ error: "Origine refus\xE9e" }, 403);
+  if (!csrfOk3(req)) return json3({ error: "CSRF" }, 403);
+  if (!await readSession3(req, env)) return json3({ error: "Non authentifi\xE9" }, 401);
+  const body = await req.json().catch(() => null);
+  const title = (body?.title ?? "").trim();
+  const category = (body?.category ?? "").trim();
+  if (!title || !category) {
+    return json3({ ok: false, error: "Titre et cat\xE9gorie requis" }, 400);
+  }
+  if (title.length > 100) {
+    return json3({ ok: false, error: "Titre trop long (max 100 caract\xE8res)" }, 400);
+  }
+  try {
+    const indexKey = "private:adminTutorialIds";
+    let indexData = { tutorialIds: [], metadata: {} };
+    if (env.DRAFTS) {
+      try {
+        const indexRaw = await env.DRAFTS.get(indexKey);
+        if (indexRaw) indexData = JSON.parse(indexRaw);
+      } catch {
+      }
+    }
+    const existingIds = indexData.tutorialIds || [];
+    const tutorialId = generateTutorialId(title, existingIds);
+    const newTutorial = {
+      id: tutorialId,
+      title,
+      description: "",
+      category,
+      difficulty: "easy",
+      estimatedDuration: "10",
+      coverIcon: "\u{1F4DA}",
+      order: 999,
+      status: "draft",
+      sections: []
+    };
+    const storage = getStorageBackend(env, tutorialId);
+    const saveResult = await storage.save(tutorialId, newTutorial);
+    if (!saveResult.ok) {
+      console.error("Failed to save draft:", saveResult);
+      return json3({ ok: false, error: "Impossible d'enregistrer le brouillon" }, 500);
+    }
+    if (env.DRAFTS && !indexData.tutorialIds.includes(tutorialId)) {
+      indexData.tutorialIds.push(tutorialId);
+      indexData.metadata = indexData.metadata || {};
+      indexData.metadata[tutorialId] = {
+        createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+        title,
+        adminEmail: null
+      };
+      try {
+        await env.DRAFTS.put(indexKey, JSON.stringify(indexData));
+      } catch (err) {
+        console.error("Failed to update tutorial index:", err);
+      }
+    }
+    return json3({
+      ok: true,
+      tutorialId,
+      tutorial: newTutorial
+    });
+  } catch (err) {
+    console.error("Error creating tutorial:", err);
+    return json3({ ok: false, error: "Erreur serveur lors de la cr\xE9ation" }, 500);
+  }
+}
+async function handleTutorialIds(req, env) {
+  if (!await readSession3(req, env)) return json3({ error: "Non authentifi\xE9" }, 401);
+  try {
+    const indexKey = "private:adminTutorialIds";
+    const indexRaw = await env.DRAFTS.get(indexKey);
+    const indexData = indexRaw ? JSON.parse(indexRaw) : { tutorialIds: [], metadata: {} };
+    const tutorialIds = indexData.tutorialIds || [];
+    if (!tutorialIds.includes("dragon-arena")) {
+      tutorialIds.unshift("dragon-arena");
+    }
+    return json3({
+      ok: true,
+      tutorialIds
+    });
+  } catch (err) {
+    console.error("Error fetching tutorial IDs:", err);
+    return json3({ ok: false, error: "Erreur serveur" }, 500);
+  }
+}
+async function handlePublishedTutorials(req, env) {
+  const cacheHeaders = {
+    "Cache-Control": "public, max-age=60, must-revalidate, no-transform",
+    "Pragma": "public"
+  };
+  try {
+    const indexPath = "app/public/content/index.json";
+    const indexUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${indexPath}`;
+    const indexRes = await fetch(indexUrl, { cache: "no-store" });
+    if (!indexRes.ok) {
+      console.warn(`Index publi\xE9 indisponible: ${indexRes.status}`);
+      return json3({ tutorials: [] }, 200, cacheHeaders);
+    }
+    const indexData = await indexRes.json();
+    const allTutorials = indexData.tutorials || [];
+    const visibleTutorials = allTutorials.filter(
+      (t) => t.status === "published" || t.status === "coming-soon"
+    );
+    return json3({ tutorials: visibleTutorials }, 200, cacheHeaders);
+  } catch (err) {
+    console.error("Error fetching published tutorials:", err);
+    return json3({ tutorials: [] }, 200, cacheHeaders);
+  }
+}
+async function handleGetPublished(req, env, url) {
+  const tutorialId = sanitizeId(url.searchParams.get("tutorialId"));
+  if (!tutorialId) return json3({ error: "tutorialId invalide" }, 400);
+  try {
+    const headers = {
+      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      "User-Agent": "lma-pages-function",
+      Accept: "application/vnd.github+json"
+    };
+    const indexPath = "app/public/content/index.json";
+    const indexUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${indexPath}`;
+    const indexRes = await fetch(indexUrl, { cache: "no-store" });
+    if (!indexRes.ok) {
+      return json3({ error: "Index non trouv\xE9" }, 404);
+    }
+    const indexData = await indexRes.json();
+    const tutorial = (indexData.tutorials || []).find((t) => t.id === tutorialId);
+    if (!tutorial || tutorial.status !== "published") {
+      return json3({ error: "Tutoriel non publi\xE9" }, 404);
+    }
+    const contentPath2 = `app/public/content/${tutorialId}.json`;
+    const apiUrl = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${contentPath2}?ref=${env.GITHUB_BRANCH}`;
+    const apiRes = await fetch(apiUrl, { headers, cache: "no-store" });
+    let sha;
+    if (apiRes.ok) {
+      const apiData = await apiRes.json();
+      sha = apiData.sha;
+    }
+    let contentUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${contentPath2}`;
+    if (sha) {
+      contentUrl += `?v=${sha}`;
+    }
+    const contentRes = await fetch(contentUrl, { cache: "no-store" });
+    if (!contentRes.ok) {
+      return json3({ error: "Contenu non trouv\xE9" }, 404);
+    }
+    const content = await contentRes.json();
+    return json3({ content, revision: sha || "published" }, 200, {
+      "Cache-Control": "no-store"
+    });
+  } catch (err) {
+    console.error("Error getting published tutorial:", err);
+    return json3({ error: "Erreur serveur" }, 500);
+  }
+}
+async function handleGetTutorialStatus(req, env, url) {
+  if (!await readSession3(req, env)) return json3({ error: "Non authentifi\xE9" }, 401);
+  const tutorialId = sanitizeId(url.searchParams.get("tutorialId"));
+  if (!tutorialId) return json3({ error: "tutorialId invalide" }, 400);
+  try {
+    const indexPath = "app/public/content/index.json";
+    const indexUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${indexPath}`;
+    const indexRes = await fetch(indexUrl, { cache: "no-store" });
+    if (!indexRes.ok) {
+      return json3({ error: "Index non trouv\xE9" }, 404);
+    }
+    const indexData = await indexRes.json();
+    const tutorial = (indexData.tutorials || []).find((t) => t.id === tutorialId);
+    if (!tutorial) {
+      return json3({ error: "Tutoriel non trouv\xE9" }, 404);
+    }
+    return json3({ tutorialId, status: tutorial.status });
+  } catch (err) {
+    console.error("Error getting tutorial status:", err);
+    return json3({ error: "Erreur serveur" }, 500);
+  }
+}
+async function handleGetAllTutorialStatuses(req, env) {
+  if (!originAllowed3(req, env)) return json3({ error: "Origine refus\xE9e" }, 403);
+  if (!csrfOk3(req)) return json3({ error: "CSRF" }, 403);
+  const session = await readSession3(req, env);
+  if (!session) {
+    return json3({ error: "Non authentifi\xE9", ok: false }, 401, {
+      "Cache-Control": "private, no-store"
+    });
+  }
+  try {
+    const indexPath = "app/public/content/index.json";
+    const indexUrl = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/${env.GITHUB_BRANCH}/${indexPath}`;
+    let indexData;
+    try {
+      const indexRes = await fetch(indexUrl, { cache: "no-store" });
+      if (!indexRes.ok) {
+        console.error(`[Statuses] GitHub index unavailable: ${indexRes.status}`);
+        return json3({
+          error: "Index GitHub indisponible",
+          ok: false
+        }, 503, {
+          "Cache-Control": "private, no-store"
+        });
+      }
+      indexData = await indexRes.json();
+    } catch (err) {
+      console.error("[Statuses] GitHub fetch failed:", err);
+      return json3({
+        error: "Impossible de charger l'index",
+        ok: false
+      }, 503, {
+        "Cache-Control": "private, no-store"
+      });
+    }
+    const allTutorials = indexData.tutorials || [];
+    let draftIds = /* @__PURE__ */ new Set();
+    try {
+      const indexKey = "private:adminTutorialIds";
+      const indexRaw = await env.DRAFTS.get(indexKey);
+      const draftIndex = indexRaw ? JSON.parse(indexRaw) : { tutorialIds: [] };
+      draftIds = new Set(draftIndex.tutorialIds || []);
+    } catch (err) {
+      console.error("[Statuses] KV read failed:", err);
+    }
+    const result = mergeTutorialStatuses(allTutorials, draftIds);
+    return json3({
+      ok: true,
+      tutorials: result,
+      count: result.length
+    }, 200, {
+      "Cache-Control": "private, no-store"
+    });
+  } catch (err) {
+    console.error("Error getting all tutorial statuses:", err);
+    return json3({
+      error: "Erreur serveur",
+      ok: false
+    }, 500, {
+      "Cache-Control": "private, no-store"
+    });
+  }
+}
+async function handleSetTutorialStatus(req, env) {
+  if (!originAllowed3(req, env)) return json3({ error: "Origine refus\xE9e" }, 403);
+  if (!csrfOk3(req)) return json3({ error: "CSRF" }, 403);
+  if (!await readSession3(req, env)) return json3({ error: "Non authentifi\xE9" }, 401);
+  const body = await req.json().catch(() => null);
+  const tutorialId = sanitizeId(body?.tutorialId);
+  const newStatus = body?.newStatus;
+  if (!tutorialId || !newStatus) {
+    return json3({ ok: false, error: "Param\xE8tres invalides" }, 400);
+  }
+  const validStatuses = ["draft", "in_progress", "published", "unpublished", "coming-soon"];
+  if (!validStatuses.includes(newStatus)) {
+    return json3({ ok: false, error: `Statut invalide: ${newStatus}` }, 422);
+  }
+  try {
+    const headers = {
+      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      "User-Agent": "lma-pages-function",
+      Accept: "application/vnd.github+json"
+    };
+    const indexPath = "app/public/content/index.json";
+    const indexUrl = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${indexPath}`;
+    const currentRes = await fetch(`${indexUrl}?ref=${env.GITHUB_BRANCH}`, { headers });
+    if (!currentRes.ok) {
+      return json3({ ok: false, error: "Index non trouv\xE9" }, 404);
+    }
+    const indexData = await currentRes.json();
+    let indexContent = { tutorials: [] };
+    try {
+      const decoded = decodeURIComponent(escape(atob(indexData.content.replace(/\n/g, ""))));
+      indexContent = JSON.parse(decoded);
+    } catch {
+      return json3({ ok: false, error: "Index corrompu" }, 422);
+    }
+    const tutorialIndex = (indexContent.tutorials || []).findIndex((t) => t.id === tutorialId);
+    if (tutorialIndex === -1) {
+      return json3({ ok: false, error: "Tutoriel non trouv\xE9 dans index" }, 404);
+    }
+    const oldStatus = indexContent.tutorials[tutorialIndex].status;
+    if (newStatus === "published") {
+      try {
+        const contentPath2 = `app/public/content/${tutorialId}.json`;
+        const contentUrl = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${contentPath2}`;
+        const contentCheckRes = await fetch(`${contentUrl}?ref=${env.GITHUB_BRANCH}`, { headers });
+        if (!contentCheckRes.ok) {
+          return json3({
+            ok: false,
+            error: `Impossible publier: tutoriel ${tutorialId}.json n'existe pas`
+          }, 422);
+        }
+      } catch (err) {
+        return json3({ ok: false, error: "Erreur v\xE9rification contenu" }, 502);
+      }
+    }
+    indexContent.tutorials[tutorialIndex].status = newStatus;
+    const newContentB64 = btoa(unescape(encodeURIComponent(JSON.stringify(indexContent, null, 2))));
+    const commitRes = await fetch(indexUrl, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        message: `Changement statut ${tutorialId}: ${oldStatus} \u2192 ${newStatus} \u2014 ${(/* @__PURE__ */ new Date()).toISOString()}`,
+        content: newContentB64,
+        branch: env.GITHUB_BRANCH,
+        sha: indexData.sha
+      })
+    });
+    if (!commitRes.ok) {
+      const errorText = await commitRes.text();
+      console.error("GitHub commit error:", commitRes.status, errorText);
+      return json3({ ok: false, error: "\xC9chec \xE9criture GitHub" }, 502);
+    }
+    return json3({
+      ok: true,
+      tutorialId,
+      oldStatus,
+      newStatus,
+      message: `Statut chang\xE9: ${oldStatus} \u2192 ${newStatus}`
+    });
+  } catch (err) {
+    console.error("Error setting tutorial status:", err);
+    return json3({ ok: false, error: "Erreur serveur" }, 500);
+  }
+}
+function corsHeaders2(req, env) {
+  const origin = req.headers.get("Origin") ?? "";
+  const allow = origin === env.ALLOWED_ORIGIN ? origin : env.ALLOWED_ORIGIN;
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Methods": "GET,POST,PUT,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type,X-Requested-With",
+    Vary: "Origin"
+  };
+}
+function withCors2(res, cors) {
+  const headers = new Headers(res.headers);
+  for (const [k, v] of Object.entries(cors)) headers.set(k, v);
+  return new Response(res.body, { status: res.status, headers });
+}
+function originAllowed3(req, env) {
+  const origin = req.headers.get("Origin");
+  return !origin || origin === env.ALLOWED_ORIGIN;
+}
+function csrfOk3(req) {
+  return req.headers.get("X-Requested-With") === "lma-admin";
+}
+function sessionCookie(token, ttl) {
+  const parts = [
+    `lma_session=${token}`,
+    "Path=/",
+    "HttpOnly",
+    "Secure",
+    "SameSite=Strict"
+  ];
+  parts.push(ttl > 0 ? `Max-Age=${ttl}` : "Max-Age=0");
+  return parts.join("; ");
+}
+async function signSession(expiresAt, key) {
+  const payload = `${expiresAt}`;
+  const sig = await hmac3(payload, key);
+  return `${btoa(payload)}.${sig}`;
+}
+async function readSession3(req, env) {
+  const cookie = req.headers.get("Cookie") ?? "";
+  const match2 = cookie.match(/lma_session=([^;]+)/);
+  if (!match2) return null;
+  const [payloadB64, sig] = match2[1].split(".");
+  if (!payloadB64 || !sig) return null;
+  const payload = atob(payloadB64);
+  const expected = await hmac3(payload, env.SESSION_SIGNING_KEY);
+  if (!timingSafeEqual3(sig, expected)) return null;
+  const expiresAt = Number(payload);
+  if (!expiresAt || Date.now() > expiresAt) return null;
+  return { expiresAt };
+}
+async function hmac3(data, key) {
+  const enc = new TextEncoder();
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(key),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", cryptoKey, enc.encode(data));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function timingSafeEqual3(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+function sanitizeId(id) {
+  if (!id) return null;
+  return /^[a-z0-9-]{1,64}$/.test(id) ? id : null;
+}
+function validateTutorial(content) {
+  if (!content || typeof content !== "object") return false;
+  if (typeof content.id !== "string") return false;
+  if (!Array.isArray(content.sections)) return false;
+  return content.sections.every(
+    (s) => s && typeof s.title === "string" && typeof s.sourceSlide === "number"
+  );
+}
+function json3(body, status = 200, extra = {}) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...extra }
+  });
+}
+var onRequest11;
+var init_path = __esm({
+  "api/[[path]].ts"() {
+    "use strict";
+    init_functionsRoutes_0_6040694825216862();
+    init_storage();
+    init_mergeTutorialStatuses();
+    init_login();
+    init_callback();
+    init_recovery();
+    init_validate();
+    init_logout();
+    onRequest11 = /* @__PURE__ */ __name(async (context) => {
+      const { request, env, params } = context;
+      const url = new URL(request.url);
+      const pathParts = params.path ?? [];
+      const path = pathParts.join("/");
+      const pathname = `/api/${path}`;
+      const cors = corsHeaders2(request, env);
+      if (request.method === "OPTIONS") {
+        return new Response(null, { status: 204, headers: cors });
+      }
+      try {
+        const route = `${request.method} ${pathname}`;
+        let response;
+        switch (route) {
+          case "POST /api/login":
+            response = await handleLogin(request, env);
+            break;
+          case "POST /api/logout":
+            response = handleLogout(env);
+            break;
+          case "GET /api/session":
+            response = await handleSession(request, env);
+            break;
+          case "GET /api/draft":
+            response = await handleGetDraft(request, env, url);
+            break;
+          case "PUT /api/draft":
+            response = await handleSaveDraft(request, env);
+            break;
+          case "DELETE /api/draft":
+            response = await handleDeleteDraft(request, env, url);
+            break;
+          case "POST /api/publish":
+            response = await handlePublish(request, env);
+            break;
+          case "POST /api/upload":
+            response = await handleUpload(request, env);
+            break;
+          case "GET /api/published":
+            response = await handleGetPublished(request, env, url);
+            break;
+          case "GET /api/history":
+            response = await handleHistory(request, env, url);
+            break;
+          case "GET /api/version":
+            response = await handleVersion(request, env, url);
+            break;
+          case "POST /api/restore":
+            response = await handleRestore(request, env);
+            break;
+          case "POST /api/tutorialCreate":
+            response = await handleTutorialCreate(request, env);
+            break;
+          case "GET /api/tutorialIds":
+            response = await handleTutorialIds(request, env);
+            break;
+          case "GET /api/tutorials/published":
+            response = await handlePublishedTutorials(request, env);
+            break;
+          case "GET /api/tutorial/status":
+            response = await handleGetTutorialStatus(request, env, url);
+            break;
+          case "GET /api/tutorial/statuses":
+            response = await handleGetAllTutorialStatuses(request, env);
+            break;
+          case "POST /api/tutorial/status":
+            response = await handleSetTutorialStatus(request, env);
+            break;
+          // ===== Phase 2A OAuth2 & Session Routes =====
+          case "GET /api/phase2a-health":
+            response = new Response(JSON.stringify({ ok: true, message: "Phase 2A health check passed", timestamp: (/* @__PURE__ */ new Date()).toISOString() }), { status: 200, headers: { "Content-Type": "application/json" } });
+            break;
+          case "GET /api/auth/discord/login":
+            response = await handleDiscordLoginInit(request, env);
+            break;
+          case "GET /api/auth/discord/callback":
+            response = await handleDiscordCallback(request, env);
+            break;
+          case "POST /api/auth/recovery":
+            response = await handleRecoveryCode(request, env);
+            break;
+          case "POST /api/session/validate":
+            response = await handleSessionValidate(request, env);
+            break;
+          case "POST /api/session/logout":
+            response = await handleSessionLogout(request, env);
+            break;
+          default:
+            response = json3({ error: "Not found" }, 404);
+        }
+        return withCors2(response, cors);
+      } catch (err) {
+        console.error("API error:", err);
+        return withCors2(json3({ error: "Erreur serveur" }, 500), cors);
+      }
+    }, "onRequest");
+    __name(rebuildPublishedIndex, "rebuildPublishedIndex");
+    __name(handleLogin, "handleLogin");
+    __name(handleLogout, "handleLogout");
+    __name(handleSession, "handleSession");
+    __name(handleGetDraft, "handleGetDraft");
+    __name(handleSaveDraft, "handleSaveDraft");
+    __name(handleDeleteDraft, "handleDeleteDraft");
+    __name(handlePublish, "handlePublish");
+    __name(handleUpload, "handleUpload");
+    __name(contentPath, "contentPath");
+    __name(ghHeaders, "ghHeaders");
+    __name(handleHistory, "handleHistory");
+    __name(handleVersion, "handleVersion");
+    __name(handleRestore, "handleRestore");
+    __name(generateTutorialId, "generateTutorialId");
+    __name(handleTutorialCreate, "handleTutorialCreate");
+    __name(handleTutorialIds, "handleTutorialIds");
+    __name(handlePublishedTutorials, "handlePublishedTutorials");
+    __name(handleGetPublished, "handleGetPublished");
+    __name(handleGetTutorialStatus, "handleGetTutorialStatus");
+    __name(handleGetAllTutorialStatuses, "handleGetAllTutorialStatuses");
+    __name(handleSetTutorialStatus, "handleSetTutorialStatus");
+    __name(corsHeaders2, "corsHeaders");
+    __name(withCors2, "withCors");
+    __name(originAllowed3, "originAllowed");
+    __name(csrfOk3, "csrfOk");
+    __name(sessionCookie, "sessionCookie");
+    __name(signSession, "signSession");
+    __name(readSession3, "readSession");
+    __name(hmac3, "hmac");
+    __name(timingSafeEqual3, "timingSafeEqual");
+    __name(sanitizeId, "sanitizeId");
+    __name(validateTutorial, "validateTutorial");
+    __name(json3, "json");
+  }
+});
+
+// ../.wrangler/tmp/pages-LjV5MB/functionsRoutes-0.6040694825216862.mjs
+var routes;
+var init_functionsRoutes_0_6040694825216862 = __esm({
+  "../.wrangler/tmp/pages-LjV5MB/functionsRoutes-0.6040694825216862.mjs"() {
+    "use strict";
+    init_callback();
+    init_login();
+    init_recovery();
+    init_logout();
+    init_validate();
+    init_subscribe();
+    init_test_send();
+    init_unsubscribe();
+    init_route();
+    init_route2();
+    init_path();
+    routes = [
+      {
+        routePath: "/api/auth/discord/callback",
+        mountPath: "/api/auth/discord",
+        method: "",
+        middlewares: [],
+        modules: [onRequest]
+      },
+      {
+        routePath: "/api/auth/discord/login",
+        mountPath: "/api/auth/discord",
+        method: "",
+        middlewares: [],
+        modules: [onRequest2]
+      },
+      {
+        routePath: "/api/auth/recovery",
+        mountPath: "/api/auth",
+        method: "",
+        middlewares: [],
+        modules: [onRequest3]
+      },
+      {
+        routePath: "/api/session/logout",
+        mountPath: "/api/session",
+        method: "",
+        middlewares: [],
+        modules: [onRequest4]
+      },
+      {
+        routePath: "/api/session/validate",
+        mountPath: "/api/session",
+        method: "",
+        middlewares: [],
+        modules: [onRequest5]
+      },
+      {
+        routePath: "/api/web-push/subscribe",
+        mountPath: "/api/web-push",
+        method: "",
+        middlewares: [],
+        modules: [onRequest6]
+      },
+      {
+        routePath: "/api/web-push/test-send",
+        mountPath: "/api/web-push",
+        method: "",
+        middlewares: [],
+        modules: [onRequest7]
+      },
+      {
+        routePath: "/api/web-push/unsubscribe",
+        mountPath: "/api/web-push",
+        method: "",
+        middlewares: [],
+        modules: [onRequest8]
+      },
+      {
+        routePath: "/api/cms-storage/:route*",
+        mountPath: "/api/cms-storage",
+        method: "",
+        middlewares: [],
+        modules: [onRequest9]
+      },
+      {
+        routePath: "/api/cms/:route*",
+        mountPath: "/api/cms",
+        method: "",
+        middlewares: [],
+        modules: [onRequest10]
+      },
+      {
+        routePath: "/api/:path*",
+        mountPath: "/api",
+        method: "",
+        middlewares: [],
+        modules: [onRequest11]
+      }
+    ];
+  }
+});
+
+// ../../../../../Users/utilisateur/AppData/Roaming/npm/node_modules/wrangler/templates/pages-template-worker.ts
+init_functionsRoutes_0_6040694825216862();
+
+// ../../../../../Users/utilisateur/AppData/Roaming/npm/node_modules/wrangler/node_modules/path-to-regexp/dist.es2015/index.js
+init_functionsRoutes_0_6040694825216862();
+function lexer(str) {
+  var tokens = [];
+  var i = 0;
+  while (i < str.length) {
+    var char = str[i];
+    if (char === "*" || char === "+" || char === "?") {
+      tokens.push({ type: "MODIFIER", index: i, value: str[i++] });
+      continue;
+    }
+    if (char === "\\") {
+      tokens.push({ type: "ESCAPED_CHAR", index: i++, value: str[i++] });
+      continue;
+    }
+    if (char === "{") {
+      tokens.push({ type: "OPEN", index: i, value: str[i++] });
+      continue;
+    }
+    if (char === "}") {
+      tokens.push({ type: "CLOSE", index: i, value: str[i++] });
+      continue;
+    }
+    if (char === ":") {
+      var name = "";
+      var j = i + 1;
+      while (j < str.length) {
+        var code = str.charCodeAt(j);
+        if (
+          // `0-9`
+          code >= 48 && code <= 57 || // `A-Z`
+          code >= 65 && code <= 90 || // `a-z`
+          code >= 97 && code <= 122 || // `_`
+          code === 95
+        ) {
+          name += str[j++];
+          continue;
+        }
+        break;
+      }
+      if (!name)
+        throw new TypeError("Missing parameter name at ".concat(i));
+      tokens.push({ type: "NAME", index: i, value: name });
+      i = j;
+      continue;
+    }
+    if (char === "(") {
+      var count = 1;
+      var pattern = "";
+      var j = i + 1;
+      if (str[j] === "?") {
+        throw new TypeError('Pattern cannot start with "?" at '.concat(j));
+      }
+      while (j < str.length) {
+        if (str[j] === "\\") {
+          pattern += str[j++] + str[j++];
+          continue;
+        }
+        if (str[j] === ")") {
+          count--;
+          if (count === 0) {
+            j++;
+            break;
+          }
+        } else if (str[j] === "(") {
+          count++;
+          if (str[j + 1] !== "?") {
+            throw new TypeError("Capturing groups are not allowed at ".concat(j));
+          }
+        }
+        pattern += str[j++];
+      }
+      if (count)
+        throw new TypeError("Unbalanced pattern at ".concat(i));
+      if (!pattern)
+        throw new TypeError("Missing pattern at ".concat(i));
+      tokens.push({ type: "PATTERN", index: i, value: pattern });
+      i = j;
+      continue;
+    }
+    tokens.push({ type: "CHAR", index: i, value: str[i++] });
+  }
+  tokens.push({ type: "END", index: i, value: "" });
+  return tokens;
+}
+__name(lexer, "lexer");
+function parse(str, options) {
+  if (options === void 0) {
+    options = {};
+  }
+  var tokens = lexer(str);
+  var _a = options.prefixes, prefixes = _a === void 0 ? "./" : _a, _b = options.delimiter, delimiter = _b === void 0 ? "/#?" : _b;
+  var result = [];
+  var key = 0;
+  var i = 0;
+  var path = "";
+  var tryConsume = /* @__PURE__ */ __name(function(type) {
+    if (i < tokens.length && tokens[i].type === type)
+      return tokens[i++].value;
+  }, "tryConsume");
+  var mustConsume = /* @__PURE__ */ __name(function(type) {
+    var value2 = tryConsume(type);
+    if (value2 !== void 0)
+      return value2;
+    var _a2 = tokens[i], nextType = _a2.type, index = _a2.index;
+    throw new TypeError("Unexpected ".concat(nextType, " at ").concat(index, ", expected ").concat(type));
+  }, "mustConsume");
+  var consumeText = /* @__PURE__ */ __name(function() {
+    var result2 = "";
+    var value2;
+    while (value2 = tryConsume("CHAR") || tryConsume("ESCAPED_CHAR")) {
+      result2 += value2;
+    }
+    return result2;
+  }, "consumeText");
+  var isSafe = /* @__PURE__ */ __name(function(value2) {
+    for (var _i = 0, delimiter_1 = delimiter; _i < delimiter_1.length; _i++) {
+      var char2 = delimiter_1[_i];
+      if (value2.indexOf(char2) > -1)
+        return true;
+    }
+    return false;
+  }, "isSafe");
+  var safePattern = /* @__PURE__ */ __name(function(prefix2) {
+    var prev = result[result.length - 1];
+    var prevText = prefix2 || (prev && typeof prev === "string" ? prev : "");
+    if (prev && !prevText) {
+      throw new TypeError('Must have text between two parameters, missing text after "'.concat(prev.name, '"'));
+    }
+    if (!prevText || isSafe(prevText))
+      return "[^".concat(escapeString(delimiter), "]+?");
+    return "(?:(?!".concat(escapeString(prevText), ")[^").concat(escapeString(delimiter), "])+?");
+  }, "safePattern");
+  while (i < tokens.length) {
+    var char = tryConsume("CHAR");
+    var name = tryConsume("NAME");
+    var pattern = tryConsume("PATTERN");
+    if (name || pattern) {
+      var prefix = char || "";
+      if (prefixes.indexOf(prefix) === -1) {
+        path += prefix;
+        prefix = "";
+      }
+      if (path) {
+        result.push(path);
+        path = "";
+      }
+      result.push({
+        name: name || key++,
+        prefix,
+        suffix: "",
+        pattern: pattern || safePattern(prefix),
+        modifier: tryConsume("MODIFIER") || ""
+      });
+      continue;
+    }
+    var value = char || tryConsume("ESCAPED_CHAR");
+    if (value) {
+      path += value;
+      continue;
+    }
+    if (path) {
+      result.push(path);
+      path = "";
+    }
+    var open = tryConsume("OPEN");
+    if (open) {
+      var prefix = consumeText();
+      var name_1 = tryConsume("NAME") || "";
+      var pattern_1 = tryConsume("PATTERN") || "";
+      var suffix = consumeText();
+      mustConsume("CLOSE");
+      result.push({
+        name: name_1 || (pattern_1 ? key++ : ""),
+        pattern: name_1 && !pattern_1 ? safePattern(prefix) : pattern_1,
+        prefix,
+        suffix,
+        modifier: tryConsume("MODIFIER") || ""
+      });
+      continue;
+    }
+    mustConsume("END");
+  }
+  return result;
+}
+__name(parse, "parse");
+function match(str, options) {
+  var keys = [];
+  var re = pathToRegexp(str, keys, options);
+  return regexpToFunction(re, keys, options);
+}
+__name(match, "match");
+function regexpToFunction(re, keys, options) {
+  if (options === void 0) {
+    options = {};
+  }
+  var _a = options.decode, decode = _a === void 0 ? function(x) {
+    return x;
+  } : _a;
+  return function(pathname) {
+    var m = re.exec(pathname);
+    if (!m)
+      return false;
+    var path = m[0], index = m.index;
+    var params = /* @__PURE__ */ Object.create(null);
+    var _loop_1 = /* @__PURE__ */ __name(function(i2) {
+      if (m[i2] === void 0)
+        return "continue";
+      var key = keys[i2 - 1];
+      if (key.modifier === "*" || key.modifier === "+") {
+        params[key.name] = m[i2].split(key.prefix + key.suffix).map(function(value) {
+          return decode(value, key);
+        });
+      } else {
+        params[key.name] = decode(m[i2], key);
+      }
+    }, "_loop_1");
+    for (var i = 1; i < m.length; i++) {
+      _loop_1(i);
+    }
+    return { path, index, params };
+  };
+}
+__name(regexpToFunction, "regexpToFunction");
+function escapeString(str) {
+  return str.replace(/([.+*?=^!:${}()[\]|/\\])/g, "\\$1");
+}
+__name(escapeString, "escapeString");
+function flags(options) {
+  return options && options.sensitive ? "" : "i";
+}
+__name(flags, "flags");
+function regexpToRegexp(path, keys) {
+  if (!keys)
+    return path;
+  var groupsRegex = /\((?:\?<(.*?)>)?(?!\?)/g;
+  var index = 0;
+  var execResult = groupsRegex.exec(path.source);
+  while (execResult) {
+    keys.push({
+      // Use parenthesized substring match if available, index otherwise
+      name: execResult[1] || index++,
+      prefix: "",
+      suffix: "",
+      modifier: "",
+      pattern: ""
+    });
+    execResult = groupsRegex.exec(path.source);
+  }
+  return path;
+}
+__name(regexpToRegexp, "regexpToRegexp");
+function arrayToRegexp(paths, keys, options) {
+  var parts = paths.map(function(path) {
+    return pathToRegexp(path, keys, options).source;
+  });
+  return new RegExp("(?:".concat(parts.join("|"), ")"), flags(options));
+}
+__name(arrayToRegexp, "arrayToRegexp");
+function stringToRegexp(path, keys, options) {
+  return tokensToRegexp(parse(path, options), keys, options);
+}
+__name(stringToRegexp, "stringToRegexp");
+function tokensToRegexp(tokens, keys, options) {
+  if (options === void 0) {
+    options = {};
+  }
+  var _a = options.strict, strict = _a === void 0 ? false : _a, _b = options.start, start = _b === void 0 ? true : _b, _c = options.end, end = _c === void 0 ? true : _c, _d = options.encode, encode = _d === void 0 ? function(x) {
+    return x;
+  } : _d, _e = options.delimiter, delimiter = _e === void 0 ? "/#?" : _e, _f = options.endsWith, endsWith = _f === void 0 ? "" : _f;
+  var endsWithRe = "[".concat(escapeString(endsWith), "]|$");
+  var delimiterRe = "[".concat(escapeString(delimiter), "]");
+  var route = start ? "^" : "";
+  for (var _i = 0, tokens_1 = tokens; _i < tokens_1.length; _i++) {
+    var token = tokens_1[_i];
+    if (typeof token === "string") {
+      route += escapeString(encode(token));
+    } else {
+      var prefix = escapeString(encode(token.prefix));
+      var suffix = escapeString(encode(token.suffix));
+      if (token.pattern) {
+        if (keys)
+          keys.push(token);
+        if (prefix || suffix) {
+          if (token.modifier === "+" || token.modifier === "*") {
+            var mod = token.modifier === "*" ? "?" : "";
+            route += "(?:".concat(prefix, "((?:").concat(token.pattern, ")(?:").concat(suffix).concat(prefix, "(?:").concat(token.pattern, "))*)").concat(suffix, ")").concat(mod);
+          } else {
+            route += "(?:".concat(prefix, "(").concat(token.pattern, ")").concat(suffix, ")").concat(token.modifier);
+          }
+        } else {
+          if (token.modifier === "+" || token.modifier === "*") {
+            throw new TypeError('Can not repeat "'.concat(token.name, '" without a prefix and suffix'));
+          }
+          route += "(".concat(token.pattern, ")").concat(token.modifier);
+        }
+      } else {
+        route += "(?:".concat(prefix).concat(suffix, ")").concat(token.modifier);
+      }
+    }
+  }
+  if (end) {
+    if (!strict)
+      route += "".concat(delimiterRe, "?");
+    route += !options.endsWith ? "$" : "(?=".concat(endsWithRe, ")");
+  } else {
+    var endToken = tokens[tokens.length - 1];
+    var isEndDelimited = typeof endToken === "string" ? delimiterRe.indexOf(endToken[endToken.length - 1]) > -1 : endToken === void 0;
+    if (!strict) {
+      route += "(?:".concat(delimiterRe, "(?=").concat(endsWithRe, "))?");
+    }
+    if (!isEndDelimited) {
+      route += "(?=".concat(delimiterRe, "|").concat(endsWithRe, ")");
+    }
+  }
+  return new RegExp(route, flags(options));
+}
+__name(tokensToRegexp, "tokensToRegexp");
+function pathToRegexp(path, keys, options) {
+  if (path instanceof RegExp)
+    return regexpToRegexp(path, keys);
+  if (Array.isArray(path))
+    return arrayToRegexp(path, keys, options);
+  return stringToRegexp(path, keys, options);
+}
+__name(pathToRegexp, "pathToRegexp");
+
+// ../../../../../Users/utilisateur/AppData/Roaming/npm/node_modules/wrangler/templates/pages-template-worker.ts
+var escapeRegex = /[.+?^${}()|[\]\\]/g;
+function* executeRequest(request) {
+  const requestPath = new URL(request.url).pathname;
+  for (const route of [...routes].reverse()) {
+    if (route.method && route.method !== request.method) {
+      continue;
+    }
+    const routeMatcher = match(route.routePath.replace(escapeRegex, "\\$&"), {
+      end: false
+    });
+    const mountMatcher = match(route.mountPath.replace(escapeRegex, "\\$&"), {
+      end: false
+    });
+    const matchResult = routeMatcher(requestPath);
+    const mountMatchResult = mountMatcher(requestPath);
+    if (matchResult && mountMatchResult) {
+      for (const handler of route.middlewares.flat()) {
+        yield {
+          handler,
+          params: matchResult.params,
+          path: mountMatchResult.path
+        };
+      }
+    }
+  }
+  for (const route of routes) {
+    if (route.method && route.method !== request.method) {
+      continue;
+    }
+    const routeMatcher = match(route.routePath.replace(escapeRegex, "\\$&"), {
+      end: true
+    });
+    const mountMatcher = match(route.mountPath.replace(escapeRegex, "\\$&"), {
+      end: false
+    });
+    const matchResult = routeMatcher(requestPath);
+    const mountMatchResult = mountMatcher(requestPath);
+    if (matchResult && mountMatchResult && route.modules.length) {
+      for (const handler of route.modules.flat()) {
+        yield {
+          handler,
+          params: matchResult.params,
+          path: matchResult.path
+        };
+      }
+      break;
+    }
+  }
+}
+__name(executeRequest, "executeRequest");
+var pages_template_worker_default = {
+  async fetch(originalRequest, env, workerContext) {
+    let request = originalRequest;
+    const handlerIterator = executeRequest(request);
+    let data = {};
+    let isFailOpen = false;
+    const next = /* @__PURE__ */ __name(async (input, init) => {
+      if (input !== void 0) {
+        let url = input;
+        if (typeof input === "string") {
+          url = new URL(input, request.url).toString();
+        }
+        request = new Request(url, init);
+      }
+      const result = handlerIterator.next();
+      if (result.done === false) {
+        const { handler, params, path } = result.value;
+        const context = {
+          request: new Request(request.clone()),
+          functionPath: path,
+          next,
+          params,
+          get data() {
+            return data;
+          },
+          set data(value) {
+            if (typeof value !== "object" || value === null) {
+              throw new Error("context.data must be an object");
+            }
+            data = value;
+          },
+          env,
+          waitUntil: workerContext.waitUntil.bind(workerContext),
+          passThroughOnException: /* @__PURE__ */ __name(() => {
+            isFailOpen = true;
+          }, "passThroughOnException")
+        };
+        const response = await handler(context);
+        if (!(response instanceof Response)) {
+          throw new Error("Your Pages function should return a Response");
+        }
+        return cloneResponse(response);
+      } else if ("ASSETS") {
+        const response = await env["ASSETS"].fetch(request);
+        return cloneResponse(response);
+      } else {
+        const response = await fetch(request);
+        return cloneResponse(response);
+      }
+    }, "next");
+    try {
+      return await next();
+    } catch (error) {
+      if (isFailOpen) {
+        const response = await env["ASSETS"].fetch(request);
+        return cloneResponse(response);
+      }
+      throw error;
+    }
+  }
+};
+var cloneResponse = /* @__PURE__ */ __name((response) => (
+  // https://fetch.spec.whatwg.org/#null-body-status
+  new Response(
+    [101, 204, 205, 304].includes(response.status) ? null : response.body,
+    response
+  )
+), "cloneResponse");
+export {
+  pages_template_worker_default as default
+};
+
+------formdata-undici-021148874604--

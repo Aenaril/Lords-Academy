@@ -179,6 +179,69 @@ export function createLogoutCookie(): string {
 }
 
 /**
+ * Create OAuth2 temporary state cookie (CSRF protection — double-submit pattern)
+ * Prefix __Host- ensures cookie cannot be set from subdomains
+ * HttpOnly prevents JavaScript access
+ * Secure ensures HTTPS only
+ * SameSite=Lax allows safe top-level navigations (Discord OAuth redirect)
+ * Max-Age=300 (5 minutes) synchronizes with D1 CSRF state expiry
+ * 
+ * RFC 6749 Section 10.12: "verify that the state parameter value matches
+ * a state value it had previously associated with the browser"
+ * 
+ * This cookie IS that browser association.
+ */
+export function createOAuthStateCookie(state: string): string {
+  if (!state || state.length !== 64 || !/^[a-f0-9]+$/.test(state)) {
+    throw new Error("Invalid state format for cookie (must be 64 hex chars)");
+  }
+
+  const maxAge = 5 * 60; // 5 minutes (sync with D1 CSRF state TTL)
+  const flags = [
+    `__Host-oauth-state=${state}`,
+    "HttpOnly", // JavaScript cannot access (XSS protection)
+    "Secure", // HTTPS only (no HTTP transmission)
+    "SameSite=Lax", // Allow Discord redirect (Strict would block OAuth flow)
+    `Max-Age=${maxAge}`, // 5 minutes
+    "Path=/", // Available to all paths
+  ];
+
+  return flags.join("; ");
+}
+
+/**
+ * Parse OAuth2 state from request cookies
+ * Safely extracts __Host-oauth-state from Cookie header
+ * Returns null if cookie missing or invalid
+ */
+export function parseOAuthStateCookie(req: Request): string | null {
+  const cookieHeader = req.headers.get("cookie");
+  if (!cookieHeader) return null;
+
+  const cookies = cookieHeader.split(";");
+  for (const cookie of cookies) {
+    const [name, value] = cookie.trim().split("=");
+    if (name === "__Host-oauth-state" && value) {
+      const decoded = decodeURIComponent(value);
+      // Validate format (64 hex chars)
+      if (decoded.length === 64 && /^[a-f0-9]+$/.test(decoded)) {
+        return decoded;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Create logout cookie for OAuth state (delete)
+ * Called after successful OAuth callback to clear temporary state cookie
+ */
+export function clearOAuthStateCookie(): string {
+  return `__Host-oauth-state=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/`;
+}
+
+/**
  * Validate Discord OAuth2 state parameter
  */
 export function validateDiscordState(
