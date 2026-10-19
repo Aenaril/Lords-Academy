@@ -124,9 +124,10 @@ export async function handleRecoveryCode(
       note: "Temporary recovery session created, password reset required",
     });
 
+    // Prepare response
+    // NOTE: sessionId is NOT included — it's set only in HttpOnly cookie for security
     const response: RecoveryValidationResponse = {
       ok: true,
-      sessionId: tempSessionId,
       temporary: true,
       mustResetPassword: true,
     };

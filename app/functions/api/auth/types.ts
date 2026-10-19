@@ -144,10 +144,11 @@ export interface CallbackSuccessResponse {
 
 /**
  * API Response for recovery code validation
+ * NOTE: sessionId is NEVER exposed in response — only set in HttpOnly cookie
+ * This prevents JavaScript access to recovery session identifiers
  */
 export interface RecoveryValidationResponse {
   ok: true;
-  sessionId: string;
   temporary: true;
   mustResetPassword: true;
 }

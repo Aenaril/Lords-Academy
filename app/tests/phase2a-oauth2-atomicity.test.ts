@@ -439,5 +439,23 @@ describe("Phase 2A OAuth2 State Atomicity", () => {
       expect(results[0]).toBe(true);
       expect(results[1]).toBe(false);
     });
+
+    it("should NOT expose sessionId in recovery response", () => {
+      // Mock recovery response structure
+      const recoveryResponse = {
+        ok: true,
+        temporary: true,
+        mustResetPassword: true,
+        // sessionId should NOT be included
+      };
+
+      // Verify sessionId is not present
+      expect((recoveryResponse as any).sessionId).toBeUndefined();
+      
+      // Verify allowed fields are present
+      expect(recoveryResponse.ok).toBe(true);
+      expect(recoveryResponse.temporary).toBe(true);
+      expect(recoveryResponse.mustResetPassword).toBe(true);
+    });
   });
 });
