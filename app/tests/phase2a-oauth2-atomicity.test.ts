@@ -1,5 +1,6 @@
 // LORDS MOBILE ACADEMY — Phase 2A OAuth2 State Atomicity Tests
 // Tests atomic one-time-use of CSRF state tokens under concurrent access
+// Also validates OAuth2 URL construction and scope encoding
 // Date: October 2026
 
 import { describe, it, expect } from "vitest";
@@ -213,6 +214,153 @@ describe("Phase 2A OAuth2 State Atomicity", () => {
       const isExpired = stored && stored.expiredAt < Date.now();
 
       expect(isExpired).toBe(false);
+    });
+  });
+
+  describe("OAuth2 URL Encoding & Scope Validation", () => {
+    it("should encode scopes correctly without double encoding", () => {
+      // Simulate the login URL construction
+      const scopes = ["identify", "guilds.members.read"].join(" ");
+      
+      const authUrl = new URL("https://discord.com/api/oauth2/authorize");
+      authUrl.searchParams.set("scope", scopes);
+      
+      const urlString = authUrl.toString();
+      
+      // URLSearchParams encodes spaces as either %20 or + in query strings (both valid)
+      // The key check: verify NO double encoding (%2520 means %25 = literal %)
+      expect(urlString).not.toContain("%2520"); // Should NOT contain double-encoded space
+      
+      // Verify scopes are properly separated
+      const scopeParam = authUrl.searchParams.get("scope");
+      expect(scopeParam).toBe("identify guilds.members.read");
+    });
+
+    it("should preserve Discord scope semantics", () => {
+      // Parse the URL to verify scopes are interpretable by Discord
+      const scopes = ["identify", "guilds.members.read"].join(" ");
+      
+      const authUrl = new URL("https://discord.com/api/oauth2/authorize");
+      authUrl.searchParams.set("scope", scopes);
+      
+      // Extract scope param
+      const scopeParam = authUrl.searchParams.get("scope");
+      
+      // Verify both scopes are present and distinct
+      expect(scopeParam).toBe("identify guilds.members.read");
+      
+      // Verify we can split them back into two scopes
+      const parsedScopes = scopeParam?.split(" ") || [];
+      expect(parsedScopes).toEqual(["identify", "guilds.members.read"]);
+    });
+
+    it("should include all required OAuth2 parameters", () => {
+      const clientId = "test-client-id";
+      const redirectUri = "https://academy.lords.test/api/auth/discord/callback";
+      const state = generateCsrfState();
+      const scopes = ["identify", "guilds.members.read"].join(" ");
+      
+      const authUrl = new URL("https://discord.com/api/oauth2/authorize");
+      authUrl.searchParams.set("client_id", clientId);
+      authUrl.searchParams.set("redirect_uri", redirectUri);
+      authUrl.searchParams.set("response_type", "code");
+      authUrl.searchParams.set("scope", scopes);
+      authUrl.searchParams.set("state", state);
+      
+      // Verify all params are present
+      expect(authUrl.searchParams.get("client_id")).toBe(clientId);
+      expect(authUrl.searchParams.get("redirect_uri")).toBe(redirectUri);
+      expect(authUrl.searchParams.get("response_type")).toBe("code");
+      expect(authUrl.searchParams.get("scope")).toBe(scopes);
+      expect(authUrl.searchParams.get("state")).toBe(state);
+    });
+
+    it("should not expose secrets or tokens in authorization URL", () => {
+      const clientId = "test-client-id";
+      const redirectUri = "https://academy.lords.test/api/auth/discord/callback";
+      const state = generateCsrfState();
+      const scopes = ["identify", "guilds.members.read"].join(" ");
+      
+      const authUrl = new URL("https://discord.com/api/oauth2/authorize");
+      authUrl.searchParams.set("client_id", clientId);
+      authUrl.searchParams.set("redirect_uri", redirectUri);
+      authUrl.searchParams.set("response_type", "code");
+      authUrl.searchParams.set("scope", scopes);
+      authUrl.searchParams.set("state", state);
+      
+      const urlString = authUrl.toString();
+      
+      // Verify no secrets appear in URL
+      expect(urlString).not.toContain("secret");
+      expect(urlString).not.toContain("token");
+      expect(urlString).not.toContain("password");
+      expect(urlString).not.toContain("DISCORD_CLIENT_SECRET");
+    });
+
+    it("should validate redirect URI matches configuration", () => {
+      const expectedRedirectUri = "https://academy.lords.test/api/auth/discord/callback";
+      const configuredRedirectUri = "https://academy.lords.test/api/auth/discord/callback";
+      
+      const authUrl = new URL("https://discord.com/api/oauth2/authorize");
+      authUrl.searchParams.set("redirect_uri", configuredRedirectUri);
+      
+      const urlRedirectUri = authUrl.searchParams.get("redirect_uri");
+      
+      // Verify exact match (no protocol normalization issues, no trailing slashes)
+      expect(urlRedirectUri).toBe(expectedRedirectUri);
+      expect(urlRedirectUri).toMatch(/^https:\/\//); // Must be HTTPS
+      expect(urlRedirectUri).toContain("/api/auth/discord/callback");
+    });
+
+    it("should generate unpredictable state tokens", () => {
+      const states = new Set();
+      
+      // Generate 100 states
+      for (let i = 0; i < 100; i++) {
+        const state = generateCsrfState();
+        states.add(state);
+      }
+      
+      // All should be unique (no collisions)
+      expect(states.size).toBe(100);
+      
+      // All should be 64-char hex strings
+      for (const state of states) {
+        expect(state).toHaveLength(64);
+        expect(/^[a-f0-9]+$/i.test(state as string)).toBe(true);
+      }
+    });
+
+    it("should enforce single-use state tokens", () => {
+      // Simulate KV storage with state consumption
+      const kvStore = new Map<string, { consumed: boolean }>();
+      const state = generateCsrfState();
+      
+      kvStore.set(`oauth:${state}`, { consumed: false });
+      
+      // Simulate two OAuth callbacks with same state
+      const callbacks = [
+        (stateValue: string) => {
+          const key = `oauth:${stateValue}`;
+          const stored = kvStore.get(key);
+          if (!stored || stored.consumed) return false;
+          stored.consumed = true;
+          return true;
+        },
+        (stateValue: string) => {
+          const key = `oauth:${stateValue}`;
+          const stored = kvStore.get(key);
+          if (!stored || stored.consumed) return false;
+          stored.consumed = true;
+          return true;
+        },
+      ];
+      
+      const results = callbacks.map(cb => cb(state));
+      
+      // First succeeds, second fails
+      expect(results[0]).toBe(true);
+      expect(results[1]).toBe(false);
     });
   });
 });

@@ -37,7 +37,8 @@ export async function handleDiscordLoginInit(
     // Build Discord OAuth URL
     const clientId = env.DISCORD_CLIENT_ID;
     const redirectUri = env.DISCORD_OAUTH_REDIRECT_URI; // Explicitly configured, not dynamically constructed
-    const scopes = ["identify", "guilds.members.read"].join("%20");
+    // Use raw space separator; URLSearchParams handles encoding
+    const scopes = ["identify", "guilds.members.read"].join(" ");
 
     const authUrl = new URL("https://discord.com/api/oauth2/authorize");
     authUrl.searchParams.set("client_id", clientId);
