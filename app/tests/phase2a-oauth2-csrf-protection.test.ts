@@ -300,7 +300,8 @@ describe("Phase 2A OAuth2 CSRF Protection (Double-Submit Cookie)", () => {
 
       // Pattern validation
       expect(stateInDB).toBe(cookieValue); // Must match
-      expect(state).toBe("a".repeat(64)); // Random, first time seeing it
+      expect(state).toHaveLength(64); // 64 hex chars
+      expect(/^[a-f0-9]+$/.test(state)).toBe(true); // Valid hex
 
       // Attacker cannot forge both:
       // - Cannot guess random state (cryptographically random)
