@@ -3,7 +3,13 @@
 // Exchanges authorization code for token + creates session
 // Date: October 2026
 
-import { CloudflareEnv, DiscordTokenResponse, DiscordUser, DiscordGuildMember, CallbackSuccessResponse } from "../types";
+import {
+  CloudflareEnv,
+  DiscordTokenResponse,
+  DiscordUser,
+  DiscordGuildMember,
+  CallbackSuccessResponse,
+} from '../types';
 import {
   validateDiscordState,
   validateDiscordCode,
@@ -13,10 +19,20 @@ import {
   getClientIp,
   parseOAuthStateCookie,
   clearOAuthStateCookie,
-} from "../security";
-import { upsertUser, createSession, logAuditEvent, consumeCsrfStateAtomically } from "../db";
+} from '../security';
+import {
+  upsertUser,
+  createSession,
+  logAuditEvent,
+  consumeCsrfStateAtomically,
+} from '../db';
 
-type PagesFunction = (context: { request: Request; env: any; params: any; data: any }) => Response | Promise<Response>;
+type PagesFunction = (context: {
+  request: Request;
+  env: any;
+  params: any;
+  data: any;
+}) => Response | Promise<Response>;
 
 /**
  * Handler for GET /api/auth/discord/callback
@@ -24,33 +40,34 @@ type PagesFunction = (context: { request: Request; env: any; params: any; data: 
  */
 export async function handleDiscordCallback(
   req: Request,
-  env: CloudflareEnv
+  env: CloudflareEnv,
 ): Promise<Response> {
   // CORS preflight
-  if (req.method === "OPTIONS") {
+  if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204 });
   }
 
-  if (req.method !== "GET") {
-    return new Response(
-      JSON.stringify(errorResponse("Method not allowed")),
-      { status: 405 }
-    );
+  if (req.method !== 'GET') {
+    return new Response(JSON.stringify(errorResponse('Method not allowed')), {
+      status: 405,
+    });
   }
 
   try {
     // Parse query parameters
     const url = new URL(req.url);
-    const code = url.searchParams.get("code");
-    const state = url.searchParams.get("state");
-    const error = url.searchParams.get("error");
+    const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
+    const error = url.searchParams.get('error');
 
     // Check Discord error parameter
     if (error) {
-      console.warn("Discord OAuth error:", error);
+      console.warn('Discord OAuth error:', error);
       return new Response(
-        JSON.stringify(errorResponse(`Discord denied authorization: ${error}`, 403)),
-        { status: 403 }
+        JSON.stringify(
+          errorResponse(`Discord denied authorization: ${error}`, 403),
+        ),
+        { status: 403 },
       );
     }
 
@@ -58,16 +75,20 @@ export async function handleDiscordCallback(
     const codeValidation = validateDiscordCode(code);
     if (!codeValidation.valid) {
       return new Response(
-        JSON.stringify(errorResponse(codeValidation.error || "Invalid code", 400)),
-        { status: 400 }
+        JSON.stringify(
+          errorResponse(codeValidation.error || 'Invalid code', 400),
+        ),
+        { status: 400 },
       );
     }
 
     const stateValidation = validateDiscordState(state);
     if (!stateValidation.valid) {
       return new Response(
-        JSON.stringify(errorResponse(stateValidation.error || "Invalid state", 400)),
-        { status: 400 }
+        JSON.stringify(
+          errorResponse(stateValidation.error || 'Invalid state', 400),
+        ),
+        { status: 400 },
       );
     }
 
@@ -77,39 +98,48 @@ export async function handleDiscordCallback(
     const stateFromCookie = parseOAuthStateCookie(req);
     if (!stateFromCookie) {
       // Missing cookie = different browser or cookie expired
-      await logAuditEvent(env.DB, "LOGIN", null, {
-        reason: "missing_oauth_cookie",
+      await logAuditEvent(env.DB, 'LOGIN', null, {
+        reason: 'missing_oauth_cookie',
         ip: getClientIp(req),
-        error: "CSRF protection: missing state cookie",
+        error: 'CSRF protection: missing state cookie',
       });
 
       return new Response(
-        JSON.stringify(errorResponse("Missing OAuth state cookie (CSRF protection)", 403)),
-        { status: 403 }
+        JSON.stringify(
+          errorResponse('Missing OAuth state cookie (CSRF protection)', 403),
+        ),
+        { status: 403 },
       );
     }
 
     if (stateFromCookie !== state) {
       // State mismatch = CSRF attack or cookie from different browser
-      await logAuditEvent(env.DB, "LOGIN", null, {
-        reason: "state_mismatch",
+      await logAuditEvent(env.DB, 'LOGIN', null, {
+        reason: 'state_mismatch',
         ip: getClientIp(req),
-        error: "CSRF protection: state cookie ≠ state parameter",
+        error: 'CSRF protection: state cookie ≠ state parameter',
       });
 
       return new Response(
-        JSON.stringify(errorResponse("OAuth state mismatch (CSRF attack detected)", 403)),
-        { status: 403 }
+        JSON.stringify(
+          errorResponse('OAuth state mismatch (CSRF attack detected)', 403),
+        ),
+        { status: 403 },
       );
     }
 
     // Validate CSRF state atomically using D1 (one-time use enforcement)
     // Both cookie AND D1 must validate (defense in depth)
-    const stateResult = await consumeCsrfStateAtomically(env.DB, state as string);
+    const stateResult = await consumeCsrfStateAtomically(
+      env.DB,
+      state as string,
+    );
     if (!stateResult.success) {
       return new Response(
-        JSON.stringify(errorResponse("Invalid or expired state (CSRF protection)", 403)),
-        { status: 403 }
+        JSON.stringify(
+          errorResponse('Invalid or expired state (CSRF protection)', 403),
+        ),
+        { status: 403 },
       );
     }
 
@@ -117,8 +147,8 @@ export async function handleDiscordCallback(
     const tokenData = await exchangeDiscordCode(code as string, req, env);
     if (!tokenData) {
       return new Response(
-        JSON.stringify(errorResponse("Failed to exchange code for token", 500)),
-        { status: 500 }
+        JSON.stringify(errorResponse('Failed to exchange code for token', 500)),
+        { status: 500 },
       );
     }
 
@@ -126,8 +156,8 @@ export async function handleDiscordCallback(
     const userInfo = await fetchDiscordUserInfo(tokenData.access_token);
     if (!userInfo) {
       return new Response(
-        JSON.stringify(errorResponse("Failed to fetch user info", 500)),
-        { status: 500 }
+        JSON.stringify(errorResponse('Failed to fetch user info', 500)),
+        { status: 500 },
       );
     }
 
@@ -135,24 +165,32 @@ export async function handleDiscordCallback(
     const guildMember = await fetchDiscordGuildMember(
       userInfo.id,
       tokenData.access_token,
-      env.DISCORD_GUILD_ID
+      env.DISCORD_GUILD_ID,
     );
     if (!guildMember) {
       // User not in guild
-      await logAuditEvent(env.DB, "LOGIN", userInfo.id, {
-        reason: "not_in_guild",
+      await logAuditEvent(env.DB, 'LOGIN', userInfo.id, {
+        reason: 'not_in_guild',
         ip: getClientIp(req),
       });
 
       return new Response(
-        JSON.stringify(errorResponse("You are not a member of the required guild", 403)),
-        { status: 403 }
+        JSON.stringify(
+          errorResponse('You are not a member of the required guild', 403),
+        ),
+        { status: 403 },
       );
     }
 
     // User exists + is in guild
     // Create/update user in D1
-    await upsertUser(env.DB, userInfo.id, userInfo.username, userInfo.avatar, userInfo.email || null);
+    await upsertUser(
+      env.DB,
+      userInfo.id,
+      userInfo.username,
+      userInfo.avatar,
+      userInfo.email || null,
+    );
 
     // Create session in D1
     const sessionId = generateSessionId();
@@ -160,8 +198,8 @@ export async function handleDiscordCallback(
     await createSession(env.DB, sessionId, userInfo.id, roleIds);
 
     // Log successful login
-    await logAuditEvent(env.DB, "LOGIN", userInfo.id, {
-      status: "success",
+    await logAuditEvent(env.DB, 'LOGIN', userInfo.id, {
+      status: 'success',
       ip: getClientIp(req),
       username: userInfo.username,
     });
@@ -181,21 +219,24 @@ export async function handleDiscordCallback(
     const clearOAuthCookie = clearOAuthStateCookie();
 
     // Redirect to admin page (or referrer if available)
-    const redirectUrl = url.searchParams.get("referrer") || "/admin";
+    const redirectUrl = url.searchParams.get('referrer') || '/admin';
+
+    const headers = new Headers({
+      'Content-Type': 'application/json',
+      Location: redirectUrl,
+    });
+    headers.append('Set-Cookie', sessionCookie);
+    headers.append('Set-Cookie', clearOAuthCookie);
 
     return new Response(JSON.stringify(response), {
       status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Set-Cookie": [sessionCookie, clearOAuthCookie].join("\n"),
-        "Location": redirectUrl, // Browser will handle redirect if needed
-      },
+      headers: headers,
     });
   } catch (err) {
-    console.error("Discord callback error:", err);
+    console.error('Discord callback error:', err);
     return new Response(
-      JSON.stringify(errorResponse("Internal server error", 500)),
-      { status: 500 }
+      JSON.stringify(errorResponse('Internal server error', 500)),
+      { status: 500 },
     );
   }
 }
@@ -206,35 +247,35 @@ export async function handleDiscordCallback(
 async function exchangeDiscordCode(
   code: string,
   req: Request,
-  env: CloudflareEnv
+  env: CloudflareEnv,
 ): Promise<DiscordTokenResponse | null> {
   try {
     const redirectUri = env.DISCORD_OAUTH_REDIRECT_URI; // Use explicitly configured URI, not request origin
 
-    const response = await fetch("https://discord.com/api/v10/oauth2/token", {
-      method: "POST",
+    const response = await fetch('https://discord.com/api/v10/oauth2/token', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: new URLSearchParams({
         client_id: env.DISCORD_CLIENT_ID,
         client_secret: env.DISCORD_CLIENT_SECRET,
         code: code,
         redirect_uri: redirectUri,
-        grant_type: "authorization_code",
+        grant_type: 'authorization_code',
       }).toString(),
     });
 
     if (!response.ok) {
       const error = await response.text();
-      console.error("Discord token exchange failed:", error);
+      console.error('Discord token exchange failed:', error);
       return null;
     }
 
     const tokenData = (await response.json()) as DiscordTokenResponse;
     return tokenData;
   } catch (err) {
-    console.error("Token exchange error:", err);
+    console.error('Token exchange error:', err);
     return null;
   }
 }
@@ -242,23 +283,25 @@ async function exchangeDiscordCode(
 /**
  * Fetch Discord user info from /users/@me
  */
-async function fetchDiscordUserInfo(accessToken: string): Promise<DiscordUser | null> {
+async function fetchDiscordUserInfo(
+  accessToken: string,
+): Promise<DiscordUser | null> {
   try {
-    const response = await fetch("https://discord.com/api/v10/users/@me", {
+    const response = await fetch('https://discord.com/api/v10/users/@me', {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
     });
 
     if (!response.ok) {
-      console.error("Failed to fetch Discord user info:", response.status);
+      console.error('Failed to fetch Discord user info:', response.status);
       return null;
     }
 
     const user = (await response.json()) as DiscordUser;
     return user;
   } catch (err) {
-    console.error("Fetch user info error:", err);
+    console.error('Fetch user info error:', err);
     return null;
   }
 }
@@ -269,7 +312,7 @@ async function fetchDiscordUserInfo(accessToken: string): Promise<DiscordUser | 
 async function fetchDiscordGuildMember(
   userId: string,
   userToken: string,
-  guildId: string
+  guildId: string,
 ): Promise<DiscordGuildMember | null> {
   try {
     const response = await fetch(
@@ -278,23 +321,23 @@ async function fetchDiscordGuildMember(
         headers: {
           Authorization: `Bearer ${userToken}`,
         },
-      }
+      },
     );
 
     if (response.status === 404) {
-      console.warn("User not in guild:", userId);
+      console.warn('User not in guild:', userId);
       return null;
     }
 
     if (!response.ok) {
-      console.error("Failed to fetch guild member info:", response.status);
+      console.error('Failed to fetch guild member info:', response.status);
       return null;
     }
 
     const member = (await response.json()) as DiscordGuildMember;
     return member;
   } catch (err) {
-    console.error("Fetch guild member error:", err);
+    console.error('Fetch guild member error:', err);
     return null;
   }
 }
